@@ -44,6 +44,19 @@ SKN34-2nd-4Team/
 │   ├── README.md
 │   ├── requirements.txt
 │   └── requirements-dev.txt
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   ├── features/
+│   │   │   └── auth/
+│   │   ├── styles/
+│   │   ├── test/
+│   │   └── main.tsx
+│   ├── README.md
+│   ├── package.json
+│   ├── pnpm-lock.yaml
+│   ├── pnpm-workspace.yaml
+│   └── vite.config.ts
 ├── dashboard/
 │   └── app.py
 ├── src/
@@ -114,6 +127,29 @@ python src/clustering.py
 백엔드의 파일별 책임, 모델 적재 흐름, 19개 입력 필드, React 연결, 테스트와
 오류 해결 방법은 [`backend/README.md`](backend/README.md)에서 확인할 수
 있습니다.
+
+## React 프론트엔드 환경
+
+`frontend/`에는 React·TypeScript·Vite 기반의 반응형 팀 계정 로그인 화면이
+구현되어 있습니다. 흰색 배경 중앙에 CardOps 로고와 로그인 폼을 배치했으며,
+필수 입력값 검증, 비밀번호 표시 전환, 아이디 기억하기 UI를 제공합니다.
+
+Node.js 24 LTS와 pnpm 11을 준비한 뒤 실행합니다.
+
+```powershell
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Vite 개발 서버는 `/api`, `/live`, `/ready` 요청을
+`http://127.0.0.1:8000`의 FastAPI로 전달합니다. 프론트엔드 파일 구조,
+품질 검사와 OpenAPI 타입 생성 방법은
+[`frontend/README.md`](frontend/README.md)에서 확인할 수 있습니다.
+
+현재 백엔드에는 인증 API가 없으므로 로그인 화면은 실제 계정 인증이나 부서별
+화면 이동을 수행하지 않습니다. 유효한 입력을 제출하면 인증 API 연결이
+필요하다는 안내를 표시합니다.
 
 ## 성능 대시보드 실행
 
