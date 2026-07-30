@@ -1,10 +1,3 @@
-# 깃 테스트
-성민 
-진영 
-수빈
-성욱 성욱 성욱 
-수빈
-
 # 신용카드 고객 이탈 예측 프로젝트
 
 Kaggle의 `Credit Card Customers` 데이터를 활용해 고객 이탈 위험을 예측하고,
@@ -39,6 +32,18 @@ SKN34-2nd-4Team/
 │   ├── 03_classification.ipynb
 │   ├── 04_regression.ipynb
 │   └── 05_clustering.ipynb
+├── backend/
+│   ├── app/
+│   │   ├── config.py
+│   │   ├── main.py
+│   │   ├── model_manifest.py
+│   │   ├── model_registry.py
+│   │   └── schemas.py
+│   ├── tests/
+│   │   └── test_api.py
+│   ├── README.md
+│   ├── requirements.txt
+│   └── requirements-dev.txt
 ├── dashboard/
 │   └── app.py
 ├── src/
@@ -89,6 +94,26 @@ python src/clustering.py
 
 학습 모델은 `outputs/models/`, 평가 결과는 `outputs/reports/`에 저장됩니다.
 코드 구성과 모델별 입력 변수는 `src/README.md`에서 확인할 수 있습니다.
+
+## FastAPI 백엔드 실행
+
+분류 모델을 학습한 뒤 프로젝트 루트에서 FastAPI 서버를 실행합니다.
+
+```powershell
+.\project_venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+.\project_venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+```
+
+기본 주소는 `http://127.0.0.1:8000`이며 다음 API를 제공합니다.
+
+- `GET /live`: API 프로세스 생존 여부 확인
+- `GET /ready`: 모델 적재 상태 확인
+- `POST /api/v1/predictions`: 고객 한 명의 이탈 상태와 확률 예측
+- `GET /docs`: Swagger UI
+
+백엔드의 파일별 책임, 모델 적재 흐름, 19개 입력 필드, React 연결, 테스트와
+오류 해결 방법은 [`backend/README.md`](backend/README.md)에서 확인할 수
+있습니다.
 
 ## 성능 대시보드 실행
 
