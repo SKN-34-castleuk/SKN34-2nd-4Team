@@ -3,9 +3,11 @@
 behavioral_core/extended, credit_capacity 3개 피처셋(원본 CSV만으로 계산 가능한
 것들)에 대해 실행해 참고값(behavioral_core k=3 Silhouette≈0.218, credit_capacity
 k=2 Silhouette≈0.469)과 방향이 같은지 확인한다. activity_gap은 회귀 결과가 있어야
-계산되므로(docs/src_architecture.md 결정 B) 기본 실행에 포함하지 않는다 —
-search() 함수 자체는 피처셋에 상관없이 재사용 가능해서, final/ 단계 이후
-regression_gap_predictions.csv가 생기면 이 함수로 그대로 탐색할 수 있다.
+계산되므로(docs/src_architecture.md 결정 B) `regression_gap_oof_predictions.csv`가
+있을 때만 자동으로 포함한다 — 없으면 건너뛰고 나머지 피처셋만 탐색한다
+(`final/clustering_final.py`가 activity_gap을 건너뛰는 것과 같은 패턴).
+python src/final/regression_final.py 를 먼저 실행해두면 이 스크립트가 그 결과를 집어
+activity_gap까지 탐색한다.
 
 실루엣 계산은 속도를 위해 표본 3,000개로 근사한다(기존 src/clustering.py 방식) —
 credit_card_retention_ml.ipynb의 참고값은 전체 데이터로 계산됐으므로 소수점 단위
@@ -27,11 +29,13 @@ from sklearn.preprocessing import StandardScaler
 
 from common.config import RANDOM_STATE, REPORT_DIR
 from feature_engine.clustering_features import (
+    get_activity_gap_features,
     get_behavioral_core_features,
     get_credit_capacity_features,
 )
 
 SAMPLE_SIZE = 3000
+GAP_PREDICTIONS_PATH = REPORT_DIR / "regression_gap_oof_predictions.csv"
 
 
 def search(X: pd.DataFrame, k_range: range = range(2, 9)) -> pd.DataFrame:
@@ -64,6 +68,15 @@ def main() -> None:
     # behavioral_extended는 behavioral_core와 같은 함수 시그니처를 쓰므로
     # feature_engine.clustering_features.get_behavioral_extended_features()를
     # 그대로 딕셔너리에 추가하면 동일하게 탐색할 수 있다.
+
+    if GAP_PREDICTIONS_PATH.exists():
+        predictions = pd.read_csv(GAP_PREDICTIONS_PATH)
+        feature_sets["activity_gap"] = get_activity_gap_features(predictions)
+    else:
+        print(
+            f"[activity_gap] 건너뜀 (파일 없음: {GAP_PREDICTIONS_PATH}). "
+            "먼저 python src/final/regression_final.py 를 실행하면 이 탐색에 포함됩니다."
+        )
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     all_results = []
