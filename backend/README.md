@@ -14,13 +14,15 @@
 - XGBoost Pipeline을 이용한 고객 이탈 확률 계산
 - Liveness와 Readiness 상태 확인 분리
 - SQLAlchemy와 MySQL을 이용한 사용자 계정 저장
+- Alembic 기반 DB 스키마 버전 관리와 기존 회원 데이터 보존 migration
+- 고객 ID·19개 특성과 분석·캠페인 이력을 저장할 업무 테이블
 - Argon2 비밀번호 해시와 HttpOnly JWT 인증 쿠키
 - 회원가입, 로그인, 현재 사용자 조회, 로그아웃 API
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
 현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는 단일
-Prediction API와 팀 계정 인증 API를 제공합니다. 고객 데이터베이스 조회, 예측
-이력 저장, 일괄 예측, 조기 경보, 캠페인 기능은 아직 포함하지 않습니다.
+Prediction API와 팀 계정 인증 API를 제공합니다. 고객·분석·캠페인 저장 스키마와
+고객 CSV 적재 명령은 준비됐지만, 조회 API와 모델 배치 계산은 아직 포함하지 않습니다.
 
 ## 백엔드 파일 구조
 
@@ -31,12 +33,21 @@ backend/
 │   ├── __init__.py
 │   ├── auth.py
 │   ├── config.py
+│   ├── customer_import.py
 │   ├── database.py
+│   ├── enums.py
 │   ├── main.py
+│   ├── migration_runner.py
 │   ├── model_manifest.py
 │   ├── model_registry.py
 │   ├── models.py
 │   └── schemas.py
+├── migrations/
+│   ├── env.py
+│   └── versions/
+├── scripts/
+│   └── import_customers.py
+├── alembic.ini
 ├── tests/
 │   └── test_api.py
 ├── README.md
@@ -49,8 +60,12 @@ backend/
 | `backend/app/main.py` | FastAPI 앱 생성, lifespan, 의존성 주입, API 경로 정의 |
 | `backend/app/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
 | `backend/app/config.py` | 앱 이름·버전, 프로젝트 경로, 모델·DB·인증 설정 관리 |
-| `backend/app/database.py` | SQLAlchemy 엔진·세션과 시작 시 테이블 초기화 |
-| `backend/app/models.py` | `users` 테이블 SQLAlchemy 모델 |
+| `backend/app/database.py` | SQLAlchemy 엔진·세션과 migration 적용 여부 검증 |
+| `backend/app/models.py` | 사용자·고객·분석·캠페인 SQLAlchemy 모델 |
+| `backend/app/migration_runner.py` | 기존 users 기준선 처리와 Alembic upgrade 실행 |
+| `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
+| `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
+| `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
 | `backend/app/schemas.py` | 요청·응답 Pydantic Schema와 API 필드명 변환 |
 | `backend/app/model_manifest.py` | 모델 manifest 구조와 데이터 일관성 검증 |
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
@@ -79,7 +94,9 @@ Prediction API가 하나인 현재 단계에서는 별도의 `routers/`, `servic
 
 ```text
 create_app()
+  → Docker entrypoint에서 Alembic migration 적용
   → FastAPI lifespan 진입
+  → DB 스키마 revision·필수 테이블 확인
   → MODEL_DIR 결정
   → classification_manifest.json 검증
   → 모델 파일 경로·크기·SHA-256 검증
@@ -255,11 +272,19 @@ await fetch("/api/v1/predictions", {
 처리하므로 프론트엔드용 모델 목록 API는 필요하지 않습니다.
 
 인증 API는 `users` 테이블에 계정 아이디, 표시 이름, Argon2 비밀번호 해시를
-저장합니다. 로그인 성공 시 발급되는 JWT는 JavaScript에서 읽을 수 없는
+역할과 함께 저장합니다. 신규 계정 역할은 `operations`입니다. 로그인 성공 시
+발급되는 JWT는 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키에 저장되며, `/api/v1/auth/me`가 현재 사용자를 확인할 때 사용합니다.
-개발 환경에서는 Backend 시작 시 SQLAlchemy `create_all`로 테이블을 준비합니다.
-운영 환경에서 스키마 변경을 관리할 때는 Alembic 마이그레이션을 추가하는 것을
-권장합니다.
+DB 테이블은 `create_all()`로 변경하지 않으며 Alembic migration으로 관리합니다.
+호스트에서 API를 직접 실행하기 전에는 다음 명령을 실행합니다.
+
+```bash
+python -m backend.app.migration_runner
+python -m backend.scripts.import_customers
+```
+
+Docker Compose는 첫 번째 명령을 Backend 시작 전에 자동으로 실행합니다. 자세한
+스키마와 운영 방법은 `docs/database_schema.md`를 확인합니다.
 
 정상적인 Readiness 응답 예시는 다음과 같습니다.
 
@@ -403,7 +428,8 @@ classification_xgboost.joblib
 
 - 현재 API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를 저장하지
   않습니다.
-- 고객 ID 조회, 역할·권한, 예측 이력과 일괄 예측은 아직 구현하지 않았습니다.
+- 고객 ID와 역할은 저장하지만 고객 조회 API, 역할별 권한 검사, 모델 배치 계산은
+  아직 구현하지 않았습니다.
 - 입력 수치의 최솟값과 최댓값은 현재 학습 데이터 범위를 기준으로 합니다.
   실제 운영 데이터에서는 업무상 유효 범위와 학습 범위를 분리해야 합니다.
 - 현재 lifespan에서 모델 적재가 실패하면 FastAPI 시작도 실패합니다. 따라서

@@ -2,6 +2,7 @@
 project_venv/
 .venv/
 .env
+.pnpm-store/
 
 # Python and Jupyter caches
 __pycache__/

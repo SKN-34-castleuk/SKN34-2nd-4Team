@@ -115,6 +115,8 @@ python src/clustering.py
 
 ```powershell
 .\project_venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+.\project_venv\Scripts\python.exe -m backend.app.migration_runner
+.\project_venv\Scripts\python.exe -m backend.scripts.import_customers
 .\project_venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
 ```
 
@@ -136,13 +138,21 @@ Docker Desktop을 설치한 뒤 프로젝트 루트에서 실행합니다. 모�
 
 구성도, 포트 매핑, 다른 노트북에서의 재현 방법과 문제 해결 방법은
 [`docs/README.md`](docs/README.md)에서 확인할 수 있습니다.
+Alembic migration, 고객 데이터 적재와 테이블별 상세 명세는
+[`docs/phase1_database_implementation.md`](docs/phase1_database_implementation.md)를
+확인합니다.
 
 ```bash
 cp .env.example .env
 python src/classification.py
 docker compose up -d --build
 docker compose ps
+docker compose exec backend python -m backend.scripts.import_customers
 ```
+
+Backend는 시작 전에 Alembic migration을 자동 적용합니다. 데이터베이스 테이블,
+기존 회원 보존 방식과 고객 적재에 대한 자세한 설명은
+[`docs/database_schema.md`](docs/database_schema.md)를 확인합니다.
 
 실행 주소:
 

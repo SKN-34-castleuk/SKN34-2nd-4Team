@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .enums import UserRole
+
 
 # 프론트엔드용 snake_case 필드명을 학습 데이터의 원본 컬럼명으로 연결합니다.
 PREDICTION_FIELD_MAP = {
@@ -172,6 +174,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     display_name: str
+    role: UserRole
     created_at: datetime
 
 
