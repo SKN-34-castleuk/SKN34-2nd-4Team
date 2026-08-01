@@ -264,6 +264,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 캠페인 목록과 서버 집계 조회
+         * @description 캠페인별 전체·미처리·접촉·전환 수를 서버에서 집계합니다.
+         */
+        get: operations["list_campaigns_api_v1_campaigns_get"];
+        put?: never;
+        /**
+         * 캠페인 생성
+         * @description 캠페인 기본 정보와 실행 기간을 생성합니다.
+         */
+        post: operations["create_campaign_api_api_v1_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 캠페인 상세 조회 */
+        get: operations["get_campaign_api_api_v1_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 캠페인 정보·상태 변경 */
+        patch: operations["update_campaign_api_api_v1_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 캠페인별 대상 목록 조회 */
+        get: operations["list_campaign_targets_by_campaign_api_v1_campaigns__campaign_id__targets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 캠페인 이벤트 이력 조회 */
+        get: operations["list_campaign_events_api_v1_campaigns__campaign_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/campaign-targets": {
         parameters: {
             query?: never;
@@ -273,13 +349,13 @@ export interface paths {
         };
         /**
          * 캠페인 대상 목록 조회
-         * @description 인증된 사용자가 캠페인 처리 큐를 조회합니다.
+         * @description 기존 대상 API도 캠페인·담당자·전환 필터와 서버 집계를 지원합니다.
          */
         get: operations["list_campaign_targets_api_v1_campaign_targets_get"];
         put?: never;
         /**
          * 캠페인 대상 등록
-         * @description 분석 결과를 캠페인 처리 대상으로 등록합니다.
+         * @description 분석 결과를 캠페인 대상에 등록하고 중복 접촉을 차단합니다.
          */
         post: operations["create_campaign_target_api_api_v1_campaign_targets_post"];
         delete?: never;
@@ -302,8 +378,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * 캠페인 대상 처리 상태 변경
-         * @description 캠페인 대상의 담당자·상태·처리 결과를 저장합니다.
+         * 캠페인 대상 처리 상태·결과 변경
+         * @description 대상 상태 전이·담당자 역할·결과 코드를 서버에서 검증합니다.
          */
         patch: operations["update_campaign_target_api_api_v1_campaign_targets__target_id__patch"];
         trace?: never;
@@ -320,6 +396,147 @@ export interface components {
             user: components["schemas"]["UserResponse"];
         };
         /**
+         * CampaignCreateRequest
+         * @description 캠페인 기본 정보 생성 요청입니다.
+         */
+        CampaignCreateRequest: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Channel */
+            channel?: string | null;
+            /** @default draft */
+            status: components["schemas"]["CampaignLifecycleStatus"];
+            /** Start At */
+            start_at?: string | null;
+            /** End At */
+            end_at?: string | null;
+        };
+        /**
+         * CampaignEventListResponse
+         * @description 캠페인 이벤트 이력의 페이지네이션 응답입니다.
+         */
+        CampaignEventListResponse: {
+            /** Items */
+            items: components["schemas"]["CampaignEventResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * CampaignEventResponse
+         * @description 캠페인 대상의 상태·담당자·결과 변경 이력입니다.
+         */
+        CampaignEventResponse: {
+            /** Id */
+            id: number;
+            /** Campaign Id */
+            campaign_id: number;
+            /** Campaign Target Id */
+            campaign_target_id: number | null;
+            /** Event Type */
+            event_type: string;
+            /** From Status */
+            from_status: string | null;
+            /** To Status */
+            to_status: string | null;
+            /** Actor User Id */
+            actor_user_id: number | null;
+            /** Actor Display Name */
+            actor_display_name?: string | null;
+            /** Note */
+            note: string | null;
+            /** Metadata Json */
+            metadata_json: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * CampaignLifecycleStatus
+         * @description 캠페인 자체의 실행 생명주기 상태입니다.
+         * @enum {string}
+         */
+        CampaignLifecycleStatus: "draft" | "scheduled" | "active" | "paused" | "completed" | "cancelled";
+        /**
+         * CampaignListResponse
+         * @description 캠페인 목록과 페이지네이션 응답입니다.
+         */
+        CampaignListResponse: {
+            /** Items */
+            items: components["schemas"]["CampaignResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Total Pages */
+            total_pages: number;
+        };
+        /**
+         * CampaignResponse
+         * @description 캠페인 기본 정보와 대상 집계입니다.
+         */
+        CampaignResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Channel */
+            channel: string | null;
+            status: components["schemas"]["CampaignLifecycleStatus"];
+            /** Start At */
+            start_at: string | null;
+            /** End At */
+            end_at: string | null;
+            /** Created By User Id */
+            created_by_user_id: number | null;
+            /** Created By Display Name */
+            created_by_display_name?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            stats: components["schemas"]["CampaignStatsResponse"];
+        };
+        /**
+         * CampaignResultCode
+         * @description 캠페인 접촉 결과를 집계 가능한 코드로 표준화합니다.
+         * @enum {string}
+         */
+        CampaignResultCode: "converted" | "not_converted" | "no_response" | "declined" | "invalid_contact";
+        /**
+         * CampaignStatsResponse
+         * @description 캠페인 대상의 서버 집계 결과입니다.
+         */
+        CampaignStatsResponse: {
+            /** Total Targets */
+            total_targets: number;
+            /** Unprocessed Targets */
+            unprocessed_targets: number;
+            /** Contacted Targets */
+            contacted_targets: number;
+            /** Converted Targets */
+            converted_targets: number;
+        };
+        /**
          * CampaignStatus
          * @description 캠페인 대상 고객의 업무 처리 상태입니다.
          * @enum {string}
@@ -332,8 +549,10 @@ export interface components {
         CampaignTargetCreateRequest: {
             /** Customer Insight Id */
             customer_insight_id: number;
+            /** Campaign Id */
+            campaign_id?: number | null;
             /** Campaign Name */
-            campaign_name: string;
+            campaign_name?: string | null;
             /** Assigned To User Id */
             assigned_to_user_id?: number | null;
         };
@@ -352,6 +571,7 @@ export interface components {
             total: number;
             /** Total Pages */
             total_pages: number;
+            stats?: components["schemas"]["CampaignStatsResponse"] | null;
         };
         /**
          * CampaignTargetResponse
@@ -364,8 +584,11 @@ export interface components {
             customer_id: number;
             /** Customer Insight Id */
             customer_insight_id: number;
+            /** Campaign Id */
+            campaign_id?: number | null;
             /** Campaign Name */
             campaign_name: string;
+            campaign_status?: components["schemas"]["CampaignLifecycleStatus"] | null;
             /** Assigned To User Id */
             assigned_to_user_id: number | null;
             /** Assigned To Display Name */
@@ -377,6 +600,12 @@ export interface components {
             result: string | null;
             /** Result Notes */
             result_notes: string | null;
+            result_code?: components["schemas"]["CampaignResultCode"] | null;
+            /**
+             * Converted
+             * @default false
+             */
+            converted: boolean;
             /**
              * Created At
              * Format: date-time
@@ -400,6 +629,26 @@ export interface components {
             result?: string | null;
             /** Result Notes */
             result_notes?: string | null;
+            result_code?: components["schemas"]["CampaignResultCode"] | null;
+            /** Converted */
+            converted?: boolean | null;
+        };
+        /**
+         * CampaignUpdateRequest
+         * @description 캠페인 기본 정보와 생명주기 변경 요청입니다.
+         */
+        CampaignUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Channel */
+            channel?: string | null;
+            status?: components["schemas"]["CampaignLifecycleStatus"] | null;
+            /** Start At */
+            start_at?: string | null;
+            /** End At */
+            end_at?: string | null;
         };
         /**
          * CustomerFeatureSnapshotResponse
@@ -1326,11 +1575,224 @@ export interface operations {
             };
         };
     };
+    list_campaigns_api_v1_campaigns_get: {
+        parameters: {
+            query?: {
+                /** @description 캠페인 생명주기 상태 */
+                status?: components["schemas"]["CampaignLifecycleStatus"] | null;
+                name?: string | null;
+                created_by_user_id?: number | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_campaign_api_api_v1_campaigns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_api_api_v1_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_campaign_api_api_v1_campaigns__campaign_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_campaign_targets_by_campaign_api_v1_campaigns__campaign_id__targets_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["CampaignStatus"] | null;
+                assigned_to_user_id?: number | null;
+                customer_id?: number | null;
+                converted?: boolean | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTargetListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_campaign_events_api_v1_campaigns__campaign_id__events_get: {
+        parameters: {
+            query?: {
+                campaign_target_id?: number | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignEventListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_campaign_targets_api_v1_campaign_targets_get: {
         parameters: {
             query?: {
                 /** @description 캠페인 처리 상태 필터 */
                 status?: components["schemas"]["CampaignStatus"] | null;
+                campaign_id?: number | null;
+                campaign_name?: string | null;
+                assigned_to_user_id?: number | null;
+                customer_id?: number | null;
+                converted?: boolean | null;
                 page?: number;
                 page_size?: number;
             };

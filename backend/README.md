@@ -82,7 +82,7 @@ backend/
 | `backend/app/api/router.py` | 기능별 API router 조합 |
 | `backend/app/api/dependencies.py` | 모델 registry 등 공통 요청 의존성 |
 | `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, 팀 계정 조회·관리, Argon2 해시, JWT 쿠키 검증 |
-| `backend/app/api/routes/campaigns.py` | 캠페인 대상 조회·등록·처리 결과 변경과 역할 제한 |
+| `backend/app/api/routes/campaigns.py` | 캠페인 CRUD·대상 조회·등록·상태 변경·이벤트 이력과 역할 제한 |
 | `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
 | `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
 | `backend/app/api/routes/insights.py` | customer_insights 최신 결과·분석 이력 API |
@@ -93,7 +93,7 @@ backend/
 | `backend/app/migration_runner.py` | 기존 users 기준선 처리와 Alembic upgrade 실행 |
 | `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
 | `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
-| `backend/app/services/campaign_service.py` | 캠페인 대상 생성, 상태·처리 결과 갱신 규칙 |
+| `backend/app/services/campaign_service.py` | 캠페인 생명주기, 대상 상태 전이, 담당자 역할, 중복 접촉, 서버 집계 규칙 |
 | `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 이력, 필터·페이지네이션 조회 규칙 |
 | `backend/app/services/model_run_service.py` | 모델 task별 최신 성공 배치 선택 규칙 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
@@ -509,7 +509,7 @@ classification_xgboost.joblib
 - 제거된 API가 `404`를 반환하는지 확인
 - Swagger UI와 Prediction OpenAPI Schema
 - customer_insights 분석 이력·최신 모델 배치·캠페인 대상 업무 API
-- 캠페인 중복 등록 차단과 analyst 역할의 캠페인 수정 권한 차단
+- 캠페인 중복 등록 차단과 역할별 캠페인 변경 권한 차단
 - 불완전한 매니페스트 거부
 - `MODEL_DIR` 밖으로 향하는 경로 거부
 - 모델 SHA-256 불일치 거부
@@ -530,16 +530,20 @@ python src/final/clustering_final.py
 
 배치는 `customers`에서 고객을 읽고 `model_runs` 3건과 고객별
 `customer_insights`를 저장합니다. `Target`은 운영 입력으로 사용하지 않습니다.
-`campaign_targets`는 자동 생성하지 않으며, 사용자가 캠페인 API 또는 대시보드에서
-분석 결과를 선별해 만듭니다.
+`campaigns`는 기본 정보·실행 기간·생명주기를 관리하고,
+`campaign_targets`는 캠페인별 고객 업무를 관리합니다. 대상 생성·상태 전이·결과
+변경은 `campaign_events`에 누적됩니다. 기존 `campaign_name` 요청은 호환되지만
+신규 클라이언트는 `campaign_id`를 사용해야 합니다.
 
 ## 현재 범위와 알려진 제약
 
 - 현재 Prediction API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를
   저장하지 않습니다. 전체 결과 저장은 별도 배치 CLI가 담당합니다.
-- 분석 결과·이력·최신 배치 상태 조회는 모든 활성 로그인 사용자가 사용할 수
-  있습니다. `campaign_targets` 목록도 조회할 수 있지만, 등록·수정은 `admin`,
-  `operations`, `marketing` 역할로 제한됩니다. `analyst`는 읽기 전용입니다.
+- 분석 결과·이력·최신 배치 상태와 캠페인 목록·이벤트 조회는 모든 활성 로그인
+  사용자가 사용할 수 있습니다. 관리자는 전체 권한을 가지며, 캠페인 생성·수정과
+  대상 등록은 `admin`, `marketing`, 대상 상태·결과 처리는 `admin`,
+  `operations` 역할로 분리됩니다. 대상 담당자는 활성 `operations` 또는
+  `marketing` 사용자만 지정할 수 있으며 `analyst`는 읽기 전용입니다.
 - React 대시보드는 CSV 내보내기, 고위험 필터 바로가기, 고객별 분석 이력,
   모델 배치 버전 표시, 캠페인 등록·처리 큐를 제공합니다. 모델 성능 지표를
   보여 주는 기존 Streamlit 대시보드는 이번 대시보드 통합 범위에서 제외합니다.

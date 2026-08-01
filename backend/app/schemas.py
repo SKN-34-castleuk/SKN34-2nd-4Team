@@ -7,7 +7,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
+from .enums import (
+    CampaignLifecycleStatus,
+    CampaignResultCode,
+    CampaignStatus,
+    ModelRunStatus,
+    RiskLevel,
+    UserRole,
+)
 
 
 # 프론트엔드용 snake_case 필드명을 학습 데이터의 원본 컬럼명으로 연결합니다.
@@ -253,19 +260,97 @@ class LatestBatchResponse(BaseModel):
     runs: list[ModelRunResponse]
 
 
+class CampaignStatsResponse(BaseModel):
+    """캠페인 대상의 서버 집계 결과입니다."""
+
+    total_targets: int
+    unprocessed_targets: int
+    contacted_targets: int
+    converted_targets: int
+
+
+class CampaignResponse(BaseModel):
+    """캠페인 기본 정보와 대상 집계입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    channel: str | None
+    status: CampaignLifecycleStatus
+    start_at: datetime | None
+    end_at: datetime | None
+    created_by_user_id: int | None
+    created_by_display_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    stats: CampaignStatsResponse
+
+
+class CampaignCreateRequest(BaseModel):
+    """캠페인 기본 정보 생성 요청입니다."""
+
+    name: str = Field(min_length=1, max_length=150)
+    description: str | None = Field(default=None, max_length=4000)
+    channel: str | None = Field(default=None, max_length=30)
+    status: CampaignLifecycleStatus = CampaignLifecycleStatus.DRAFT
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CampaignUpdateRequest(BaseModel):
+    """캠페인 기본 정보와 생명주기 변경 요청입니다."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    description: str | None = Field(default=None, max_length=4000)
+    channel: str | None = Field(default=None, max_length=30)
+    status: CampaignLifecycleStatus | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CampaignListResponse(BaseModel):
+    """캠페인 목록과 페이지네이션 응답입니다."""
+
+    items: list[CampaignResponse]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
 class CampaignTargetResponse(BaseModel):
     """캠페인 대상과 현재 업무 처리 상태입니다."""
 
     id: int
     customer_id: int
     customer_insight_id: int
+    campaign_id: int | None = None
     campaign_name: str
+    campaign_status: CampaignLifecycleStatus | None = None
     assigned_to_user_id: int | None
     assigned_to_display_name: str | None = None
     status: CampaignStatus
     processed_at: datetime | None
     result: str | None
     result_notes: str | None
+    result_code: CampaignResultCode | None = None
+    converted: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -274,7 +359,8 @@ class CampaignTargetCreateRequest(BaseModel):
     """분석 결과를 캠페인 업무 대상으로 등록하는 요청입니다."""
 
     customer_insight_id: int = Field(ge=1)
-    campaign_name: str = Field(min_length=1, max_length=150)
+    campaign_id: int | None = Field(default=None, ge=1)
+    campaign_name: str | None = Field(default=None, min_length=1, max_length=150)
     assigned_to_user_id: int | None = Field(default=None, ge=1)
 
     @field_validator("campaign_name", mode="before")
@@ -284,6 +370,12 @@ class CampaignTargetCreateRequest(BaseModel):
             return value.strip()
         return value
 
+    @model_validator(mode="after")
+    def validate_campaign_reference(self) -> "CampaignTargetCreateRequest":
+        if self.campaign_id is None and self.campaign_name is None:
+            raise ValueError("campaign_id or campaign_name is required")
+        return self
+
 
 class CampaignTargetUpdateRequest(BaseModel):
     """캠페인 대상의 담당자·상태·처리 결과를 변경하는 요청입니다."""
@@ -292,6 +384,8 @@ class CampaignTargetUpdateRequest(BaseModel):
     assigned_to_user_id: int | None = Field(default=None, ge=1)
     result: str | None = Field(default=None, max_length=100)
     result_notes: str | None = Field(default=None, max_length=2000)
+    result_code: CampaignResultCode | None = None
+    converted: bool | None = None
 
 
 class CampaignTargetListResponse(BaseModel):
@@ -302,6 +396,32 @@ class CampaignTargetListResponse(BaseModel):
     page_size: int
     total: int
     total_pages: int
+    stats: CampaignStatsResponse | None = None
+
+
+class CampaignEventResponse(BaseModel):
+    """캠페인 대상의 상태·담당자·결과 변경 이력입니다."""
+
+    id: int
+    campaign_id: int
+    campaign_target_id: int | None
+    event_type: str
+    from_status: str | None
+    to_status: str | None
+    actor_user_id: int | None
+    actor_display_name: str | None = None
+    note: str | None
+    metadata_json: dict[str, Any] | None
+    created_at: datetime
+
+
+class CampaignEventListResponse(BaseModel):
+    """캠페인 이벤트 이력의 페이지네이션 응답입니다."""
+
+    items: list[CampaignEventResponse]
+    page: int
+    page_size: int
+    total: int
 
 
 class CustomerInsightListResponse(BaseModel):

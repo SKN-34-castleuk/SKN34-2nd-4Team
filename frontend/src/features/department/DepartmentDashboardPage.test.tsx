@@ -89,7 +89,8 @@ describe("부서별 대시보드", () => {
 
     expect(await screen.findByRole("heading", { name: "운영 업무 센터" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "우선 관리 고객" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "리텐션 등록" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "리텐션 등록" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "캠페인 처리 현황" })).toBeInTheDocument();
   });
 
   it("관리자는 팀 계정과 권한 현황을 봅니다", async () => {

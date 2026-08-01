@@ -27,6 +27,14 @@ const campaignStatusLabels: Record<CampaignStatus, string> = {
   cancelled: "취소",
 };
 
+const campaignStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
+  pending: ["pending", "assigned", "cancelled"],
+  assigned: ["assigned", "contacted", "cancelled"],
+  contacted: ["contacted", "completed", "cancelled"],
+  completed: ["completed"],
+  cancelled: ["cancelled"],
+};
+
 const roleDescriptions: Record<AuthUser["role"], string> = {
   admin: "팀 계정과 업무 권한을 관리합니다.",
   analyst: "고객 분석 결과와 모델 배치 상태를 확인합니다.",
@@ -37,12 +45,14 @@ const roleDescriptions: Record<AuthUser["role"], string> = {
 type DepartmentDashboardPageProps = {
   user: AuthUser;
   onLoggedOut: () => void;
+  onOpenCampaigns?: () => void;
 };
 
 type CampaignDraft = {
   status: CampaignStatus;
   result: string;
   assigned_to_user_id: number | null;
+  converted: boolean;
 };
 
 function formatNumber(value: number): string {
@@ -77,6 +87,7 @@ function WorkspaceShell({
   onLogout,
   isLoggingOut,
   logoutError,
+  onOpenCampaigns,
   children,
 }: {
   user: AuthUser;
@@ -86,6 +97,7 @@ function WorkspaceShell({
   onLogout: () => void;
   isLoggingOut: boolean;
   logoutError: string;
+  onOpenCampaigns?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -101,6 +113,11 @@ function WorkspaceShell({
             <strong>{user.display_name}</strong>
             <span>{roleLabels[user.role]}</span>
           </div>
+          {onOpenCampaigns && (
+            <button className="dashboard-nav-button" type="button" onClick={onOpenCampaigns}>
+              캠페인 관리
+            </button>
+          )}
           <button
             className="dashboard-logout"
             type="button"
@@ -169,7 +186,7 @@ function InsightPriorityTable({
   insights: CustomerInsight[];
   targets: CampaignTarget[];
   campaignName: string;
-  onCreate: (insight: CustomerInsight) => void;
+  onCreate?: (insight: CustomerInsight) => void;
   isCreating: number | null;
 }) {
   const targetInsightIds = new Set(targets.map((target) => target.customer_insight_id));
@@ -198,14 +215,18 @@ function InsightPriorityTable({
                 <span className={insight.activity_gap < 0 ? "department-gap department-gap--negative" : "department-gap"}>
                   {insight.activity_gap > 0 ? "+" : ""}{formatDecimal(insight.activity_gap)}
                 </span>
-                <button
-                  type="button"
-                  className="department-action-button"
-                  disabled={isRegistered || isCreating === insight.id}
-                  onClick={() => onCreate(insight)}
-                >
-                  {isRegistered ? "등록됨" : isCreating === insight.id ? "등록 중..." : campaignName}
-                </button>
+                {onCreate ? (
+                  <button
+                    type="button"
+                    className="department-action-button"
+                    disabled={isRegistered || isCreating === insight.id}
+                    onClick={() => onCreate(insight)}
+                  >
+                    {isRegistered ? "등록됨" : isCreating === insight.id ? "등록 중..." : campaignName}
+                  </button>
+                ) : (
+                  <span className="department-campaign-result">타깃 등록은 마케팅팀이 담당합니다.</span>
+                )}
               </div>
             );
           })}
@@ -235,6 +256,7 @@ function CampaignQueue({
       status: target.status,
       result: target.result ?? "",
       assigned_to_user_id: target.assigned_to_user_id,
+      converted: target.converted,
     };
     setSavingId(target.id);
     setError("");
@@ -243,6 +265,7 @@ function CampaignQueue({
         status: draft.status,
         assigned_to_user_id: draft.assigned_to_user_id ?? undefined,
         result: draft.result || undefined,
+        converted: draft.converted,
       });
       onUpdated(updated);
     } catch (requestError) {
@@ -271,6 +294,7 @@ function CampaignQueue({
               status: target.status,
               result: target.result ?? "",
               assigned_to_user_id: target.assigned_to_user_id,
+              converted: target.converted,
             };
             return (
               <div className="department-campaign-row" key={target.id}>
@@ -291,10 +315,24 @@ function CampaignQueue({
                         [target.id]: { ...draft, status: event.target.value as CampaignStatus },
                       }))}
                     >
-                      {Object.entries(campaignStatusLabels).map(([value, label]) => (
-                        <option value={value} key={value}>{label}</option>
+                      {campaignStatusTransitions[target.status].map((value) => (
+                        <option value={value} key={value}>
+                          {campaignStatusLabels[value]}
+                        </option>
                       ))}
                     </select>
+                    <label className="campaign-conversion">
+                      <input
+                        type="checkbox"
+                        checked={draft.converted}
+                        disabled={draft.status !== "completed"}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current,
+                          [target.id]: { ...draft, converted: event.target.checked },
+                        }))}
+                      />
+                      전환
+                    </label>
                     <select
                       aria-label={`${target.customer_id} 담당자`}
                       value={draft.assigned_to_user_id === null ? "" : String(draft.assigned_to_user_id)}
@@ -428,7 +466,7 @@ function TeamRoster({
   );
 }
 
-export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboardPageProps) {
+export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: DepartmentDashboardPageProps) {
   const [insights, setInsights] = useState<CustomerInsightList | null>(null);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
@@ -440,7 +478,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
 
-  const canManage = user.role !== "analyst";
+  const canProcessTargets = user.role === "admin" || user.role === "operations";
+  const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
   const insightQuery = useMemo(() => user.role === "operations"
     ? { risk_level: "high" as const, sort_by: "churn_probability" as const, sort_order: "desc" as const, page: 1, page_size: 100 }
     : { sort_by: "churn_probability" as const, sort_order: "desc" as const, page: 1, page_size: 100 }, [user.role]);
@@ -507,6 +546,9 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
   };
 
   const createCampaign = async (insight: CustomerInsight) => {
+    if (!canCreateCampaignTargets) {
+      return;
+    }
     setIsCreating(insight.id);
     setCreateMessage("");
     try {
@@ -542,8 +584,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
         <StatCard label="AVERAGE CHURN" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} caption="고위험 고객 기준" tone="purple" />
         <BatchCard batch={batch} />
       </section>
-      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="리텐션 등록" onCreate={(item) => void createCampaign(item)} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canManage} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="리텐션 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
+      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : user.role === "marketing" ? (
     <>
@@ -570,8 +612,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
           ))}
         </div>
       </section>
-      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="캠페인 등록" onCreate={(item) => void createCampaign(item)} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canManage} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="캠페인 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
+      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : (
     <>
@@ -610,6 +652,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
       onLogout={() => void handleLogout()}
       isLoggingOut={isLoggingOut}
       logoutError={logoutError}
+      onOpenCampaigns={onOpenCampaigns}
     >
       {isLoading && <section className="department-loading">부서별 업무 데이터를 불러오는 중입니다.</section>}
       {!isLoading && error !== "" && <section className="department-error" role="alert">{error}</section>}

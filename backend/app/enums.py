@@ -36,3 +36,34 @@ class CampaignStatus(str, Enum):
     CONTACTED = "contacted"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+class CampaignLifecycleStatus(str, Enum):
+    """캠페인 자체의 실행 생명주기 상태입니다."""
+
+    DRAFT = "draft"
+    SCHEDULED = "scheduled"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class CampaignEventType(str, Enum):
+    """캠페인·대상 업무 이력의 이벤트 종류입니다."""
+
+    CREATED = "created"
+    STATUS_CHANGED = "status_changed"
+    ASSIGNED = "assigned"
+    RESULT_UPDATED = "result_updated"
+    CONVERSION_UPDATED = "conversion_updated"
+
+
+class CampaignResultCode(str, Enum):
+    """캠페인 접촉 결과를 집계 가능한 코드로 표준화합니다."""
+
+    CONVERTED = "converted"
+    NOT_CONVERTED = "not_converted"
+    NO_RESPONSE = "no_response"
+    DECLINED = "declined"
+    INVALID_CONTACT = "invalid_contact"

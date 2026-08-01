@@ -25,7 +25,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
-from .enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
+from .enums import (
+    CampaignLifecycleStatus,
+    CampaignStatus,
+    ModelRunStatus,
+    RiskLevel,
+    UserRole,
+)
 
 
 class User(Base):
@@ -75,6 +81,10 @@ class User(Base):
     assigned_campaign_targets: Mapped[list[CampaignTarget]] = relationship(
         back_populates="assignee",
         foreign_keys="CampaignTarget.assigned_to_user_id",
+    )
+    created_campaigns: Mapped[list[Campaign]] = relationship(
+        back_populates="created_by",
+        foreign_keys="Campaign.created_by_user_id",
     )
 
 
@@ -503,6 +513,70 @@ class CustomerInsight(Base):
     )
 
 
+class Campaign(Base):
+    """캠페인 기본 정보와 실행 기간·생명주기를 저장합니다."""
+
+    __tablename__ = "campaigns"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'scheduled', 'active', 'paused', 'completed', 'cancelled')",
+            name="ck_campaigns_status",
+        ),
+        CheckConstraint(
+            "end_at IS NULL OR start_at IS NULL OR end_at >= start_at",
+            name="ck_campaigns_period",
+        ),
+        Index("ix_campaigns_status_period", "status", "start_at", "end_at"),
+        Index("ix_campaigns_created_by", "created_by_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=CampaignLifecycleStatus.DRAFT.value,
+        server_default=CampaignLifecycleStatus.DRAFT.value,
+    )
+    start_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    end_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
+    )
+
+    created_by: Mapped[User | None] = relationship(
+        back_populates="created_campaigns",
+        foreign_keys=[created_by_user_id],
+    )
+    targets: Mapped[list[CampaignTarget]] = relationship(
+        back_populates="campaign",
+    )
+    events: Mapped[list[CampaignEvent]] = relationship(
+        back_populates="campaign",
+    )
+
+
 class CampaignTarget(Base):
     """추천 캠페인의 담당자, 처리 상태·일시와 결과를 저장합니다."""
 
@@ -520,6 +594,21 @@ class CampaignTarget(Base):
         Index("ix_campaign_targets_status", "status"),
         Index("ix_campaign_targets_assigned_to", "assigned_to_user_id"),
         Index("ix_campaign_targets_customer", "customer_id"),
+        Index(
+            "ix_campaign_targets_campaign_status",
+            "campaign_id",
+            "status",
+        ),
+        Index(
+            "ix_campaign_targets_campaign_customer",
+            "campaign_id",
+            "customer_id",
+        ),
+        CheckConstraint(
+            "result_code IS NULL OR result_code IN "
+            "('converted', 'not_converted', 'no_response', 'declined', 'invalid_contact')",
+            name="ck_campaign_targets_result_code",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -532,6 +621,11 @@ class CampaignTarget(Base):
         Integer,
         ForeignKey("customer_insights.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    campaign_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     campaign_name: Mapped[str] = mapped_column(String(150), nullable=False)
     assigned_to_user_id: Mapped[int | None] = mapped_column(
@@ -551,6 +645,13 @@ class CampaignTarget(Base):
     )
     result: Mapped[str | None] = mapped_column(String(100), nullable=True)
     result_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    converted: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -564,6 +665,7 @@ class CampaignTarget(Base):
     )
 
     customer: Mapped[Customer] = relationship(back_populates="campaign_targets")
+    campaign: Mapped[Campaign | None] = relationship(back_populates="targets")
     customer_insight: Mapped[CustomerInsight] = relationship(
         back_populates="campaign_targets",
     )
@@ -571,3 +673,61 @@ class CampaignTarget(Base):
         back_populates="assigned_campaign_targets",
         foreign_keys=[assigned_to_user_id],
     )
+    events: Mapped[list[CampaignEvent]] = relationship(
+        back_populates="campaign_target",
+    )
+
+
+class CampaignEvent(Base):
+    """캠페인과 대상의 생성·배정·상태 변경 이력을 저장합니다."""
+
+    __tablename__ = "campaign_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('created', 'status_changed', 'assigned', "
+            "'result_updated', 'conversion_updated')",
+            name="ck_campaign_events_type",
+        ),
+        Index("ix_campaign_events_campaign_created", "campaign_id", "created_at"),
+        Index(
+            "ix_campaign_events_target_created",
+            "campaign_target_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    campaign_target_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("campaign_targets.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    campaign: Mapped[Campaign] = relationship(back_populates="events")
+    campaign_target: Mapped[CampaignTarget | None] = relationship(
+        back_populates="events",
+    )
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
