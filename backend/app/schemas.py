@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .enums import UserRole
+from .enums import RiskLevel, UserRole
 
 
 # 프론트엔드용 snake_case 필드명을 학습 데이터의 원본 컬럼명으로 연결합니다.
@@ -113,6 +113,82 @@ class PredictionResponse(BaseModel):
     decision_threshold: float = Field(ge=0.0, le=1.0)
     model_name: str
     model_version: str
+
+
+class CustomerProfileResponse(BaseModel):
+    """분석 상세 화면에 제공할 고객 원본 특성입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_id: int
+    customer_age: int
+    gender: str
+    dependent_count: int
+    education_level: str
+    marital_status: str
+    income_category: str
+    card_category: str
+    months_on_book: int
+    total_relationship_count: int
+    months_inactive_12_mon: int
+    contacts_count_12_mon: int
+    credit_limit: float
+    total_revolving_bal: int
+    avg_open_to_buy: float
+    total_amt_chng_q4_q1: float
+    total_trans_amt: int
+    total_trans_ct: int
+    total_ct_chng_q4_q1: float
+    avg_utilization_ratio: float
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerInsightResponse(BaseModel):
+    """고객별 최신 분석 결과 목록 항목입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_id: int
+    classification_run_id: int
+    regression_run_id: int
+    clustering_run_id: int
+    churn_probability: float = Field(ge=0.0, le=1.0)
+    risk_level: RiskLevel
+    expected_transaction_count: float = Field(ge=0.0)
+    activity_gap: float
+    cluster_name: str
+    cluster_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    recommended_action: str
+    reason_codes: list[str] | dict[str, Any] | None
+    scored_at: datetime
+
+
+class CustomerInsightStats(BaseModel):
+    """필터가 적용된 분석 결과의 대시보드 요약 통계입니다."""
+
+    total: int
+    average_churn_probability: float = Field(ge=0.0, le=1.0)
+    risk_counts: dict[str, int]
+    cluster_counts: dict[str, int]
+
+
+class CustomerInsightListResponse(BaseModel):
+    """고객 분석 결과 목록과 페이지네이션·요약 통계입니다."""
+
+    items: list[CustomerInsightResponse]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    stats: CustomerInsightStats
+
+
+class CustomerInsightDetailResponse(CustomerInsightResponse):
+    """고객 특성을 포함한 분석 결과 상세 응답입니다."""
+
+    customer: CustomerProfileResponse
 
 
 USERNAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,49}$"

@@ -10,6 +10,9 @@ Compose로 실행하고, 다른 노트북에서도 동일한 환경을 재현하
 모델 배치 실행과 `model_runs`·`customer_insights` 저장의 상세 명세는
 [`phase2_analysis_batch.md`](phase2_analysis_batch.md)에서 확인할 수 있습니다.
 
+분석 결과 조회 API의 사용법은
+[`customer_insights_api.md`](customer_insights_api.md)에서 확인할 수 있습니다.
+
 ## 1. 구성 개요
 
 `compose.yaml`은 다음 세 개의 서비스를 하나의 Docker 네트워크로 실행합니다.

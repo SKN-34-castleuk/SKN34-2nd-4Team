@@ -22,8 +22,9 @@
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
 현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는
-Prediction API와 팀 계정 인증 API를 제공합니다. 별도의 CLI 배치는 전체 고객을
-분석해 결과를 MySQL에 저장합니다. 고객·분석·캠페인 조회·처리 API는 다음 단계입니다.
+Prediction API, 팀 계정 인증 API, customer_insights 조회 API를 제공합니다.
+별도의 CLI 배치는 전체 고객을 분석해 결과를 MySQL에 저장합니다. 캠페인 대상
+생성·처리 API와 역할별 권한 제어는 다음 단계입니다.
 
 ## 백엔드 파일 구조
 
@@ -32,8 +33,15 @@ backend/
 ├── __init__.py
 ├── app/
 │   ├── __init__.py
+│   ├── api/
+│   │   ├── dependencies.py
+│   │   ├── router.py
+│   │   └── routes/
+│   │       ├── auth.py
+│   │       ├── insights.py
+│   │       ├── predictions.py
+│   │       └── system.py
 │   ├── analysis_batch.py
-│   ├── auth.py
 │   ├── config.py
 │   ├── customer_import.py
 │   ├── database.py
@@ -43,7 +51,9 @@ backend/
 │   ├── model_manifest.py
 │   ├── model_registry.py
 │   ├── models.py
-│   └── schemas.py
+│   ├── schemas.py
+│   └── services/
+│       └── insight_service.py
 ├── migrations/
 │   ├── env.py
 │   └── versions/
@@ -61,14 +71,20 @@ backend/
 
 | 파일 | 책임 |
 |---|---|
-| `backend/app/main.py` | FastAPI 앱 생성, lifespan, 의존성 주입, API 경로 정의 |
-| `backend/app/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
+| `backend/app/main.py` | FastAPI 앱 생성과 lifespan, DB·모델 초기화 |
+| `backend/app/api/router.py` | 기능별 API router 조합 |
+| `backend/app/api/dependencies.py` | 모델 registry 등 공통 요청 의존성 |
+| `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
+| `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
+| `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
+| `backend/app/api/routes/insights.py` | customer_insights 조회 API |
 | `backend/app/config.py` | 앱 이름·버전, 프로젝트 경로, 모델·DB·인증 설정 관리 |
 | `backend/app/database.py` | SQLAlchemy 엔진·세션과 migration 적용 여부 검증 |
 | `backend/app/models.py` | 사용자·고객·분석·캠페인 SQLAlchemy 모델 |
 | `backend/app/migration_runner.py` | 기존 users 기준선 처리와 Alembic upgrade 실행 |
 | `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
 | `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
+| `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 필터·페이지네이션 조회 규칙 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
 | `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
 | `backend/scripts/run_analysis_batch.py` | 전체 고객 모델 분석 배치 명령 |
@@ -82,18 +98,16 @@ backend/
 
 ### 파일을 나눈 이유
 
-`main.py`는 HTTP 요청과 FastAPI 생명주기만 담당합니다. 모델 파일을 읽고
-예측하는 로직은 `model_registry.py`, 데이터 형식 검증은 `schemas.py`와
-`model_manifest.py`, 환경에 따라 달라지는 경로는 `config.py`로 분리했습니다.
+`main.py`는 FastAPI 생명주기와 앱 조립만 담당합니다. HTTP 경로는
+`api/routes/`에, 공통 의존성은 `api/dependencies.py`에, 고객 분석 조회 규칙은
+`services/insight_service.py`에 분리했습니다. 모델 파일을 읽고 예측하는 로직은
+`model_registry.py`, 데이터 형식 검증은 `schemas.py`와 `model_manifest.py`,
+환경에 따라 달라지는 경로는 `config.py`가 담당합니다.
 
 따라서 API 입력 형식이 바뀌면 `schemas.py`, 모델 manifest 규격이 바뀌면
-`model_manifest.py`, 모델 적재나 추론 방식이 바뀌면 `model_registry.py`를
-중심으로 수정할 수 있습니다.
-
-Prediction API가 하나인 현재 단계에서는 별도의 `routers/`, `services/`,
-`repositories/` 디렉터리를 만들지 않습니다. 고객·분석·조기 경보처럼 서로
-다른 도메인의 API가 추가될 때 기능별 Router와 Service로 확장하는 것이
-적절합니다.
+`model_manifest.py`, 모델 적재나 추론 방식이 바뀌면 `model_registry.py`,
+분석 목록의 필터·정렬 정책이 바뀌면 `services/insight_service.py`를 중심으로
+수정할 수 있습니다.
 
 ## 서버 시작과 요청 처리 흐름
 
@@ -270,6 +284,8 @@ await fetch("/api/v1/predictions", {
 | `GET` | `/api/v1/auth/me` | 현재 로그인 사용자 조회 |
 | `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
+| `GET` | `/api/v1/customer-insights` | 최신 고객 분석 결과 목록·필터·페이지네이션 |
+| `GET` | `/api/v1/customer-insights/{customer_id}` | 고객별 최신 분석 결과와 특성 상세 |
 | `GET` | `/docs` | Swagger UI |
 | `GET` | `/redoc` | ReDoc API 문서 |
 | `GET` | `/openapi.json` | OpenAPI Schema |
@@ -306,6 +322,9 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch
 강제로 만들 때만 `--force`를 추가합니다. 배치의 모델 입력 계약, 위험도 기준,
 재실행 정책과 실제 저장 결과는
 [`../docs/phase2_analysis_batch.md`](../docs/phase2_analysis_batch.md)에 있습니다.
+
+분석 결과 API의 요청 파라미터와 응답 구조는
+[`../docs/customer_insights_api.md`](../docs/customer_insights_api.md)에 있습니다.
 
 Docker Compose는 첫 번째 명령을 Backend 시작 전에 자동으로 실행합니다. 자세한
 스키마와 운영 방법은 `docs/database_schema.md`를 확인합니다.
@@ -472,7 +491,8 @@ python src/final/clustering_final.py
 - 현재 Prediction API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를
   저장하지 않습니다. 전체 결과 저장은 별도 배치 CLI가 담당합니다.
 - 고객 ID와 역할은 저장하지만 고객 조회 API, 역할별 권한 검사,
-  `campaign_targets` 생성·처리 API는 아직 구현하지 않았습니다.
+  `campaign_targets` 생성·처리 API는 아직 구현하지 않았습니다. 분석 결과 조회
+  API는 구현되어 있으며 현재 모든 활성 로그인 사용자가 조회할 수 있습니다.
 - 입력 수치의 최솟값과 최댓값은 현재 학습 데이터 범위를 기준으로 합니다.
   실제 운영 데이터에서는 업무상 유효 범위와 학습 범위를 분리해야 합니다.
 - 현재 lifespan에서 모델 적재가 실패하면 FastAPI 시작도 실패합니다. 따라서
