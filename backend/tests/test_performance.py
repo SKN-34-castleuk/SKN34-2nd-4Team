@@ -1,5 +1,6 @@
 """A/B 그룹, 구조화된 결과, 유지율·증분효과·ROI 집계를 검증합니다."""
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -39,6 +40,7 @@ def test_campaign_performance_calculates_ab_retention_incrementality_and_roi(
                 cost_per_contact=10.0,
                 revenue_per_conversion=200.0,
                 segment_code="high_risk_retention",
+                start_at=datetime.now(timezone.utc) - timedelta(days=31),
             )
             session.add(campaign)
             session.flush()
@@ -75,6 +77,8 @@ def test_campaign_performance_calculates_ab_retention_incrementality_and_roi(
                 outcome_revenue=None,
                 actor=actor,
             )
+            treatment.completed_at = datetime.now(timezone.utc) - timedelta(days=31)
+            session.commit()
             update_campaign_target(
                 session,
                 target=treatment,
@@ -88,6 +92,8 @@ def test_campaign_performance_calculates_ab_retention_incrementality_and_roi(
                 outcome_revenue=250.0,
                 actor=actor,
             )
+            campaign.status = CampaignLifecycleStatus.COMPLETED.value
+            session.commit()
             update_campaign_target(
                 session,
                 target=control,
@@ -110,12 +116,35 @@ def test_campaign_performance_calculates_ab_retention_incrementality_and_roi(
             assert summary.contacted_count == 1
             assert summary.converted_count == 2
             assert summary.retention_rate == 1.0
+            assert summary.retention_eligible_count == 2
+            assert summary.retention_observed_count == 2
+            assert summary.retention_observation_rate == 1.0
             assert summary.incremental_conversion_effect == 0.0
             assert summary.incremental_retention_effect == 0.0
+            assert summary.incremental_conversions == 0.0
             assert summary.total_cost == 110.0
-            assert summary.total_revenue == 450.0
-            assert summary.roi == (450.0 - 110.0) / 110.0
+            assert summary.observed_revenue == 450.0
+            assert summary.incremental_revenue == 0.0
+            assert summary.total_revenue == 0.0
+            assert summary.roi == -1.0
             assert len(result["by_segment"]) == 1
             assert result["by_segment"][0]["key"] == "high_risk_retention"
+            assignee_metrics = next(
+                item
+                for item in result["by_assignee"]
+                if item["key"] == str(actor.id)
+            )
+            assert assignee_metrics["incremental_conversions"] == 0.0
+            assert assignee_metrics["incremental_revenue"] == 0.0
+            assert assignee_metrics["roi"] == -1.0
+
+            filtered_result = get_campaign_performance(
+                session,
+                campaign_id=campaign.id,
+                assigned_to_user_id=actor.id,
+            )
+            assert filtered_result["summary"].incremental_conversions == 0.0
+            assert filtered_result["summary"].incremental_revenue == 0.0
+            assert filtered_result["summary"].roi == -1.0
     finally:
         engine.dispose()

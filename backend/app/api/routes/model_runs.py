@@ -51,6 +51,7 @@ def get_latest_batch(
             )
         return LatestBatchResponse(
             scoring_batch_id=scoring_batch.id,
+            attempt_number=scoring_batch.attempt_number,
             as_of_date=scoring_batch.as_of_date,
             decision_policy_id=scoring_batch.decision_policy_id,
             decision_policy_sha256=(
@@ -84,6 +85,7 @@ def get_latest_batch(
     )
     return LatestBatchResponse(
         scoring_batch_id=None,
+        attempt_number=None,
         as_of_date=None,
         decision_policy_id=None,
         decision_policy_sha256=None,

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user, require_roles
 from ...database import get_db
-from ...enums import BulkTargetingRunStatus, UserRole
+from ...enums import UserRole
 from ...models import BulkTargetingRun, User
 from ...schemas import (
     BulkTargetingPreviewItem,
@@ -22,11 +24,11 @@ from ...services.bulk_targeting_service import (
     BulkTargetingStateError,
     cancel_bulk_targeting,
     execute_bulk_targeting,
+    fetch_bulk_targeting_preview_insights,
     fetch_bulk_targeting_runs,
     get_bulk_targeting_run,
     preview_bulk_targeting,
     rerun_bulk_targeting,
-    scan_bulk_targeting,
 )
 
 
@@ -49,8 +51,7 @@ def _domain_error(exc: BulkTargetingDomainError) -> HTTPException:
     )
 
 
-def _to_preview_item(candidate) -> BulkTargetingPreviewItem:
-    insight = candidate.insight
+def _to_preview_item(insight) -> BulkTargetingPreviewItem:
     return BulkTargetingPreviewItem(
         customer_id=insight.customer_id,
         customer_insight_id=insight.id,
@@ -71,18 +72,16 @@ def _to_response(
     include_preview: bool = True,
 ) -> BulkTargetingRunResponse:
     rules = dict(run.rules_json)
-    scan = (
-        scan_bulk_targeting(
-            db,
-            rules,
-            ignore_run_id=(run.id if run.status == BulkTargetingRunStatus.EXECUTED.value else None),
-        )
-        if include_preview
-        else None
-    )
+    experiment_seed = rules.pop("experiment_seed", None)
+    if experiment_seed:
+        rules["experiment_assignment_policy"] = "sha256_seed_customer_v1"
+        rules["experiment_seed_sha256"] = hashlib.sha256(
+            str(experiment_seed).encode()
+        ).hexdigest()
+    insights = fetch_bulk_targeting_preview_insights(db, run) if include_preview else []
     items = (
-        [_to_preview_item(candidate) for candidate in scan.candidates[: int(rules["max_targets"])]]
-        if scan is not None
+        [_to_preview_item(insight) for insight in insights]
+        if include_preview
         else []
     )
     return BulkTargetingRunResponse(
@@ -95,6 +94,7 @@ def _to_response(
         requested_by_user_id=run.requested_by_user_id,
         rerun_of_id=run.rerun_of_id,
         source_as_of_date=run.source_as_of_date,
+        scoring_batch_id=run.scoring_batch_id,
         rules=rules,
         preview_count=run.preview_count,
         eligible_count=run.eligible_count,

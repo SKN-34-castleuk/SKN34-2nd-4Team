@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user, require_roles
 from ...database import get_db
-from ...enums import CampaignLifecycleStatus, CampaignStatus, UserRole
+from ...enums import CampaignLifecycleStatus, CampaignStatus, ExperimentGroup, UserRole
 from ...models import Campaign, CampaignTarget, CustomerInsight, User
 from ...schemas import (
     CampaignCreateRequest,
@@ -103,7 +104,8 @@ def _to_campaign_response(campaign: Campaign, stats) -> CampaignResponse:
         end_at=campaign.end_at,
         experiment_enabled=bool(campaign.experiment_enabled),
         control_group_ratio=campaign.control_group_ratio,
-        experiment_seed=campaign.experiment_seed,
+        experiment_policy_locked=stats.total_targets > 0,
+        experiment_assignment_version=campaign.experiment_assignment_version,
         fixed_cost=campaign.fixed_cost,
         cost_per_contact=campaign.cost_per_contact,
         revenue_per_conversion=campaign.revenue_per_conversion,
@@ -243,7 +245,7 @@ def create_campaign_api(
             control_group_ratio=(
                 payload.control_group_ratio if payload.experiment_enabled else 0.0
             ),
-            experiment_seed=payload.experiment_seed,
+            experiment_seed=None,
             fixed_cost=payload.fixed_cost,
             cost_per_contact=payload.cost_per_contact,
             revenue_per_conversion=payload.revenue_per_conversion,
@@ -304,7 +306,9 @@ def update_campaign_api(
     current_user: User = Depends(require_roles(*CAMPAIGN_MANAGE_ROLES)),
     db: Session = Depends(get_db),
 ) -> CampaignResponse:
-    campaign = db.get(Campaign, campaign_id)
+    campaign = db.scalar(
+        select(Campaign).where(Campaign.id == campaign_id).with_for_update()
+    )
     if campaign is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
@@ -322,7 +326,7 @@ def update_campaign_api(
             start_at=payload.start_at,
             end_at=payload.end_at,
             actor=current_user,
-            update_period="start_at" in provided or "end_at" in provided,
+            provided_fields=set(provided),
             segment_code=(
                 payload.segment_code.value
                 if payload.segment_code is not None
@@ -330,7 +334,7 @@ def update_campaign_api(
             ),
             experiment_enabled=payload.experiment_enabled,
             control_group_ratio=payload.control_group_ratio,
-            experiment_seed=payload.experiment_seed,
+            experiment_seed=None,
             fixed_cost=payload.fixed_cost,
             cost_per_contact=payload.cost_per_contact,
             revenue_per_conversion=payload.revenue_per_conversion,
@@ -484,7 +488,11 @@ def _resolve_campaign(
     actor: User,
 ) -> Campaign:
     if payload.campaign_id is not None:
-        campaign = db.get(Campaign, payload.campaign_id)
+        campaign = db.scalar(
+            select(Campaign)
+            .where(Campaign.id == payload.campaign_id)
+            .with_for_update()
+        )
         if campaign is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
@@ -559,19 +567,40 @@ def update_campaign_target_api(
     db: Session = Depends(get_db),
 ) -> CampaignTargetResponse:
     """대상 상태 전이·담당자 역할·결과 코드를 서버에서 검증합니다."""
-    target = db.get(CampaignTarget, target_id)
+    target = db.scalar(
+        select(CampaignTarget)
+        .where(CampaignTarget.id == target_id)
+        .with_for_update()
+    )
     if target is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail="The campaign target was not found.",
         )
+    assignee_provided = "assigned_to_user_id" in payload.model_fields_set
     assignee = None
-    if payload.assigned_to_user_id is not None:
+    if assignee_provided and payload.assigned_to_user_id is not None:
         assignee = db.get(User, payload.assigned_to_user_id)
         if assignee is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="The assigned user was not found.",
+            )
+    if current_user.role == UserRole.OPERATIONS.value:
+        if target.experiment_group == ExperimentGroup.CONTROL.value:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Operations users cannot edit control-group outcomes.",
+            )
+        if target.assigned_to_user_id not in {None, current_user.id}:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Operations users can only process their own assigned targets.",
+            )
+        if assignee_provided and assignee is not None and assignee.id != current_user.id:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Operations users can only assign a target to themselves.",
             )
     try:
         target = update_campaign_target(
@@ -586,6 +615,9 @@ def update_campaign_target_api(
             actor=current_user,
             retained=payload.retained,
             outcome_revenue=payload.outcome_revenue,
+            assignee_provided=assignee_provided,
+            retained_provided="retained" in payload.model_fields_set,
+            outcome_revenue_provided="outcome_revenue" in payload.model_fields_set,
         )
     except CampaignDomainError as exc:
         db.rollback()

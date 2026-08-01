@@ -170,17 +170,17 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch \
 ~~~
 
 `--as-of-date`를 생략하면 UTC 기준 오늘 날짜를 사용합니다. 미래 날짜는 허용하지
-않으며, 같은 고객 입력이라도 기준일이 다르면 별도 scoring batch와 시점
-스냅샷으로 관리됩니다.
+않습니다. 오늘 날짜는 현재 `customers`를 입력으로 사용하지만 과거 날짜는 그
+날짜에 이미 저장된 `customer_feature_snapshots`만 사용합니다. 과거 스냅샷이
+없으면 현재 고객값을 과거값으로 가장하지 않고 실행을 거부합니다.
 
 ## 7. 재실행과 이력 정책
 
-기본 실행은 기준일·세 artifact SHA-256·현재 DB 고객 입력 전체의 정규화된
-SHA-256·의사결정 정책 SHA-256을 묶은 `batch_key_sha256`를 계산합니다. 동일한
-key의 성공 `scoring_batches`가 있고 세 `model_runs`와 고객별 결과 수가 현재
-고객 수와 같을 때만 기존 배치를 재사용합니다. 기준일, 입력 데이터, artifact,
-기준값 또는 정책 버전이 바뀌면 자동으로 새 배치를 만들므로 이전 결과를 잘못
-재사용하지 않습니다.
+기본 실행은 기준일·세 artifact SHA-256·선택된 고객 입력 전체의 정규화된
+SHA-256·의사결정 정책 SHA-256을 묶은 `reuse_key_sha256`을 계산합니다. 동일한
+논리 키의 성공 배치에서 세 `model_runs`와 고객별 결과가 완전할 때만 기존 배치를
+재사용합니다. 실패한 배치는 덮어쓰지 않고 같은 재사용 키의 다음
+`attempt_number`로 재시도합니다. `batch_key_sha256`은 각 시도마다 고유합니다.
 
 새로운 분석 스냅샷을 강제로 만들려면 `--force`를 사용합니다.
 
@@ -190,7 +190,7 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 
 `--force` 실행은 새로운 `scoring_batches` 1건, `model_runs` 3건과
 `customer_insights` 전체 고객 행을 새로 추가합니다. 기존 결과를 삭제하거나
-덮어쓰지 않으므로 모델 버전·정책·기준일별 분석 이력을 비교할 수 있습니다.
+덮어쓰지 않으며 같은 논리 키의 다음 실행 시도로 기록됩니다.
 
 ## 8. 저장 결과
 
@@ -198,12 +198,13 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 
 ### `decision_policies` 1건
 
-동일한 정책 hash를 중복 저장하지 않고, 위험도 기준과 활동성 갭 분위수를 정책
-버전과 함께 보존합니다.
+동일한 정책 hash를 중복 저장하지 않고, 위험도 기준·활동성 갭 분위수뿐 아니라
+사유 코드, 추천 액션, 군집 라벨과 회귀 입력 계약 전체를 `policy_json`에 보존합니다.
 
 ### `scoring_batches` 1건
 
 - `batch_key_sha256`
+- `reuse_key_sha256`, `attempt_number`
 - `as_of_date`
 - `source_dataset_sha256`
 - `dataset_sha256`
@@ -280,11 +281,12 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 Backend 테스트는 27개이며 다음을 포함합니다.
+현재 Backend 테스트는 31개이며 다음을 포함합니다.
 
 - 온라인·배치 분류 결과의 양성 확률 일관성
 - 회귀 입력의 파생변수와 누수 컬럼 제거
 - 위험도 구간과 추천 액션 규칙
+- 실패 배치의 새 시도 생성과 과거 스냅샷 강제
 - 최신 스냅샷 선택, 인증, 필터·페이지네이션·상세 조회 API
 - migration, 고객 upsert, 인증, 모델 manifest 무결성 검증
 

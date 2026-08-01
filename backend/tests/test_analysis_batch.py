@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from backend.app.analysis_batch import (
     BatchSummary,
     DECISION_POLICY_VERSION,
     _batch_key_sha256,
     _decision_policy_sha256,
+    _next_batch_attempt,
     _recommended_action,
     _risk_level,
     build_regression_input,
 )
+from backend.app.migration_runner import upgrade_database
+from backend.app.models import DecisionPolicy, ScoringBatch
 
 
 def make_raw_row() -> dict[str, object]:
@@ -132,3 +138,40 @@ def test_batch_key_and_summary_preserve_as_of_date() -> None:
 
     assert first_key != next_day_key
     assert summary.to_dict()["as_of_date"] == "2026-08-01"
+
+
+def test_failed_scoring_batch_gets_a_new_attempt(tmp_path: Path) -> None:
+    """실패 이력을 보존하면서 같은 논리 배치를 두 번째 실행으로 재시도합니다."""
+    database_url = f"sqlite:///{tmp_path / 'batch-retry.sqlite3'}"
+    upgrade_database(database_url)
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            policy = DecisionPolicy(
+                version="retry-test",
+                policy_sha256="a" * 64,
+                medium_threshold=0.5,
+                high_threshold=0.85,
+                activity_gap_quantile=0.2,
+            )
+            session.add(policy)
+            session.flush()
+            reuse_key = "b" * 64
+            session.add(
+                ScoringBatch(
+                    batch_key_sha256=reuse_key,
+                    reuse_key_sha256=reuse_key,
+                    attempt_number=1,
+                    as_of_date=date(2026, 8, 1),
+                    decision_policy_id=policy.id,
+                    status="failed",
+                )
+            )
+            session.commit()
+
+            attempt_number, execution_key = _next_batch_attempt(session, reuse_key)
+
+            assert attempt_number == 2
+            assert execution_key != reuse_key
+    finally:
+        engine.dispose()

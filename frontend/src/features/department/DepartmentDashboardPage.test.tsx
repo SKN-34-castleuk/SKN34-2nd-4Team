@@ -101,6 +101,7 @@ describe("부서별 대시보드", () => {
     expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "활성 팀 계정" })).toBeInTheDocument();
     expect(screen.getByText("운영팀")).toBeInTheDocument();
-    expect(screen.getByText("역할별 업무 권한")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "관리자 역할" })).toBeDisabled();
+    expect(screen.queryByText("역할별 업무 권한")).not.toBeInTheDocument();
   });
 });

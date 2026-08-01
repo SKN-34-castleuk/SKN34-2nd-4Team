@@ -32,6 +32,8 @@ MANAGED_TABLES_AFTER_BASELINE = {
     "campaigns",
     "campaign_events",
     "bulk_targeting_runs",
+    "bulk_targeting_candidates",
+    "auth_events",
 }
 
 

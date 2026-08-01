@@ -254,6 +254,7 @@ class LatestBatchResponse(BaseModel):
     """가장 최근 성공한 전체 모델 배치의 요약입니다."""
 
     scoring_batch_id: int | None = None
+    attempt_number: int | None = None
     as_of_date: date | None = None
     decision_policy_id: int | None = None
     decision_policy_sha256: str | None = None
@@ -289,7 +290,8 @@ class CampaignResponse(BaseModel):
     end_at: datetime | None
     experiment_enabled: bool = False
     control_group_ratio: float = Field(ge=0.0, lt=1.0)
-    experiment_seed: str | None = None
+    experiment_policy_locked: bool = False
+    experiment_assignment_version: str
     fixed_cost: float = Field(ge=0.0)
     cost_per_contact: float = Field(ge=0.0)
     revenue_per_conversion: float = Field(ge=0.0)
@@ -313,7 +315,6 @@ class CampaignCreateRequest(BaseModel):
     end_at: datetime | None = None
     experiment_enabled: bool = False
     control_group_ratio: float = Field(default=0.2, ge=0.0, lt=1.0)
-    experiment_seed: str | None = Field(default=None, min_length=8, max_length=64)
     fixed_cost: float = Field(default=0.0, ge=0.0)
     cost_per_contact: float = Field(default=0.0, ge=0.0)
     revenue_per_conversion: float = Field(default=0.0, ge=0.0)
@@ -328,6 +329,8 @@ class CampaignCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_experiment(self) -> "CampaignCreateRequest":
+        if self.status != CampaignLifecycleStatus.DRAFT:
+            raise ValueError("campaigns must be created with draft status")
         if self.experiment_enabled and self.control_group_ratio <= 0:
             raise ValueError("control_group_ratio must be greater than 0 for A/B tests")
         return self
@@ -345,7 +348,6 @@ class CampaignUpdateRequest(BaseModel):
     end_at: datetime | None = None
     experiment_enabled: bool | None = None
     control_group_ratio: float | None = Field(default=None, ge=0.0, lt=1.0)
-    experiment_seed: str | None = Field(default=None, min_length=8, max_length=64)
     fixed_cost: float | None = Field(default=None, ge=0.0)
     cost_per_contact: float | None = Field(default=None, ge=0.0)
     revenue_per_conversion: float | None = Field(default=None, ge=0.0)
@@ -478,7 +480,9 @@ class CampaignPerformanceMetrics(BaseModel):
     contacted_count: int
     converted_count: int
     retained_count: int
+    retention_eligible_count: int
     retention_observed_count: int
+    retention_observation_rate: float | None
     contact_rate: float
     conversion_rate: float
     retention_rate: float | None
@@ -490,7 +494,10 @@ class CampaignPerformanceMetrics(BaseModel):
     control_retention_rate: float | None
     incremental_conversion_effect: float | None
     incremental_retention_effect: float | None
+    incremental_conversions: float
     total_cost: float
+    observed_revenue: float
+    incremental_revenue: float
     total_revenue: float
     roi: float | None
 
@@ -531,6 +538,7 @@ class BulkTargetingPreviewRequest(BaseModel):
     cluster_name: str | None = Field(default=None, max_length=100)
     max_targets: int = Field(default=1000, ge=1, le=10000)
     source_as_of_date: date | None = None
+    scoring_batch_id: int | None = Field(default=None, ge=1)
     experiment_enabled: bool = False
     control_group_ratio: float = Field(default=0.2, ge=0.0, lt=1.0)
     fixed_cost: float = Field(default=0.0, ge=0.0)
@@ -594,6 +602,7 @@ class BulkTargetingRunResponse(BaseModel):
     requested_by_user_id: int | None
     rerun_of_id: int | None
     source_as_of_date: date | None
+    scoring_batch_id: int | None
     rules: dict[str, Any]
     preview_count: int
     eligible_count: int

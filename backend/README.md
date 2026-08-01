@@ -112,6 +112,7 @@ backend/
 | `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
 | `backend/scripts/run_analysis_batch.py` | 전체 고객 모델 분석 배치 명령 |
 | `backend/scripts/seed_test_users.py` | 로컬 역할별 테스트 계정 생성·갱신 명령 |
+| `backend/scripts/seed_demo_campaign.py` | 로컬 시연용 합성 시계열·A/B 캠페인 성과 생성 명령 |
 | `backend/app/schemas.py` | 요청·응답 Pydantic Schema와 API 필드명 변환 |
 | `backend/app/model_manifest.py` | 모델 manifest 구조와 데이터 일관성 검증 |
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
@@ -339,32 +340,36 @@ DB 테이블은 `create_all()`로 변경하지 않으며 Alembic migration으로
 
 ### 로컬 역할별 테스트 계정
 
-Docker Compose의 일회성 로컬 개발 DB에서만 다음처럼 명시적으로 허용한 뒤
-테스트 계정을 생성하거나 갱신합니다. 기본값은 비활성입니다.
+Docker Compose의 일회성 로컬 개발 DB에서만 `.env`에 다음 값을 잠시 설정합니다.
+각 비밀번호는 12자 이상이어야 하며 저장소에 커밋하지 않습니다.
 
-```bash
-ALLOW_TEST_USER_SEEDING=true docker compose exec backend \
-  python -m backend.scripts.seed_test_users
+```env
+APP_ENV=development
+ALLOW_TEST_USER_SEEDING=true
+TEST_ADMIN_PASSWORD=<local-only-password>
+TEST_ANALYST_PASSWORD=<local-only-password>
+TEST_OPERATIONS_PASSWORD=<local-only-password>
+TEST_MARKETING_PASSWORD=<local-only-password>
 ```
 
-또는 `.env`에 잠시 설정한 뒤 실행하고, 완료 후에는 반드시 `false`로 되돌립니다.
+| 역할 | 아이디 | 비밀번호 환경변수 |
+|---|---|---|
+| 관리자 | `test_admin` | `TEST_ADMIN_PASSWORD` |
+| 분석팀 | `test_analyst` | `TEST_ANALYST_PASSWORD` |
+| 운영팀 | `test_operations` | `TEST_OPERATIONS_PASSWORD` |
+| 마케팅팀 | `test_marketing` | `TEST_MARKETING_PASSWORD` |
+
+컨테이너는 생성 당시 환경변수를 사용하므로 재생성한 뒤 시드합니다.
 
 ```bash
-ALLOW_TEST_USER_SEEDING=true
+docker compose up -d --force-recreate backend
 docker compose exec backend python -m backend.scripts.seed_test_users
 ```
 
-| 역할 | 아이디 | 비밀번호 |
-|---|---|---|
-| 관리자 | `test_admin` | `CardOpsAdmin2026!` |
-| 분석팀 | `test_analyst` | `CardOpsAnalyst2026!` |
-| 운영팀 | `test_operations` | `CardOpsOps2026!` |
-| 마케팅팀 | `test_marketing` | `CardOpsMarketing2026!` |
-
 이 계정은 로컬 화면 검증용입니다. 운영 환경에서는 사용하지 말고, 테스트가
-끝난 뒤 비활성화하거나 삭제해야 합니다. 스크립트는 같은 아이디가 이미 있으면
-역할·비밀번호·표시 이름을 위 값으로 갱신하므로 여러 번 실행해도 중복되지
-않습니다.
+끝난 뒤 `ALLOW_TEST_USER_SEEDING=false`로 되돌려 Backend를 다시 생성합니다.
+스크립트는 운영 환경·원격 DB·비밀번호 미설정 상태에서 실행을 거부하며, 같은
+아이디가 이미 있으면 역할·비밀번호·표시 이름을 갱신합니다.
 호스트에서 API를 직접 실행하기 전에는 다음 명령을 실행합니다.
 
 ```bash
@@ -566,8 +571,8 @@ python src/final/clustering_final.py
   사용자가 사용할 수 있습니다. 관리자는 전체 권한을 가지며, 캠페인 생성·수정과
   대상 등록은 `admin`, `marketing`, 대상 상태·결과 처리는 `admin`,
   `operations` 역할로 분리됩니다. 세그먼트 일괄 타기팅도 `admin`, `marketing`만
-  실행할 수 있습니다. 대상 담당자는 활성 `operations` 또는
-  `marketing` 사용자만 지정할 수 있으며 `analyst`는 읽기 전용입니다.
+  실행할 수 있습니다. 대상 담당자는 활성 `operations` 사용자만 지정할 수
+  있으며 `analyst`는 읽기 전용입니다.
 - React 대시보드는 CSV 내보내기, 고위험 필터 바로가기, 고객별 분석 이력,
   모델 배치 버전 표시, 캠페인 등록·처리 큐를 제공합니다. 모델 성능 지표를
   보여 주는 기존 Streamlit 대시보드는 이번 대시보드 통합 범위에서 제외합니다.

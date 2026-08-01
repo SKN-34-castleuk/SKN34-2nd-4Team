@@ -8,7 +8,7 @@ from math import floor
 import secrets
 from typing import Any
 
-from sqlalchemy import Select, desc, exists, func, or_, select
+from sqlalchemy import Select, case, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..enums import (
@@ -17,14 +17,17 @@ from ..enums import (
     CampaignEventType,
     CampaignLifecycleStatus,
     CampaignStatus,
+    ModelRunStatus,
     RiskLevel,
 )
 from ..models import (
+    BulkTargetingCandidateSnapshot,
     BulkTargetingRun,
     Campaign,
     CampaignTarget,
     Customer,
     CustomerInsight,
+    ScoringBatch,
     User,
 )
 from ..schemas import BulkTargetingPreviewRequest
@@ -62,6 +65,7 @@ class BulkTargetingCandidate:
     customer: Customer
     has_active_campaign: bool
     recently_contacted: bool
+    exclusion_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,7 @@ class BulkTargetingScan:
     """세그먼트 후보 전체와 상호 배타적인 제외 집계입니다."""
 
     candidates: list[BulkTargetingCandidate]
+    evaluated_candidates: list[BulkTargetingCandidate]
     segment_matched_count: int
     skipped_active_campaign_count: int
     skipped_recent_contact_count: int
@@ -92,6 +97,7 @@ def _latest_insight_query(source_as_of_date: date | None) -> Select[Any]:
             .over(
                 partition_by=CustomerInsight.customer_id,
                 order_by=(
+                    desc(CustomerInsight.as_of_date),
                     desc(CustomerInsight.scored_at),
                     desc(CustomerInsight.id),
                 ),
@@ -124,20 +130,57 @@ def _activity_gap_threshold(
     *,
     source_as_of_date: date | None,
     quantile: float,
+    scoring_batch_id: int | None = None,
 ) -> float:
     """최신 분석 결과의 activity_gap 하위 분위수 기준을 계산합니다."""
-    latest = _latest_insight_query(source_as_of_date).subquery()
-    values = db.scalars(select(latest.c.activity_gap)).all()
+    if scoring_batch_id is not None:
+        values = db.scalars(
+            select(CustomerInsight.activity_gap).where(
+                CustomerInsight.scoring_batch_id == scoring_batch_id
+            )
+        ).all()
+    else:
+        latest = _latest_insight_query(source_as_of_date).subquery()
+        values = db.scalars(select(latest.c.activity_gap)).all()
     return _lower_quantile(values, quantile)
+
+
+def _resolve_scoring_batch(
+    db: Session,
+    payload: BulkTargetingPreviewRequest,
+) -> ScoringBatch:
+    """타기팅 후보 전체가 공유할 성공 scoring batch를 하나로 고정합니다."""
+    query = select(ScoringBatch).where(
+        ScoringBatch.status == ModelRunStatus.SUCCEEDED.value
+    )
+    if payload.scoring_batch_id is not None:
+        query = query.where(ScoringBatch.id == payload.scoring_batch_id)
+    if payload.source_as_of_date is not None:
+        query = query.where(ScoringBatch.as_of_date <= payload.source_as_of_date)
+    batch = db.scalar(
+        query.order_by(
+            ScoringBatch.as_of_date.desc(),
+            ScoringBatch.completed_at.desc(),
+            ScoringBatch.id.desc(),
+        ).limit(1)
+    )
+    if batch is None:
+        raise BulkTargetingDomainError(
+            "A succeeded scoring batch is required for bulk targeting."
+        )
+    return batch
 
 
 def _build_rules(
     db: Session,
     payload: BulkTargetingPreviewRequest,
+    *,
+    experiment_seed: str | None = None,
 ) -> dict[str, Any]:
     """요청값을 immutable 정책 JSON으로 정규화합니다."""
     segment = payload.segment.value
-    source_as_of_date = payload.source_as_of_date
+    scoring_batch = _resolve_scoring_batch(db, payload)
+    source_as_of_date = scoring_batch.as_of_date
     rules: dict[str, Any] = {
         "segment": segment,
         "campaign_name": payload.campaign_name or DEFAULT_CAMPAIGN_NAMES[segment],
@@ -151,6 +194,9 @@ def _build_rules(
         "source_as_of_date": (
             source_as_of_date.isoformat() if source_as_of_date is not None else None
         ),
+        "scoring_batch_id": scoring_batch.id,
+        "decision_policy_id": scoring_batch.decision_policy_id,
+        "dataset_sha256": scoring_batch.dataset_sha256,
         "experiment_enabled": payload.experiment_enabled,
         "control_group_ratio": (
             payload.control_group_ratio if payload.experiment_enabled else 0.0
@@ -159,13 +205,14 @@ def _build_rules(
         "cost_per_contact": payload.cost_per_contact,
         "revenue_per_conversion": payload.revenue_per_conversion,
         "retention_window_days": payload.retention_window_days,
-        "experiment_seed": secrets.token_hex(16),
+        "experiment_seed": experiment_seed or secrets.token_hex(16),
     }
     if segment == BulkTargetingSegment.MEDIUM_REACTIVATION.value:
         rules["activity_gap_threshold"] = _activity_gap_threshold(
             db,
             source_as_of_date=source_as_of_date,
             quantile=payload.activity_gap_quantile,
+            scoring_batch_id=scoring_batch.id,
         )
     return rules
 
@@ -205,11 +252,28 @@ def _candidate_query(
     ignore_run_id: int | None = None,
 ) -> Select[Any]:
     source_as_of_date = _date_from_rules(rules)
-    latest_ids = _latest_insight_query(source_as_of_date).subquery()
+    scoring_batch_id = rules.get("scoring_batch_id")
+    latest_ids = (
+        _latest_insight_query(source_as_of_date).subquery()
+        if scoring_batch_id is None
+        else None
+    )
     cutoff = datetime.now(timezone.utc) - timedelta(
         days=int(rules["recent_contact_days"])
     )
 
+    segment_priority = {
+        BulkTargetingSegment.HIGH_RISK_RETENTION.value: 300,
+        BulkTargetingSegment.MEDIUM_REACTIVATION.value: 200,
+        BulkTargetingSegment.LOW_RISK_UPSELL.value: 100,
+    }[str(rules["segment"])]
+    existing_priority = case(
+        (Campaign.segment_code == BulkTargetingSegment.HIGH_RISK_RETENTION.value, 300),
+        (Campaign.segment_code == BulkTargetingSegment.MEDIUM_REACTIVATION.value, 200),
+        (Campaign.segment_code == BulkTargetingSegment.LOW_RISK_UPSELL.value, 100),
+        # 수동·미분류 캠페인은 의도 확인 없이 자동 취소하지 않습니다.
+        else_=1000,
+    )
     active_target_query = (
         select(CampaignTarget.id)
         .join(Campaign, Campaign.id == CampaignTarget.campaign_id)
@@ -217,6 +281,10 @@ def _candidate_query(
             CampaignTarget.customer_id == Customer.customer_id,
             CampaignTarget.status.in_(OPEN_TARGET_STATUSES),
             Campaign.status.in_(OPEN_CAMPAIGN_STATUSES),
+            or_(
+                CampaignTarget.status == CampaignStatus.CONTACTED.value,
+                existing_priority >= segment_priority,
+            ),
         )
     )
     if ignore_run_id is not None:
@@ -245,6 +313,11 @@ def _candidate_query(
         segment_conditions = list(segment_condition)
     else:
         segment_conditions = [segment_condition]
+    insight_source_condition = (
+        CustomerInsight.scoring_batch_id == int(scoring_batch_id)
+        if scoring_batch_id is not None
+        else CustomerInsight.id.in_(select(latest_ids.c.id))
+    )
     query = (
         select(
             CustomerInsight,
@@ -254,7 +327,7 @@ def _candidate_query(
         )
         .join(Customer, Customer.customer_id == CustomerInsight.customer_id)
         .where(
-            CustomerInsight.id.in_(select(latest_ids.c.id)),
+            insight_source_condition,
             *segment_conditions,
         )
     )
@@ -288,6 +361,7 @@ def scan_bulk_targeting(
 ) -> BulkTargetingScan:
     """세그먼트와 제외 조건을 적용해 preview 대상과 집계를 계산합니다."""
     candidates: list[BulkTargetingCandidate] = []
+    evaluated_candidates: list[BulkTargetingCandidate] = []
     skipped_active = 0
     skipped_recent = 0
     skipped_opt_out = 0
@@ -299,12 +373,21 @@ def scan_bulk_targeting(
         recently_contacted = _is_recent_contacted_at(customer.last_contacted_at, cutoff) or bool(
             recent_target
         )
+        exclusion_reason = None
+        if customer.marketing_opt_out:
+            exclusion_reason = "opted_out"
+        elif bool(has_active_campaign):
+            exclusion_reason = "active_campaign"
+        elif recently_contacted:
+            exclusion_reason = "recent_contact"
         candidate = BulkTargetingCandidate(
             insight=insight,
             customer=customer,
             has_active_campaign=bool(has_active_campaign),
             recently_contacted=recently_contacted,
+            exclusion_reason=exclusion_reason,
         )
+        evaluated_candidates.append(candidate)
         if customer.marketing_opt_out:
             skipped_opt_out += 1
         elif candidate.has_active_campaign:
@@ -315,6 +398,7 @@ def scan_bulk_targeting(
             candidates.append(candidate)
     return BulkTargetingScan(
         candidates=candidates,
+        evaluated_candidates=evaluated_candidates,
         segment_matched_count=len(rows),
         skipped_active_campaign_count=skipped_active,
         skipped_recent_contact_count=skipped_recent,
@@ -336,6 +420,7 @@ def preview_bulk_targeting(
     payload: BulkTargetingPreviewRequest,
     actor: User,
     rerun_of_id: int | None = None,
+    experiment_seed: str | None = None,
 ) -> tuple[BulkTargetingRun, BulkTargetingScan]:
     """정책을 고정한 preview run을 생성합니다."""
     if payload.assigned_to_user_id is not None:
@@ -345,21 +430,38 @@ def preview_bulk_targeting(
         from .campaign_service import validate_assignee
 
         validate_assignee(assignee)
-    rules = _build_rules(db, payload)
+    rules = _build_rules(db, payload, experiment_seed=experiment_seed)
     scan = scan_bulk_targeting(db, rules)
     run = BulkTargetingRun(
         segment_code=payload.segment.value,
         status=BulkTargetingRunStatus.PREVIEWED.value,
         requested_by_user_id=actor.id,
         rerun_of_id=rerun_of_id,
-        source_as_of_date=payload.source_as_of_date,
+        scoring_batch_id=int(rules["scoring_batch_id"]),
+        source_as_of_date=_date_from_rules(rules),
         rules_json=rules,
     )
     db.add(run)
     db.flush()
     _apply_scan_counts(run, scan)
+    selected_customer_ids = {
+        candidate.customer.customer_id
+        for candidate in scan.candidates[: int(rules["max_targets"])]
+    }
+    for rank, candidate in enumerate(scan.evaluated_candidates, start=1):
+        db.add(
+            BulkTargetingCandidateSnapshot(
+                run_id=run.id,
+                customer_id=candidate.customer.customer_id,
+                customer_insight_id=candidate.insight.id,
+                rank=rank,
+                eligible=candidate.exclusion_reason is None,
+                selected=candidate.customer.customer_id in selected_customer_ids,
+                exclusion_reason=candidate.exclusion_reason,
+            )
+        )
     db.commit()
-    db.refresh(run)
+    run = get_bulk_targeting_run(db, run.id) or run
     return run, scan
 
 
@@ -369,14 +471,39 @@ def execute_bulk_targeting(
     run: BulkTargetingRun,
     actor: User,
 ) -> BulkTargetingRun:
-    """preview 정책을 재검증하고 draft 캠페인과 대상을 원자적으로 생성합니다."""
-    if run.status != BulkTargetingRunStatus.PREVIEWED.value:
+    """고정된 preview 후보로 draft 캠페인과 대상을 원자적으로 생성합니다."""
+    locked_run = db.scalar(
+        select(BulkTargetingRun)
+        .where(BulkTargetingRun.id == run.id)
+        .with_for_update()
+    )
+    if locked_run is None:
+        raise BulkTargetingDomainError("The bulk targeting run was not found.")
+    if locked_run.status == BulkTargetingRunStatus.EXECUTED.value:
+        return get_bulk_targeting_run(db, locked_run.id) or locked_run
+    if locked_run.status != BulkTargetingRunStatus.PREVIEWED.value:
         raise BulkTargetingStateError(
             "Only a previewed bulk targeting run can be executed."
         )
+    run = locked_run
     rules = dict(run.rules_json)
-    scan = scan_bulk_targeting(db, rules)
-    _apply_scan_counts(run, scan)
+    candidate_snapshots = db.scalars(
+        select(BulkTargetingCandidateSnapshot)
+        .where(
+            BulkTargetingCandidateSnapshot.run_id == run.id,
+            BulkTargetingCandidateSnapshot.selected.is_(True),
+        )
+        .options(
+            selectinload(BulkTargetingCandidateSnapshot.customer),
+            selectinload(BulkTargetingCandidateSnapshot.customer_insight),
+        )
+        .order_by(BulkTargetingCandidateSnapshot.rank)
+        .with_for_update()
+    ).all()
+    if not candidate_snapshots:
+        raise BulkTargetingStateError(
+            "The preview has no selected candidates to execute."
+        )
     campaign = Campaign(
         name=str(rules["campaign_name"]),
         description=rules.get("description"),
@@ -386,6 +513,7 @@ def execute_bulk_targeting(
         experiment_enabled=bool(rules.get("experiment_enabled", False)),
         control_group_ratio=float(rules.get("control_group_ratio", 0.0)),
         experiment_seed=rules.get("experiment_seed") or secrets.token_hex(16),
+        experiment_assignment_version="sha256_seed_customer_v1",
         fixed_cost=float(rules.get("fixed_cost", 0.0)),
         cost_per_contact=float(rules.get("cost_per_contact", 0.0)),
         revenue_per_conversion=float(rules.get("revenue_per_conversion", 0.0)),
@@ -408,7 +536,9 @@ def execute_bulk_targeting(
         metadata_json={
             "bulk_targeting_run_id": run.id,
             "segment": run.segment_code,
-            "eligible_count": len(scan.candidates),
+            "eligible_count": run.eligible_count,
+            "preview_count": run.preview_count,
+            "scoring_batch_id": run.scoring_batch_id,
         },
     )
 
@@ -419,37 +549,49 @@ def execute_bulk_targeting(
         else None
     )
     run.created_count = 0
-    max_targets = int(rules["max_targets"])
-    for candidate in scan.candidates[:max_targets]:
+    for candidate_snapshot in candidate_snapshots:
         locked_customer = db.scalar(
             select(Customer)
-            .where(Customer.customer_id == candidate.customer.customer_id)
+            .where(Customer.customer_id == candidate_snapshot.customer_id)
             .with_for_update()
         )
         if locked_customer is None:
+            candidate_snapshot.execution_status = "skipped"
             continue
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=int(rules["recent_contact_days"])
         )
         if locked_customer.marketing_opt_out:
-            run.skipped_opt_out_count += 1
+            candidate_snapshot.execution_status = "skipped"
+            candidate_snapshot.exclusion_reason = "opted_out"
             continue
         if _is_recent_contacted_at(locked_customer.last_contacted_at, cutoff):
-            run.skipped_recent_contact_count += 1
+            candidate_snapshot.execution_status = "skipped"
+            candidate_snapshot.exclusion_reason = "recent_contact"
             continue
         try:
             target = create_campaign_target(
                 db,
                 campaign=campaign,
-                insight=candidate.insight,
+                insight=candidate_snapshot.customer_insight,
                 assignee=assignee,
                 actor=actor,
                 commit=False,
             )
-        except CampaignConflictError:
-            run.skipped_active_campaign_count += 1
+        except CampaignConflictError as exc:
+            candidate_snapshot.execution_status = "skipped"
+            message = str(exc).lower()
+            if "opted out" in message:
+                candidate_snapshot.exclusion_reason = "opted_out"
+            elif "cooldown" in message:
+                candidate_snapshot.exclusion_reason = "recent_contact"
+            else:
+                candidate_snapshot.exclusion_reason = "active_campaign"
             continue
         target.bulk_targeting_run_id = run.id
+        db.flush()
+        candidate_snapshot.execution_status = "created"
+        candidate_snapshot.campaign_target_id = target.id
         run.created_count += 1
 
     db.commit()
@@ -464,14 +606,30 @@ def cancel_bulk_targeting(
     actor: User,
 ) -> BulkTargetingRun:
     """preview를 폐기하거나 실행된 배치의 미처리 대상을 취소합니다."""
+    locked_run = db.scalar(
+        select(BulkTargetingRun)
+        .where(BulkTargetingRun.id == run.id)
+        .with_for_update()
+    )
+    if locked_run is None:
+        raise BulkTargetingDomainError("The bulk targeting run was not found.")
+    run = locked_run
     if run.status == BulkTargetingRunStatus.CANCELLED.value:
-        raise BulkTargetingStateError("The bulk targeting run is already cancelled.")
+        return get_bulk_targeting_run(db, run.id) or run
     if run.status == BulkTargetingRunStatus.PREVIEWED.value:
         run.status = BulkTargetingRunStatus.CANCELLED.value
         run.cancelled_at = datetime.now(timezone.utc)
+        db.execute(
+            BulkTargetingCandidateSnapshot.__table__.update()
+            .where(
+                BulkTargetingCandidateSnapshot.run_id == run.id,
+                BulkTargetingCandidateSnapshot.selected.is_(True),
+                BulkTargetingCandidateSnapshot.execution_status == "pending",
+            )
+            .values(execution_status="cancelled")
+        )
         db.commit()
-        db.refresh(run)
-        return run
+        return get_bulk_targeting_run(db, run.id) or run
 
     now = datetime.now(timezone.utc)
     cancelled_count = 0
@@ -502,12 +660,19 @@ def cancel_bulk_targeting(
                 note="Cancelled by bulk targeting run.",
             )
         cancelled_count += 1
+        candidate_snapshot = db.scalar(
+            select(BulkTargetingCandidateSnapshot).where(
+                BulkTargetingCandidateSnapshot.run_id == run.id,
+                BulkTargetingCandidateSnapshot.campaign_target_id == target.id,
+            )
+        )
+        if candidate_snapshot is not None:
+            candidate_snapshot.execution_status = "cancelled"
     run.status = BulkTargetingRunStatus.CANCELLED.value
     run.cancelled_at = now
     run.cancelled_target_count += cancelled_count
     db.commit()
-    db.refresh(run)
-    return run
+    return get_bulk_targeting_run(db, run.id) or run
 
 
 def rerun_bulk_targeting(
@@ -538,6 +703,7 @@ def rerun_bulk_targeting(
         cluster_name=rules.get("cluster_name"),
         max_targets=int(rules["max_targets"]),
         source_as_of_date=_date_from_rules(rules),
+        scoring_batch_id=int(rules["scoring_batch_id"]),
         experiment_enabled=bool(rules.get("experiment_enabled", False)),
         control_group_ratio=float(rules.get("control_group_ratio", 0.2)),
         fixed_cost=float(rules.get("fixed_cost", 0.0)),
@@ -550,6 +716,7 @@ def rerun_bulk_targeting(
         payload=payload,
         actor=actor,
         rerun_of_id=run.id,
+        experiment_seed=str(rules["experiment_seed"]),
     )
 
 
@@ -577,6 +744,28 @@ def get_bulk_targeting_run(db: Session, run_id: int) -> BulkTargetingRun | None:
     """일괄 타기팅 배치 하나를 조회합니다."""
     return db.scalar(
         select(BulkTargetingRun)
-        .options(selectinload(BulkTargetingRun.campaign))
+        .options(
+            selectinload(BulkTargetingRun.campaign),
+            selectinload(BulkTargetingRun.candidate_snapshots).selectinload(
+                BulkTargetingCandidateSnapshot.customer_insight
+            ),
+        )
         .where(BulkTargetingRun.id == run_id)
     )
+
+
+def fetch_bulk_targeting_preview_insights(
+    db: Session,
+    run: BulkTargetingRun,
+) -> list[CustomerInsight]:
+    """DB에 고정된 미리보기 순서로 선택 고객의 인사이트를 반환합니다."""
+    snapshots = db.scalars(
+        select(BulkTargetingCandidateSnapshot)
+        .where(
+            BulkTargetingCandidateSnapshot.run_id == run.id,
+            BulkTargetingCandidateSnapshot.selected.is_(True),
+        )
+        .options(selectinload(BulkTargetingCandidateSnapshot.customer_insight))
+        .order_by(BulkTargetingCandidateSnapshot.rank)
+    ).all()
+    return [snapshot.customer_insight for snapshot in snapshots]

@@ -6,7 +6,7 @@ import hashlib
 import json
 import shutil
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +14,7 @@ import joblib
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.app.main import create_app
 from backend.app.migration_runner import upgrade_database
@@ -22,6 +22,7 @@ from backend.app.customer_import import load_customer_rows
 from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 from backend.app.model_registry import ModelLoadError, ModelRegistry
 from backend.app.models import (
+    AuthEvent,
     Customer,
     CustomerFeatureSnapshot,
     CustomerInsight,
@@ -422,6 +423,48 @@ def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
     assert logout_response.status_code == 204
     assert auth_client.get("/api/v1/auth/me").status_code == 401
 
+    with session_factory() as session:
+        event_types = set(session.scalars(select(AuthEvent.event_type)).all())
+    assert {"signup_requested", "login_failed", "login_succeeded", "logout"} <= event_types
+
+
+def test_login_rate_limit_is_audited(auth_client: TestClient) -> None:
+    """동일 사용자·IP의 반복 실패를 차단하고 감사 이벤트를 남깁니다."""
+    assert auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "rate_limit_user",
+            "display_name": "속도 제한 사용자",
+            "password": "strong-password-123",
+        },
+    ).status_code == 201
+    session_factory = auth_client.app.state.session_factory
+    with session_factory() as session:
+        user = session.scalar(select(User).where(User.username == "rate_limit_user"))
+        assert user is not None
+        user.is_active = True
+        session.commit()
+
+    for _ in range(5):
+        assert auth_client.post(
+            "/api/v1/auth/login",
+            json={"username": "rate_limit_user", "password": "wrong-password"},
+        ).status_code == 401
+    limited = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": "rate_limit_user", "password": "strong-password-123"},
+    )
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "900"
+    with session_factory() as session:
+        rate_limited_count = session.scalar(
+            select(func.count(AuthEvent.id)).where(
+                AuthEvent.username == "rate_limit_user",
+                AuthEvent.event_type == "login_rate_limited",
+            )
+        )
+    assert rate_limited_count == 1
+
 
 def test_customer_insight_list_filters_and_detail(
     auth_client: TestClient,
@@ -479,6 +522,7 @@ def test_customer_insight_list_filters_and_detail(
         session.flush()
         batch = ScoringBatch(
             batch_key_sha256="f" * 64,
+            reuse_key_sha256="f" * 64,
             as_of_date=date(2026, 8, 1),
             dataset_sha256="c" * 64,
             decision_policy_id=policy.id,
@@ -487,6 +531,17 @@ def test_customer_insight_list_filters_and_detail(
         )
         session.add(batch)
         session.flush()
+        backfilled_batch = ScoringBatch(
+            batch_key_sha256="9" * 64,
+            reuse_key_sha256="9" * 64,
+            as_of_date=date(2026, 7, 1),
+            dataset_sha256="8" * 64,
+            decision_policy_id=policy.id,
+            status=ModelRunStatus.SUCCEEDED.value,
+            processed_rows=2,
+            completed_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        session.add(backfilled_batch)
         runs = [
             ModelRun(
                 task=task,
@@ -572,7 +627,27 @@ def test_customer_insight_list_filters_and_detail(
             reason_codes=["below_expected_activity"],
             scored_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
         )
-        session.add_all([old_insight, latest_insight, second_customer_insight])
+        backfilled_historical_insight = CustomerInsight(
+            customer_id=customers[0].customer_id,
+            scoring_batch_id=batch.id,
+            as_of_date=date(2026, 7, 1),
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.99,
+            risk_level=RiskLevel.HIGH.value,
+            expected_transaction_count=20.0,
+            activity_gap=-30.0,
+            cluster_name="우선케어(거래 감소)",
+            recommended_action="과거 백필 결과",
+            scored_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        session.add_all([
+            old_insight,
+            latest_insight,
+            second_customer_insight,
+            backfilled_historical_insight,
+        ])
         session.commit()
         latest_insight_id = latest_insight.id
         second_insight_id = second_customer_insight.id
@@ -616,7 +691,7 @@ def test_customer_insight_list_filters_and_detail(
     assert history_response.status_code == 200
     history = history_response.json()
     assert history["customer_id"] == customer_id
-    assert len(history["items"]) == 2
+    assert len(history["items"]) == 3
     assert history["items"][0]["churn_probability"] == 0.2
 
     latest_batch_response = auth_client.get("/api/v1/model-runs/latest")
@@ -624,6 +699,7 @@ def test_customer_insight_list_filters_and_detail(
     latest_batch = latest_batch_response.json()
     assert latest_batch["status"] == "succeeded"
     assert latest_batch["scoring_batch_id"] == batch.id
+    assert latest_batch["attempt_number"] == 1
     assert latest_batch["as_of_date"] == "2026-08-01"
     assert latest_batch["decision_policy_id"] == policy.id
     assert latest_batch["processed_rows"] == 2
@@ -664,6 +740,7 @@ def test_customer_insight_list_filters_and_detail(
         marketing_user.is_active = True
         marketing_user.role = UserRole.MARKETING.value
         session.commit()
+        marketing_user_id = marketing_user.id
     assert auth_client.post(
         "/api/v1/auth/login",
         json={
@@ -685,8 +762,13 @@ def test_customer_insight_list_filters_and_detail(
     assert campaign["customer_id"] == customer_id
     assert campaign["campaign_id"] is not None
     campaign_id = campaign["campaign_id"]
-    assert campaign["campaign_status"] == "active"
+    assert campaign["campaign_status"] == "draft"
     assert campaign["converted"] is False
+    activate_campaign_response = auth_client.patch(
+        f"/api/v1/campaigns/{campaign_id}",
+        json={"status": "active"},
+    )
+    assert activate_campaign_response.status_code == 200
 
     campaigns_response = auth_client.get("/api/v1/campaigns")
     assert campaigns_response.status_code == 200
@@ -697,19 +779,19 @@ def test_customer_insight_list_filters_and_detail(
 
     second_campaign_response = auth_client.post(
         "/api/v1/campaigns",
-        json={"name": "재활성화 캠페인", "status": "active"},
+        json={"name": "재활성화 캠페인", "status": "draft"},
     )
     assert second_campaign_response.status_code == 201
-    with session_factory() as session:
-        analyst = session.scalar(
-            select(User).where(User.username == "analysis_team")
-        )
-        assert analyst is not None
+    second_campaign_id = second_campaign_response.json()["id"]
+    assert auth_client.patch(
+        f"/api/v1/campaigns/{second_campaign_id}",
+        json={"status": "active"},
+    ).status_code == 200
     duplicate_customer_response = auth_client.post(
         "/api/v1/campaign-targets",
         json={
             "customer_insight_id": latest_insight_id,
-            "campaign_id": second_campaign_response.json()["id"],
+            "campaign_id": second_campaign_id,
         },
     )
     assert duplicate_customer_response.status_code == 409
@@ -717,11 +799,48 @@ def test_customer_insight_list_filters_and_detail(
         "/api/v1/campaign-targets",
         json={
             "customer_insight_id": second_insight_id,
-            "campaign_id": second_campaign_response.json()["id"],
-            "assigned_to_user_id": analyst.id,
+            "campaign_id": second_campaign_id,
+            "assigned_to_user_id": marketing_user_id,
         },
     )
     assert invalid_assignee_response.status_code == 422
+
+    scheduled_campaign_response = auth_client.post(
+        "/api/v1/campaigns",
+        json={"name": "기간 검증 캠페인", "status": "draft"},
+    )
+    assert scheduled_campaign_response.status_code == 201
+    scheduled_campaign_id = scheduled_campaign_response.json()["id"]
+    future_start = datetime.now(timezone.utc) + timedelta(days=2)
+    future_end = future_start + timedelta(days=5)
+    scheduled_response = auth_client.patch(
+        f"/api/v1/campaigns/{scheduled_campaign_id}",
+        json={
+            "status": "scheduled",
+            "start_at": future_start.isoformat(),
+            "end_at": future_end.isoformat(),
+        },
+    )
+    assert scheduled_response.status_code == 200
+    extended_end = future_end + timedelta(days=2)
+    end_only_response = auth_client.patch(
+        f"/api/v1/campaigns/{scheduled_campaign_id}",
+        json={"end_at": extended_end.isoformat()},
+    )
+    assert end_only_response.status_code == 200
+    returned_start = datetime.fromisoformat(end_only_response.json()["start_at"])
+    if returned_start.tzinfo is None:
+        returned_start = returned_start.replace(tzinfo=timezone.utc)
+    assert returned_start == future_start
+    invalid_scheduled_date_response = auth_client.patch(
+        f"/api/v1/campaigns/{scheduled_campaign_id}",
+        json={
+            "start_at": (
+                datetime.now(timezone.utc) - timedelta(days=1)
+            ).isoformat()
+        },
+    )
+    assert invalid_scheduled_date_response.status_code == 422
 
     duplicate_campaign_response = auth_client.post(
         "/api/v1/campaign-targets",
@@ -773,6 +892,7 @@ def test_customer_insight_list_filters_and_detail(
         json={
             "status": CampaignStatus.COMPLETED.value,
             "result": "혜택 안내 완료",
+            "result_code": "not_converted",
         },
     )
     assert completed_campaign_response.status_code == 200
@@ -806,6 +926,11 @@ def test_customer_insight_list_filters_and_detail(
     )
     assert current_member["role"] == UserRole.ADMIN.value
     assert current_member["is_active"] is True
+    admin_role_change_response = auth_client.patch(
+        f"/api/v1/auth/users/{current_member['id']}",
+        json={"role": UserRole.ANALYST.value},
+    )
+    assert admin_role_change_response.status_code == 400
     analysis_member = next(
         member for member in team_members if member["username"] == "analysis_team"
     )

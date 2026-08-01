@@ -14,6 +14,7 @@ erDiagram
     USERS ||--o{ CAMPAIGN_TARGETS : assigned_to
     USERS ||--o{ CAMPAIGNS : creates
     USERS ||--o{ CAMPAIGN_EVENTS : acts
+    USERS ||--o{ AUTH_EVENTS : generates
     CUSTOMERS ||--o{ CUSTOMER_INSIGHTS : has
     CUSTOMERS ||--o{ CUSTOMER_FEATURE_SNAPSHOTS : snapshots
     CUSTOMER_FEATURE_SNAPSHOTS ||--o{ CUSTOMER_INSIGHTS : input_for
@@ -29,6 +30,8 @@ erDiagram
     USERS ||--o{ BULK_TARGETING_RUNS : requests
     CAMPAIGNS ||--o{ BULK_TARGETING_RUNS : creates
     BULK_TARGETING_RUNS ||--o{ CAMPAIGN_TARGETS : generates
+    SCORING_BATCHES ||--o{ BULK_TARGETING_RUNS : supplies
+    BULK_TARGETING_RUNS ||--o{ BULK_TARGETING_CANDIDATES : freezes
 ```
 
 ## 테이블
@@ -38,14 +41,16 @@ erDiagram
 | `users` | 팀 계정, Argon2 비밀번호 해시, 활성 여부, 업무 역할 |
 | `customers` | `CLIENTNUM`을 보존한 고객 ID와 모델 입력 특성 19개, 수신 거부·최근 접촉 정책 |
 | `customer_feature_snapshots` | 분석 당시 고객 19개 입력 특성과 특성 해시 |
-| `decision_policies` | 위험도 기준·활동성 분위수·정책 버전과 정책 SHA-256 |
-| `scoring_batches` | 분석 기준일, 데이터·정책·artifact를 묶은 배치 실행 단위 |
+| `decision_policies` | 위험도·추천 규칙 전체 JSON, 정책 버전과 정책 SHA-256 |
+| `scoring_batches` | 분석 기준일, 데이터·정책·artifact, 논리 재사용 키와 재시도 번호 |
 | `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 배치·실행 시각·상태 |
 | `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 배치·입력 스냅샷 |
 | `campaigns` | 캠페인 기본 정보·실행 기간·생명주기, A/B 정책과 비용·매출 기준 |
 | `campaign_targets` | 대상 고객, 대상군·대조군, 담당자, 처리 시각·구조화 결과·유지·매출 |
 | `campaign_events` | 캠페인·대상 생성, 담당자 배정, 상태 전이와 결과 변경 이력 |
 | `bulk_targeting_runs` | 세그먼트 일괄 타기팅 정책, 미리보기·실행·취소·재실행과 제외 집계 |
+| `bulk_targeting_candidates` | 일괄 미리보기 후보·순위·제외·선택·실행 결과 스냅샷 |
+| `auth_events` | 가입·로그인·로그아웃·계정 권한 변경 보안 감사 이벤트 |
 
 `CLIENTNUM`은 고객 조회와 테이블 연결에만 사용하며 모델 입력에는 포함하지
 않습니다. `customer_insights`는 고객별 최신 값만 덮어쓰지 않고 분석 시점별로
@@ -68,8 +73,8 @@ erDiagram
 로그인할 수 있습니다. 캠페인 생성·수정·대상 등록·세그먼트 일괄 타기팅은
 `admin`, `marketing`만 사용할 수 있습니다. 캠페인 대상 상태·담당자·처리 결과
 변경은 `admin`, `operations`가 담당하며 `analyst`는 분석·캠페인 조회만
-가능합니다. 대상 담당자는 별도로 활성 상태의 `operations` 또는 `marketing`
-역할만 지정할 수 있습니다. 수신 거부 상태 변경은 동의 데이터 보호를 위해
+가능합니다. 대상 담당자는 별도로 활성 상태의 `operations` 역할만 지정할 수
+있습니다. 수신 거부 상태 변경은 동의 데이터 보호를 위해
 관리자 전용입니다.
 
 신규 스키마에서는 `customer_insights.scoring_batch_id`가 분석 배치를,

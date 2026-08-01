@@ -247,7 +247,9 @@ function CampaignEditor({
   isCreate?: boolean;
   statusOptions?: CampaignLifecycleStatus[];
 }) {
-  const availableStatuses = statusOptions ?? (Object.keys(lifecycleLabels) as CampaignLifecycleStatus[]);
+  const availableStatuses = isCreate
+    ? (["draft"] as CampaignLifecycleStatus[])
+    : statusOptions ?? (Object.keys(lifecycleLabels) as CampaignLifecycleStatus[]);
   return (
     <form
       className="campaign-editor"
@@ -391,6 +393,7 @@ function TargetTable({
   drafts,
   assignees,
   canProcessTargets,
+  processingUser,
   onDraftChange,
   onSave,
   isSaving,
@@ -399,6 +402,7 @@ function TargetTable({
   drafts: Record<number, TargetDraft>;
   assignees: TeamMember[];
   canProcessTargets: boolean;
+  processingUser: AuthUser;
   onDraftChange: (targetId: number, draft: TargetDraft) => void;
   onSave: (targetId: number) => void;
   isSaving: number | null;
@@ -417,9 +421,21 @@ function TargetTable({
         </div>
         {data.items.map((target) => {
           const draft = drafts[target.id] ?? getTargetDraft(target);
+          const canEditTarget = canProcessTargets && (
+            processingUser.role === "admin"
+            || (
+              target.experiment_group === "treatment"
+              && (target.assigned_to_user_id === null || target.assigned_to_user_id === processingUser.id)
+            )
+          );
           const availableStatuses: CampaignStatus[] = target.experiment_group === "control"
             ? target.status === "pending" ? ["pending", "cancelled"] : [target.status]
-            : targetStatusTransitions[target.status];
+            : targetStatusTransitions[target.status].filter((status) => (
+              target.campaign_status === "active"
+              || !["contacted", "completed"].includes(status)
+            ));
+          const finalCodeRequired = draft.status === "completed"
+            && !["converted", "not_converted", "no_response", "declined", "opted_out", "invalid_contact"].includes(draft.result_code);
           return (
             <div className="campaign-target-table__row" role="row" key={target.id}>
               <div className="campaign-target-customer">
@@ -429,7 +445,7 @@ function TargetTable({
                   {target.experiment_group === "control" ? "대조군" : "대상군"}
                 </span>
               </div>
-              {canProcessTargets ? (
+              {canEditTarget ? (
                 <select
                   value={draft.status}
                   aria-label={`고객 ${target.customer_id} 처리 상태`}
@@ -442,7 +458,7 @@ function TargetTable({
               ) : (
                 <span className={`campaign-status campaign-status--${target.status}`}>{targetStatusLabels[target.status]}</span>
               )}
-              {canProcessTargets ? (
+              {canEditTarget ? (
                 <select
                   value={draft.assigned_to_user_id ?? ""}
                   disabled={target.experiment_group === "control"}
@@ -460,7 +476,7 @@ function TargetTable({
               ) : (
                 <span className="campaign-target-muted">{target.assigned_to_display_name ?? "미배정"}</span>
               )}
-              {canProcessTargets ? (
+              {canEditTarget ? (
                 <div className="campaign-target-result">
                   <input
                     value={draft.result}
@@ -474,6 +490,7 @@ function TargetTable({
                     onChange={(event) => onDraftChange(target.id, {
                       ...draft,
                       result_code: event.target.value as CampaignResultCode | "",
+                      converted: event.target.value === "converted",
                     })}
                   >
                     <option value="">코드 없음</option>
@@ -487,13 +504,19 @@ function TargetTable({
               ) : (
                 <span className="campaign-target-muted">{target.result ?? "결과 대기"}</span>
               )}
-              {canProcessTargets ? (
+              {canEditTarget ? (
                 <label className="campaign-conversion campaign-conversion--management">
                   <input
                     type="checkbox"
                     checked={draft.converted}
                     disabled={target.experiment_group === "treatment" && draft.status !== "completed"}
-                    onChange={(event) => onDraftChange(target.id, { ...draft, converted: event.target.checked })}
+                    onChange={(event) => onDraftChange(target.id, {
+                      ...draft,
+                      converted: event.target.checked,
+                      result_code: event.target.checked
+                        ? "converted"
+                        : draft.result_code === "converted" ? "not_converted" : draft.result_code,
+                    })}
                   />
                   전환
                 </label>
@@ -502,19 +525,20 @@ function TargetTable({
                   {target.converted ? "전환" : "-"}
                 </span>
               )}
-              {canProcessTargets && (
+              {canProcessTargets && (canEditTarget ? (
                 <div className="campaign-target-retention">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={draft.retained === true}
-                      onChange={(event) => onDraftChange(target.id, {
-                        ...draft,
-                        retained: event.target.checked ? true : null,
-                      })}
-                    />
-                    유지
-                  </label>
+                  <select
+                    value={draft.retained === null ? "" : String(draft.retained)}
+                    aria-label={`고객 ${target.customer_id} 유지 여부`}
+                    onChange={(event) => onDraftChange(target.id, {
+                      ...draft,
+                      retained: event.target.value === "" ? null : event.target.value === "true",
+                    })}
+                  >
+                    <option value="">미관측</option>
+                    <option value="true">유지</option>
+                    <option value="false">미유지</option>
+                  </select>
                   <input
                     type="number"
                     min={0}
@@ -525,17 +549,21 @@ function TargetTable({
                     onChange={(event) => onDraftChange(target.id, { ...draft, outcome_revenue: event.target.value })}
                   />
                 </div>
-              )}
-              {canProcessTargets && (
+              ) : (
+                <span className="campaign-target-muted">
+                  {target.retained === null ? "미관측" : target.retained ? "유지" : "미유지"}
+                </span>
+              ))}
+              {canProcessTargets && (canEditTarget ? (
                 <button
                   className="campaign-save-button"
                   type="button"
-                  disabled={isSaving === target.id}
+                  disabled={isSaving === target.id || finalCodeRequired}
                   onClick={() => onSave(target.id)}
                 >
                   {isSaving === target.id ? "저장 중" : "저장"}
                 </button>
-              )}
+              ) : <span className="campaign-target-muted">권한 없음</span>)}
             </div>
           );
         })}
@@ -749,7 +777,12 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
     void listTeamMembers()
       .then((members) => {
         if (isActive) {
-          setAssignees(members.filter((member) => member.role === "operations" || member.role === "marketing"));
+          const operationsMembers = members.filter((member) => member.role === "operations" && member.is_active);
+          setAssignees(
+            user.role === "operations"
+              ? operationsMembers.filter((member) => member.id === user.id)
+              : operationsMembers,
+          );
         }
       })
       .catch(() => {
@@ -760,7 +793,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [user.id, user.role]);
 
   const updateCampaignInList = (updated: Campaign) => {
     setCampaignData((current) => current === null ? current : {
@@ -1134,6 +1167,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
                         drafts={targetDrafts}
                         assignees={assignees}
                         canProcessTargets={canProcessTargets}
+                        processingUser={user}
                         onDraftChange={handleTargetDraftChange}
                         onSave={(targetId) => void handleSaveTarget(targetId)}
                         isSaving={savingTargetId}

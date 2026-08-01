@@ -10,6 +10,13 @@ Compose로 실행하고, 다른 노트북에서도 동일한 환경을 재현하
 모델 배치 실행과 `model_runs`·`customer_insights` 저장의 상세 명세는
 [`phase2_analysis_batch.md`](phase2_analysis_batch.md)에서 확인할 수 있습니다.
 
+운영 전 필수 정확성·보안 보완과 migration 주의사항은
+[`immediate_correctness_hardening.md`](immediate_correctness_hardening.md)에서
+확인할 수 있습니다.
+
+로컬 시연용 합성 시계열·A/B 캠페인 데이터 생성 방법은
+[`demo_data.md`](demo_data.md)에서 확인할 수 있습니다.
+
 분석 결과 조회 API의 사용법은
 [`customer_insights_api.md`](customer_insights_api.md)에서 확인할 수 있습니다.
 
@@ -111,15 +118,27 @@ docker compose exec backend python -m backend.scripts.import_customers
 정상 실행 시 `mysql`은 `healthy`, `backend`와 `frontend`는 `Up` 상태로 표시됩니다.
 
 역할별 화면을 확인하려면 일회성 로컬 DB에서만 테스트 계정 seed를 명시적으로
-허용한 뒤 Backend 컨테이너에서 생성합니다. 기본값은 비활성입니다.
+허용한 뒤 Backend 컨테이너에서 생성합니다. 비밀번호는 저장소에 없으며 로컬
+`.env`에 직접 지정해야 합니다.
+
+```env
+APP_ENV=development
+ALLOW_TEST_USER_SEEDING=true
+TEST_ADMIN_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_ANALYST_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_OPERATIONS_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_MARKETING_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+```
+
+컨테이너 환경을 갱신한 뒤 시드합니다.
 
 ```bash
-ALLOW_TEST_USER_SEEDING=true \
+docker compose up -d --force-recreate backend
 docker compose exec backend python -m backend.scripts.seed_test_users
 ```
 
-생성되는 계정은 `backend/README.md`의 테스트 계정 표에서 확인할 수 있습니다.
-이 계정들은 개발 환경 전용이며 운영 환경에서는 사용하지 않습니다.
+완료 후 `ALLOW_TEST_USER_SEEDING=false`로 되돌리고 Backend를 다시 생성합니다.
+계정 ID와 비밀번호 환경변수 대응표는 `backend/README.md`에서 확인할 수 있습니다.
 
 ## 4. 접속 주소
 
@@ -185,8 +204,12 @@ MYSQL_DATABASE=cardops
 MYSQL_USER=cardops_app
 MYSQL_PASSWORD=change-app-password
 MYSQL_PORT=3307
-JWT_SECRET=change-this-local-jwt-secret-to-at-least-32-characters
+APP_ENV=development
+JWT_SECRET=<openssl rand -hex 32로 생성한 값>
 AUTH_COOKIE_SECURE=false
+LOGIN_MAX_ATTEMPTS=5
+LOGIN_IP_MAX_ATTEMPTS=30
+LOGIN_RATE_WINDOW_SECONDS=900
 ```
 
 `.env`에는 비밀번호가 포함될 수 있으므로 커밋하지 않습니다. 저장소에는
@@ -256,7 +279,8 @@ Frontend `5173` 또는 Backend `8000`이 사용 중이면 `compose.yaml`의 호�
 Backend 시작 시 Alembic migration으로 사용자·고객·분석·캠페인 테이블을
 준비하고, Argon2로 비밀번호를 해시한 뒤 로그인 성공 시 HttpOnly JWT 쿠키를
 발급합니다. 분석 결과·이력·최신 배치 상태 조회와 캠페인 대상 업무 API도
-제공하며, 캠페인 등록·수정은 관리자·운영·마케팅 역할로 제한됩니다. 모델 분석
+제공합니다. 캠페인 기획·대상 등록은 관리자·마케팅, 실제 대상 처리와 결과 입력은
+관리자·운영 역할로 분리됩니다. 모델 분석
 결과 배치는 `phase2_analysis_batch.md`, DB 구조와 고객 적재 방법은
 [`database_schema.md`](database_schema.md)를 확인합니다.
 

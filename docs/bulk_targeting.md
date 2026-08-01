@@ -13,27 +13,35 @@
 | 중위험 재활성화 | `risk_level = medium` AND `activity_gap`이 최신 결과의 하위 20% 분위수 이하 | 활동성 갭 오름차순, 이탈 확률 내림차순 |
 | 저위험 우량군 업셀링 | `risk_level = low` AND `cluster_name = 우량(예상이상)` | 예상 거래건수 내림차순, 활동성 갭 내림차순 |
 
-모든 세그먼트는 고객별 최신 분석 결과 한 건만 사용합니다. `source_as_of_date`를
-지정하면 해당 기준일 이전의 최신 분석 결과를 선택해 과거 시점의 타기팅을
-재현할 수 있습니다. 중위험 재활성화의 분위수와 실제 계산된 threshold는
-미리보기 시 `bulk_targeting_runs.rules_json`에 고정됩니다.
+모든 세그먼트는 성공한 `scoring_batches` 한 건을 먼저 선택하고 그 배치에 속한
+분석 결과만 사용합니다. `source_as_of_date`를 지정하면 해당 기준일 이하에서 가장
+최신인 성공 배치를, `scoring_batch_id`를 지정하면 그 배치를 고정합니다. 서로 다른
+모델·정책 배치의 고객 결과가 한 미리보기에 섞이지 않습니다. 중위험 재활성화의
+분위수와 실제 계산된 threshold도 같은 배치에서 계산해
+`bulk_targeting_runs.rules_json`에 저장합니다.
 
 ## 자동 제외와 중복 방지
 
 다음 순서로 제외 사유를 분류해 집계합니다.
 
 1. `customers.marketing_opt_out = true`: 수신 거부 고객
-2. `campaign_targets`가 `pending`, `assigned`, `contacted` 상태이고 연결된
-   캠페인이 `draft`, `scheduled`, `active`, `paused`인 고객: 활성 캠페인 보유
+2. `contacted` 상태이거나 현재 세그먼트와 우선순위가 같거나 높은 활성 캠페인을
+   보유한 고객: 활성 캠페인 보유
 3. `customers.last_contacted_at`이 최근 접촉 제외 기간 안이거나, 기존 데이터의
    `contacted`·`completed` 대상 `processed_at`이 같은 기간 안인 고객: 최근 접촉
 4. 나머지만 eligible 대상
 
-실행 시에는 미리보기 결과를 그대로 신뢰하지 않고 고객 행 잠금을 획득한 뒤 같은
-조건을 다시 검사합니다. 이후 기존 캠페인 대상 생성 서비스의 활성 중복 검사도
-호출하므로 동시에 여러 배치가 실행되어도 한 고객이 두 개의 활성 캠페인에
-등록되지 않습니다. 세그먼트별 정렬 순서가 곧 우선순위이며, `max_targets`를
-초과하는 후보는 뒤 순위부터 등록하지 않습니다.
+미리보기에서 평가한 전체 후보, 제외 사유, 순위와 최종 선택 여부는
+`bulk_targeting_candidates`에 고정합니다. 실행은 DB를 다시 스캔해 다른 대상을
+선택하지 않고 이 스냅샷만 사용합니다. 다만 실행 직전에 고객 행을 잠그고 수신
+거부·최근 접촉·활성 캠페인을 재검증해 그 사이 변경된 고객은 안전하게 건너뜁니다.
+동시에 여러 배치가 실행되어도 한 고객이 두 개의 활성 캠페인에 등록되지 않습니다.
+
+자동 캠페인 우선순위는 고위험 리텐션, 중위험 재활성화, 저위험 업셀링 순입니다.
+상위 캠페인은 아직 접촉하지 않은 하위 자동 캠페인 대상을 취소하고 대체할 수
+있습니다. 이미 접촉한 대상, 동급·상위 대상, 수동·미분류 캠페인은 자동으로
+취소하지 않습니다. `max_targets`를 초과하는 후보는 정렬 후 뒤 순위부터 선택하지
+않습니다.
 
 `contacted` 또는 `completed`로 대상이 처리되면 `customers.last_contacted_at`이
 자동 갱신됩니다. 수신 거부 상태는 `admin`만 변경할 수 있고, 신규 고객의 기본값은
@@ -80,10 +88,12 @@ POST /api/v1/campaign-targeting/preview
   "recent_contact_days": 30,
   "activity_gap_quantile": 0.2,
   "max_targets": 500,
-  "source_as_of_date": "2026-08-01"
+  "source_as_of_date": "2026-08-01",
+  "scoring_batch_id": 12
 }
 ```
 
+`scoring_batch_id`는 선택값이며 생략하면 기준일 이하 최신 성공 배치를 사용합니다.
 응답에는 `eligible_count`, `preview_count`, `skipped_active_campaign_count`,
 `skipped_recent_contact_count`, `skipped_opt_out_count`, 그리고 최대 대상 수까지의
 `items`가 포함됩니다. `rules`에는 실제 적용된 activity-gap threshold가 포함되어
@@ -124,8 +134,8 @@ PATCH /api/v1/customers/{customer_id}/contact-preferences
 
 ## 데이터 구조
 
-Alembic `20260801_0007`에서 다음을 추가했고, 성과 측정 확장은
-`20260801_0008`에서 연결했습니다.
+Alembic `20260801_0007`에서 실행 기반을 추가했고, 성과 측정은
+`20260801_0008`, 재현성 보완은 `20260802_0009`에서 연결했습니다.
 
 | 변경 | 내용 |
 |---|---|
@@ -133,14 +143,17 @@ Alembic `20260801_0007`에서 다음을 추가했고, 성과 측정 확장은
 | `customers.last_contacted_at` | 최근 접촉 자동 기록 시각 |
 | `bulk_targeting_runs` | 세그먼트·정책 JSON·실행 상태·제외 집계·재실행 계보 |
 | `campaign_targets.bulk_targeting_run_id` | 대상이 어느 일괄 타기팅에서 생성됐는지 연결 |
+| `bulk_targeting_runs.scoring_batch_id` | 후보 산출에 사용한 성공 분석 배치 |
+| `bulk_targeting_candidates` | 미리보기 당시 후보·순위·제외·선택·실행 결과 스냅샷 |
 
 `rules_json`에는 세그먼트, 캠페인 정보, 최근 접촉 기간, 분위수,
 activity-gap threshold, 우량군 이름, 최대 대상 수, 기준일, A/B 대조군 비율,
 비용·매출 정책과 유지 관측 기간이 저장됩니다. 따라서
 후속 정책이 변경되어도 과거 실행 배치의 의사결정 근거를 확인할 수 있습니다.
+실험 seed 원문은 API에 노출하지 않고 배정 정책 버전과 seed hash만 반환합니다.
 
 일괄 타기팅 실행 시 캠페인의 A/B 정책이 대상 등록에 적용됩니다. 대조군은
-담당자 배정 없이 `pending`으로 남고, 대상군만 운영·마케팅 담당자에게 배정됩니다.
+담당자 배정 없이 `pending`으로 남고, 대상군만 활성 운영팀 담당자에게 배정됩니다.
 성과 지표 계산 기준은 [`campaign_performance.md`](campaign_performance.md)에
 정리되어 있습니다.
 

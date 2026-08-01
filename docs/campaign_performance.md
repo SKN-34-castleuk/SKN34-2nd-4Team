@@ -21,15 +21,18 @@
 ## A/B 그룹 배정
 
 캠페인의 `experiment_enabled`가 true이고 `control_group_ratio`가 0보다 크면
-대상 등록 시 다음 값을 입력으로 SHA-256 해시를 계산합니다.
+신규 캠페인은 대상 등록 시 다음 값을 입력으로 SHA-256 해시를 계산합니다.
 
 ```text
-experiment_seed : campaign_id : customer_id
+experiment_seed : customer_id
 ```
 
 해시를 0부터 1 사이의 bucket으로 변환하고, bucket이 `control_group_ratio`보다
-작으면 대조군으로 배정합니다. 그 외에는 대상군으로 배정합니다. 따라서 같은
-캠페인·seed·고객 조합은 재시도해도 같은 그룹에 배정됩니다.
+작으면 대조군으로 배정합니다. 그 외에는 대상군으로 배정합니다. 일괄 타기팅을
+취소하고 새 캠페인으로 재실행해도 같은 seed·고객은 같은 그룹을 유지합니다.
+기존 캠페인은 과거 배정을 바꾸지 않도록 `seed : campaign_id : customer_id`
+방식(`sha256_campaign_customer_v1`)을 유지하고, 신규 캠페인은
+`sha256_seed_customer_v1`을 사용합니다.
 
 대조군은 실제 접촉하지 않는 기준 집단입니다.
 
@@ -39,9 +42,8 @@ experiment_seed : campaign_id : customer_id
 - 대상군은 기존 업무 흐름인 `pending → assigned → contacted → completed`를
   따릅니다.
 - A/B 테스트를 사용하지 않는 캠페인은 모든 대상이 대상군입니다.
-- 캠페인 실행 이후 seed와 그룹 정책을 바꾸지 않아야 실험 결과가 훼손되지
-  않습니다. API는 seed 변경을 제공하지만, 이미 대상이 생성된 캠페인은 운영
-  정책상 변경하지 않는 것을 권장합니다.
+- 대상이 한 건이라도 생성되면 실험 여부, 대조군 비율, seed, 세그먼트와 재무
+  정책은 서버에서 변경을 차단합니다.
 
 ## 구조화된 결과 코드
 
@@ -86,15 +88,18 @@ API가 반환하고 화면은 백분율로 표시합니다.
 
 ### 유지율
 
-유지 여부를 아직 관측하지 않은 대상은 유지율 분모에서 제외합니다.
+유지 여부를 아직 관측하지 않은 대상은 유지율 분모에서 제외합니다. 대상군은
+완료 시각, 대조군은 캠페인 시작 시각(없으면 대상 생성 시각)부터
+`retention_window_days`가 지난 뒤에만 관측 가능한 대상으로 인정합니다.
 
 ```text
 유지율 = retained = true인 대상 수 / retained가 기록된 대상 수
+유지 관측률 = retained가 기록된 관측 수 / 관측 기간이 성숙한 대상 수
 ```
 
-`retention_window_days`는 운영자가 유지 여부를 확인할 기준 기간을 보존하는
-정책 값입니다. 실제 유지 결과가 기록되기 전까지는 `retention_rate = null`이 될
-수 있습니다. 대상군과 대조군의 유지율도 같은 방식으로 계산합니다.
+API는 `retention_eligible_count`, `retention_observed_count`,
+`retention_observation_rate`를 함께 반환합니다. 관측 기간 전 입력은 거부하며,
+실제 유지 결과가 없으면 `retention_rate = null`일 수 있습니다.
 
 ### 증분효과
 
@@ -114,19 +119,25 @@ API가 반환하고 화면은 백분율로 표시합니다.
 
 | 필드 | 계산 기준 |
 |---|---|
-| `fixed_cost` | 성과 집합에 포함된 캠페인마다 한 번 더함 |
+| `fixed_cost` | 캠페인마다 한 번 더함. 담당자 비교에서는 전체 대상 수 비율로 배분 |
 | `cost_per_contact` | 실제 접촉 대상 수마다 더함 |
 | `revenue_per_conversion` | 개별 `outcome_revenue`가 없을 때 전환마다 적용 |
 | `outcome_revenue` | 대상별 실제 매출. 입력되면 캠페인 기본 매출보다 우선 |
 
 ```text
 총 비용 = 캠페인별 고정 비용 합계 + 접촉 대상별 접촉 비용 합계
-총 매출 = 대상별 실제 매출 또는 전환당 기본 매출의 합계
-ROI = (총 매출 - 총 비용) / 총 비용
+관측 매출 = 대상군·대조군에서 관측한 전환 매출 합계
+증분 전환 수 = 대상군 전환 수 - 대조군 전환율 × 대상군 수
+증분 매출 = 증분 전환 수 × 대상군 평균 전환 가치
+증분 ROI = (증분 매출 - 총 비용) / 총 비용
 ```
 
-총 비용이 0이면 ROI는 `null`입니다. 음수 비용·매출 입력은 API와 데이터베이스
-제약으로 차단합니다.
+대조군이 없으면 대상군 관측 매출을 증분 매출로 사용합니다. 대조군의 자연 전환
+매출은 `observed_revenue`에는 보이지만 캠페인 귀속 매출과 ROI에는 넣지 않습니다.
+담당자 필터·비교는 대조군이 특정 담당자에게 배정되지 않더라도 해당 캠페인 전체
+대조군 전환율을 기준선으로 사용합니다.
+총 비용이 0이면 ROI는 `null`입니다. 음수 비용·매출 입력은 차단하며 금액 컬럼은
+`NUMERIC(18, 2)`로 저장합니다.
 
 ## API
 
@@ -187,13 +198,14 @@ PATCH /api/v1/campaign-targets/101
   "status": "completed",
   "result_code": "converted",
   "converted": true,
-  "retained": true,
   "outcome_revenue": 42000
 }
 ```
 
-대상군은 완료 전 전환·유지 처리할 수 없습니다. 대조군은 접촉 상태로 변경할
-수 없지만 자연 발생한 전환·유지 관측값은 기록할 수 있습니다. 모든 변경은
+유지 관측 기간이 지난 뒤에는 별도 PATCH로 `{"retained": true}` 또는
+`{"retained": false}`를 기록합니다. 대상군은 완료 전 전환·유지 처리할 수
+없습니다. 대조군은 접촉 상태로 변경할 수 없지만 자연 발생한 전환·유지 관측값은
+관리자가 기록할 수 있습니다. 모든 변경은
 `campaign_events`의 구조화된 metadata에 결과 코드, 전환 여부, 유지 여부,
 매출, 실험 그룹과 함께 남습니다.
 
@@ -212,7 +224,9 @@ Alembic `20260801_0008`이 다음을 추가합니다.
 | `campaign_targets` | `retained`, `retention_checked_at` | 유지 결과와 관측 시점 |
 | `campaign_targets` | `outcome_revenue` | 고객별 실제 매출 |
 
-기존 캠페인 대상은 `experiment_group = treatment`, 비용은 0, 유지 여부는
+`20260802_0009`는 A/B 배정 알고리즘 버전과 `NUMERIC(18, 2)` 금액 타입을,
+`20260802_0010`은 MySQL 금액 컬럼의 서버 기본값 `0`을 추가합니다. 기존 캠페인
+대상은 `experiment_group = treatment`, 비용은 0, 유지 여부는
 미관측(`NULL`)으로 backfill됩니다. 기존 결과 코드 제약은 구조화된 `contacted`,
 `opted_out`를 포함하도록 확장됩니다.
 

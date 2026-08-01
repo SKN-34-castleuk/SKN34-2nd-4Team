@@ -43,6 +43,7 @@ def _latest_query() -> Select[tuple[CustomerInsight]]:
             .over(
                 partition_by=CustomerInsight.customer_id,
                 order_by=(
+                    desc(CustomerInsight.as_of_date),
                     desc(CustomerInsight.scored_at),
                     desc(CustomerInsight.id),
                 ),
@@ -154,6 +155,10 @@ def fetch_customer_insight_history(
     return db.scalars(
         select(CustomerInsight)
         .where(CustomerInsight.customer_id == customer_id)
-        .order_by(CustomerInsight.scored_at.desc(), CustomerInsight.id.desc())
+        .order_by(
+            CustomerInsight.as_of_date.desc(),
+            CustomerInsight.scored_at.desc(),
+            CustomerInsight.id.desc(),
+        )
         .limit(limit)
     ).all()

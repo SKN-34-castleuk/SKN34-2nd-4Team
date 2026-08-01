@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..enums import CampaignStatus, ExperimentGroup
@@ -22,7 +22,9 @@ class PerformanceMetrics:
     contacted_count: int
     converted_count: int
     retained_count: int
+    retention_eligible_count: int
     retention_observed_count: int
+    retention_observation_rate: float | None
     contact_rate: float
     conversion_rate: float
     retention_rate: float | None
@@ -34,7 +36,10 @@ class PerformanceMetrics:
     control_retention_rate: float | None
     incremental_conversion_effect: float | None
     incremental_retention_effect: float | None
+    incremental_conversions: float
     total_cost: float
+    observed_revenue: float
+    incremental_revenue: float
     total_revenue: float
     roi: float | None
 
@@ -44,6 +49,7 @@ class PerformanceRow:
     target: CampaignTarget
     campaign: Campaign
     assignee_label: str | None
+    fixed_cost_share: float = 0.0
 
 
 def _rate(numerator: int, denominator: int) -> float:
@@ -86,6 +92,82 @@ def _is_converted(target: CampaignTarget) -> bool:
     return bool(target.converted or target.result_code == "converted")
 
 
+def _utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _retention_is_eligible(row: PerformanceRow, now: datetime) -> bool:
+    """치료군 완료일 또는 대조군 관측 시작일로 유지 관측 성숙 여부를 판단합니다."""
+    anchor = (
+        row.target.completed_at
+        if row.target.experiment_group != ExperimentGroup.CONTROL.value
+        else (row.campaign.start_at or row.target.created_at)
+    )
+    if anchor is None:
+        return False
+    return now >= _utc(anchor) + timedelta(days=row.campaign.retention_window_days)
+
+
+def _conversion_revenue(row: PerformanceRow) -> float:
+    if not _is_converted(row.target):
+        return 0.0
+    return float(
+        row.target.outcome_revenue
+        if row.target.outcome_revenue is not None
+        else row.campaign.revenue_per_conversion
+    )
+
+
+def _incremental_financials(
+    rows: list[PerformanceRow],
+    benchmark_rows: list[PerformanceRow] | None = None,
+) -> tuple[float, float]:
+    """대조군 자연 전환을 제외한 증분 전환 수와 귀속 매출을 계산합니다."""
+    incremental_conversions = 0.0
+    incremental_revenue = 0.0
+    grouped = _group_rows(rows, lambda row: str(row.campaign.id))
+    benchmark_grouped = _group_rows(
+        benchmark_rows if benchmark_rows is not None else rows,
+        lambda row: str(row.campaign.id),
+    )
+    for campaign_rows in grouped.values():
+        campaign = campaign_rows[0].campaign
+        treatment_rows = [
+            row
+            for row in campaign_rows
+            if row.target.experiment_group != ExperimentGroup.CONTROL.value
+        ]
+        control_rows = [
+            row
+            for row in benchmark_grouped.get(str(campaign.id), campaign_rows)
+            if row.target.experiment_group == ExperimentGroup.CONTROL.value
+        ]
+        treatment_converted = sum(_is_converted(row.target) for row in treatment_rows)
+        treatment_revenue = sum(_conversion_revenue(row) for row in treatment_rows)
+        if campaign.experiment_enabled and treatment_rows and control_rows:
+            control_rate = _rate(
+                sum(_is_converted(row.target) for row in control_rows),
+                len(control_rows),
+            )
+            campaign_incremental_conversions = (
+                treatment_converted - control_rate * len(treatment_rows)
+            )
+            average_conversion_value = (
+                treatment_revenue / treatment_converted
+                if treatment_converted
+                else float(campaign.revenue_per_conversion or 0.0)
+            )
+            campaign_incremental_revenue = (
+                campaign_incremental_conversions * average_conversion_value
+            )
+        else:
+            campaign_incremental_conversions = float(treatment_converted)
+            campaign_incremental_revenue = treatment_revenue
+        incremental_conversions += campaign_incremental_conversions
+        incremental_revenue += campaign_incremental_revenue
+    return incremental_conversions, incremental_revenue
+
+
 def _group_rows(rows: Iterable[PerformanceRow], key_fn):
     grouped: dict[str, list[PerformanceRow]] = defaultdict(list)
     for row in rows:
@@ -93,7 +175,12 @@ def _group_rows(rows: Iterable[PerformanceRow], key_fn):
     return grouped
 
 
-def calculate_metrics(rows: list[PerformanceRow]) -> PerformanceMetrics:
+def calculate_metrics(
+    rows: list[PerformanceRow],
+    *,
+    now: datetime | None = None,
+    benchmark_rows: list[PerformanceRow] | None = None,
+) -> PerformanceMetrics:
     """대상 행 집합에 동일한 성과·비용 계산을 적용합니다."""
     target_count = len(rows)
     treatment_rows = [
@@ -109,32 +196,50 @@ def calculate_metrics(rows: list[PerformanceRow]) -> PerformanceMetrics:
 
     contacted_rows = [row for row in rows if _is_contacted(row.target)]
     converted_rows = [row for row in rows if _is_converted(row.target)]
-    retained_rows = [row for row in rows if row.target.retained is True]
-    observed_retention_rows = [row for row in rows if row.target.retained is not None]
+    current = now or datetime.now(timezone.utc)
+    eligible_retention_rows = [
+        row for row in rows if _retention_is_eligible(row, current)
+    ]
+    observed_retention_rows = [
+        row for row in eligible_retention_rows if row.target.retained is not None
+    ]
+    retained_rows = [row for row in observed_retention_rows if row.target.retained is True]
 
     treatment_contacted = sum(_is_contacted(row.target) for row in treatment_rows)
     control_contacted = sum(_is_contacted(row.target) for row in control_rows)
     treatment_converted = sum(_is_converted(row.target) for row in treatment_rows)
     control_converted = sum(_is_converted(row.target) for row in control_rows)
-    treatment_retained = sum(row.target.retained is True for row in treatment_rows)
-    control_retained = sum(row.target.retained is True for row in control_rows)
-    treatment_observed = sum(row.target.retained is not None for row in treatment_rows)
-    control_observed = sum(row.target.retained is not None for row in control_rows)
+    treatment_eligible = [
+        row for row in treatment_rows if _retention_is_eligible(row, current)
+    ]
+    control_eligible = [
+        row for row in control_rows if _retention_is_eligible(row, current)
+    ]
+    treatment_observed_rows = [
+        row for row in treatment_eligible if row.target.retained is not None
+    ]
+    control_observed_rows = [
+        row for row in control_eligible if row.target.retained is not None
+    ]
+    treatment_retained = sum(row.target.retained is True for row in treatment_observed_rows)
+    control_retained = sum(row.target.retained is True for row in control_observed_rows)
+    treatment_observed = len(treatment_observed_rows)
+    control_observed = len(control_observed_rows)
 
-    unique_campaigns = {row.campaign.id: row.campaign for row in rows}
-    total_cost = sum(float(campaign.fixed_cost or 0.0) for campaign in unique_campaigns.values())
+    total_cost = sum(row.fixed_cost_share for row in rows)
     total_cost += sum(
         float(row.campaign.cost_per_contact or 0.0) for row in contacted_rows
     )
-    total_revenue = sum(
-        float(
-            row.target.outcome_revenue
-            if row.target.outcome_revenue is not None
-            else row.campaign.revenue_per_conversion
-        )
-        for row in converted_rows
+    observed_revenue = sum(_conversion_revenue(row) for row in rows)
+    incremental_conversions, incremental_revenue = _incremental_financials(
+        rows,
+        benchmark_rows,
     )
-    roi = (total_revenue - total_cost) / total_cost if total_cost > 0 else None
+    roi = (
+        (incremental_revenue - total_cost) / total_cost
+        if total_cost > 0
+        else None
+    )
 
     treatment_conversion_rate = _optional_rate(
         treatment_converted,
@@ -150,7 +255,12 @@ def calculate_metrics(rows: list[PerformanceRow]) -> PerformanceMetrics:
         contacted_count=len(contacted_rows),
         converted_count=len(converted_rows),
         retained_count=len(retained_rows),
+        retention_eligible_count=len(eligible_retention_rows),
         retention_observed_count=len(observed_retention_rows),
+        retention_observation_rate=_optional_rate(
+            len(observed_retention_rows),
+            len(eligible_retention_rows),
+        ),
         contact_rate=_rate(len(contacted_rows), target_count),
         conversion_rate=_rate(len(converted_rows), target_count),
         retention_rate=_optional_rate(len(retained_rows), len(observed_retention_rows)),
@@ -172,8 +282,11 @@ def calculate_metrics(rows: list[PerformanceRow]) -> PerformanceMetrics:
             and control_retention_rate is not None
             else None
         ),
+        incremental_conversions=incremental_conversions,
         total_cost=total_cost,
-        total_revenue=total_revenue,
+        observed_revenue=observed_revenue,
+        incremental_revenue=incremental_revenue,
+        total_revenue=incremental_revenue,
         roi=roi,
     )
 
@@ -200,13 +313,35 @@ def fetch_performance_rows(
         query = query.where(
             CampaignTarget.assigned_to_user_id == assigned_to_user_id
         )
+    raw_rows = db.execute(query).all()
+    campaign_ids = {campaign.id for _target, campaign, _assignee in raw_rows}
+    campaign_target_counts: dict[int, int] = {}
+    if campaign_ids:
+        count_rows = db.execute(
+            select(CampaignTarget.campaign_id, func.count(CampaignTarget.id))
+            .where(
+                CampaignTarget.campaign_id.in_(campaign_ids),
+                CampaignTarget.status != CampaignStatus.CANCELLED.value,
+            )
+            .group_by(CampaignTarget.campaign_id)
+        ).all()
+        campaign_target_counts = {
+            int(row_campaign_id): int(count)
+            for row_campaign_id, count in count_rows
+        }
     rows: list[PerformanceRow] = []
-    for target, campaign, assignee in db.execute(query).all():
+    for target, campaign, assignee in raw_rows:
+        campaign_target_count = campaign_target_counts.get(campaign.id, 0)
         rows.append(
             PerformanceRow(
                 target=target,
                 campaign=campaign,
                 assignee_label=assignee.display_name if assignee is not None else None,
+                fixed_cost_share=(
+                    float(campaign.fixed_cost or 0.0) / campaign_target_count
+                    if campaign_target_count
+                    else 0.0
+                ),
             )
         )
     return rows
@@ -216,6 +351,7 @@ def build_performance_breakdowns(
     rows: list[PerformanceRow],
     *,
     dimension: str,
+    benchmark_rows: list[PerformanceRow] | None = None,
 ) -> list[dict[str, object]]:
     """세그먼트·캠페인·담당자별 비교 응답을 만듭니다."""
     if dimension == "campaign":
@@ -253,7 +389,7 @@ def build_performance_breakdowns(
     result: list[dict[str, object]] = []
     for key in sorted(grouped):
         group = grouped[key]
-        metrics = calculate_metrics(group)
+        metrics = calculate_metrics(group, benchmark_rows=benchmark_rows)
         result.append(
             {
                 **metrics.__dict__,
@@ -273,16 +409,37 @@ def get_campaign_performance(
     assigned_to_user_id: int | None = None,
 ) -> dict[str, object]:
     """요약과 세 가지 비교 차원을 한 번에 반환합니다."""
-    rows = fetch_performance_rows(
+    benchmark_rows = fetch_performance_rows(
         db,
         campaign_id=campaign_id,
         segment_code=segment_code,
-        assigned_to_user_id=assigned_to_user_id,
+        assigned_to_user_id=None,
+    )
+    rows = (
+        [
+            row
+            for row in benchmark_rows
+            if row.target.assigned_to_user_id == assigned_to_user_id
+        ]
+        if assigned_to_user_id is not None
+        else benchmark_rows
     )
     return {
-        "summary": calculate_metrics(rows),
-        "by_campaign": build_performance_breakdowns(rows, dimension="campaign"),
-        "by_segment": build_performance_breakdowns(rows, dimension="segment"),
-        "by_assignee": build_performance_breakdowns(rows, dimension="assignee"),
+        "summary": calculate_metrics(rows, benchmark_rows=benchmark_rows),
+        "by_campaign": build_performance_breakdowns(
+            rows,
+            dimension="campaign",
+            benchmark_rows=benchmark_rows,
+        ),
+        "by_segment": build_performance_breakdowns(
+            rows,
+            dimension="segment",
+            benchmark_rows=benchmark_rows,
+        ),
+        "by_assignee": build_performance_breakdowns(
+            rows,
+            dimension="assignee",
+            benchmark_rows=benchmark_rows,
+        ),
         "generated_at": datetime.now(timezone.utc),
     }
