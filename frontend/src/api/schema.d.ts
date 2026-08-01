@@ -64,10 +64,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 팀 계정 회원가입
+         * @description 새 팀 계정을 만들고 사용자 정보를 반환합니다.
+         */
+        post: operations["signup_api_v1_auth_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 팀 계정 로그인
+         * @description 자격 증명을 검증하고 HttpOnly 세션 쿠키를 발급합니다.
+         */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 현재 로그인 사용자 조회
+         * @description 현재 인증 쿠키에 연결된 사용자 정보를 반환합니다.
+         */
+        get: operations["me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 로그아웃
+         * @description 브라우저의 인증 쿠키를 삭제합니다.
+         */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AuthResponse
+         * @description 회원가입·로그인 성공 응답입니다.
+         */
+        AuthResponse: {
+            user: components["schemas"]["UserResponse"];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -110,6 +197,21 @@ export interface components {
             service: string;
             /** Version */
             version: string;
+        };
+        /**
+         * LoginRequest
+         * @description 팀 계정 로그인 요청입니다.
+         */
+        LoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+            /**
+             * Remember Me
+             * @default false
+             */
+            remember_me: boolean;
         };
         /**
          * PredictionRequest
@@ -188,6 +290,42 @@ export interface components {
             /** Model Version */
             model_version: string;
         };
+        /**
+         * SignupRequest
+         * @description 팀 계정 회원가입 요청입니다.
+         */
+        SignupRequest: {
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            /** Password */
+            password: string;
+        };
+        /**
+         * UserResponse
+         * @description 외부에 공개할 수 있는 사용자 정보입니다.
+         */
+        UserResponse: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            role: components["schemas"]["UserRole"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * UserRole
+         * @description CardOps 팀 사용자의 업무 역할입니다.
+         * @enum {string}
+         */
+        UserRole: "admin" | "analyst" | "operations" | "marketing";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -280,6 +418,110 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    signup_api_v1_auth_signup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

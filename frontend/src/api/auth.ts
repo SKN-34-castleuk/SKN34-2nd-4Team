@@ -4,6 +4,7 @@ export type AuthUser = {
   id: number;
   username: string;
   display_name: string;
+  role: "admin" | "analyst" | "operations" | "marketing";
   created_at: string;
 };
 

@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from backend.app.migration_runner import upgrade_database
 from backend.app.model_registry import ModelLoadError, ModelRegistry
 from backend.app.schemas import PREDICTION_FIELD_MAP
 
@@ -203,6 +204,7 @@ def auth_client(
     """SQLite 임시 DB를 사용하는 인증 API TestClient를 제공합니다."""
     database_path = tmp_path_factory.mktemp("auth") / "auth.sqlite3"
     database_url = f"sqlite:///{database_path}"
+    upgrade_database(database_url)
     with TestClient(
         create_app(
             model_dir=model_dir,
@@ -332,6 +334,7 @@ def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
 
     assert signup_response.status_code == 201
     assert signup_response.json()["user"]["username"] == "analysis_team"
+    assert signup_response.json()["user"]["role"] == "operations"
     assert "password" not in signup_response.json()["user"]
 
     duplicate_response = auth_client.post(

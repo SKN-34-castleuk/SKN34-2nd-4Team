@@ -34,6 +34,7 @@ services:
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - ./outputs/models:/app/outputs/models:ro
+      - ./data:/app/data:ro
     depends_on:
       mysql:
         condition: service_healthy
