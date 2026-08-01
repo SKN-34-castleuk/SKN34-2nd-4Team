@@ -20,7 +20,8 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sqlalchemy import func, insert, select
+from sqlalchemy import desc, func, insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import PROJECT_ROOT, get_model_dir
@@ -50,6 +51,24 @@ REGRESSION_DROP_COLUMNS = {
 DECISION_POLICY_VERSION = "activity-gap-v2"
 DEFAULT_ACTIVITY_GAP_QUANTILE = 0.2
 SNAPSHOT_ATTRIBUTE_NAMES = tuple(PREDICTION_FIELD_MAP.keys())
+DECISION_POLICY_RULES = {
+    "cluster_label_strategy": "activity_gap_rank_v1",
+    "reason_rules": {
+        "transaction_count": "batch_median_or_lower",
+        "transaction_decline_cap": 0.7,
+        "long_inactivity_months": 3,
+        "frequent_contacts_count": 3,
+        "low_relationship_count": 2,
+    },
+    "recommended_actions": {
+        "high_negative_gap": "이탈 위험 우선 상담 및 거래 활성화 혜택",
+        "high": "이탈 위험 고객 상담 및 관계 유지",
+        "priority_activity_gap": "저활동 고객 재활성화 캠페인",
+        "low_premium_cluster": "우량 고객 업셀링 검토",
+        "default": "일반 유지 관리",
+    },
+    "regression_input_contract": "activity_gap_v1",
+}
 
 
 @dataclass(frozen=True)
@@ -67,6 +86,7 @@ class BatchSummary:
     decision_policy_sha256: str
     risk_counts: dict[str, int]
     cluster_counts: dict[str, int]
+    attempt_number: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         """CLI에서 출력할 수 있는 JSON 직렬화용 딕셔너리입니다."""
@@ -117,7 +137,9 @@ def _dataset_hash() -> str | None:
     return None
 
 
-def _customer_feature_values(customer: Customer) -> dict[str, Any]:
+def _customer_feature_values(
+    customer: Customer | CustomerFeatureSnapshot,
+) -> dict[str, Any]:
     """고객 ORM 객체에서 모델 입력에 해당하는 snake_case 값을 추출합니다."""
     return {
         attribute: getattr(customer, attribute)
@@ -140,7 +162,9 @@ def _feature_sha256(values: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(values)).hexdigest()
 
 
-def _customer_dataset_hash(customers: list[Customer]) -> str:
+def _customer_dataset_hash(
+    customers: list[Customer | CustomerFeatureSnapshot],
+) -> str:
     """현재 DB 고객 특성 전체의 정렬·정규화된 해시를 반환합니다."""
     digest = hashlib.sha256()
     for customer in customers:
@@ -151,21 +175,36 @@ def _customer_dataset_hash(customers: list[Customer]) -> str:
     return digest.hexdigest()
 
 
+def _decision_policy_payload(
+    *,
+    medium_threshold: float,
+    high_threshold: float,
+    activity_gap_quantile: float,
+) -> dict[str, Any]:
+    """결과에 영향을 주는 임계값·라벨·액션 규칙 전체를 정규화합니다."""
+    return {
+        "version": DECISION_POLICY_VERSION,
+        "medium_threshold": medium_threshold,
+        "high_threshold": high_threshold,
+        "activity_gap_quantile": activity_gap_quantile,
+        **DECISION_POLICY_RULES,
+    }
+
+
 def _decision_policy_sha256(
     *,
     medium_threshold: float,
     high_threshold: float,
     activity_gap_quantile: float,
 ) -> str:
-    """위험도와 추천 액션 정책의 버전을 해시합니다."""
+    """결과에 영향을 주는 의사결정 정책 전체를 해시합니다."""
     return hashlib.sha256(
         _canonical_json(
-            {
-                "version": DECISION_POLICY_VERSION,
-                "medium_threshold": medium_threshold,
-                "high_threshold": high_threshold,
-                "activity_gap_quantile": activity_gap_quantile,
-            }
+            _decision_policy_payload(
+                medium_threshold=medium_threshold,
+                high_threshold=high_threshold,
+                activity_gap_quantile=activity_gap_quantile,
+            )
         )
     ).hexdigest()
 
@@ -198,6 +237,30 @@ def _batch_key_sha256(
     ).hexdigest()
 
 
+def _next_batch_attempt(
+    session: Session,
+    reuse_key_sha256: str,
+) -> tuple[int, str]:
+    """논리적으로 같은 배치의 다음 시도 번호와 고유 실행 키를 생성합니다."""
+    previous_attempt = int(
+        session.scalar(
+            select(func.max(ScoringBatch.attempt_number)).where(
+                ScoringBatch.reuse_key_sha256 == reuse_key_sha256
+            )
+        )
+        or 0
+    )
+    attempt_number = previous_attempt + 1
+    execution_key = (
+        reuse_key_sha256
+        if attempt_number == 1
+        else hashlib.sha256(
+            f"{reuse_key_sha256}:{attempt_number}".encode("utf-8")
+        ).hexdigest()
+    )
+    return attempt_number, execution_key
+
+
 def _get_or_create_decision_policy(
     session: Session,
     *,
@@ -205,6 +268,7 @@ def _get_or_create_decision_policy(
     medium_threshold: float,
     high_threshold: float,
     activity_gap_quantile: float,
+    policy_json: dict[str, Any],
 ) -> DecisionPolicy:
     """동일 정책은 하나의 immutable registry 행으로 재사용합니다."""
     policy = session.scalar(
@@ -213,15 +277,27 @@ def _get_or_create_decision_policy(
         )
     )
     if policy is None:
-        policy = DecisionPolicy(
+        candidate = DecisionPolicy(
             version=DECISION_POLICY_VERSION,
             policy_sha256=policy_sha256,
             medium_threshold=medium_threshold,
             high_threshold=high_threshold,
             activity_gap_quantile=activity_gap_quantile,
+            policy_json=policy_json,
         )
-        session.add(policy)
-        session.flush()
+        try:
+            with session.begin_nested():
+                session.add(candidate)
+                session.flush()
+            policy = candidate
+        except IntegrityError:
+            policy = session.scalar(
+                select(DecisionPolicy).where(
+                    DecisionPolicy.policy_sha256 == policy_sha256
+                )
+            )
+            if policy is None:
+                raise
     return policy
 
 
@@ -268,7 +344,47 @@ def _ensure_feature_snapshots(
     return snapshots
 
 
-def _customer_frame(customers: list[Customer]) -> tuple[pd.DataFrame, pd.Series]:
+def _load_historical_feature_snapshots(
+    session: Session,
+    *,
+    as_of_date: date,
+) -> list[CustomerFeatureSnapshot]:
+    """요청 기준일에 실제로 보존된 고객 특성만 과거 재분석 입력으로 사용합니다."""
+    ranked = (
+        select(
+            CustomerFeatureSnapshot.id.label("snapshot_id"),
+            func.row_number()
+            .over(
+                partition_by=CustomerFeatureSnapshot.customer_id,
+                order_by=(
+                    desc(CustomerFeatureSnapshot.as_of_at),
+                    desc(CustomerFeatureSnapshot.id),
+                ),
+            )
+            .label("row_number"),
+        )
+        .where(CustomerFeatureSnapshot.as_of_date == as_of_date)
+        .subquery()
+    )
+    snapshots = list(
+        session.scalars(
+            select(CustomerFeatureSnapshot)
+            .join(ranked, ranked.c.snapshot_id == CustomerFeatureSnapshot.id)
+            .where(ranked.c.row_number == 1)
+            .order_by(CustomerFeatureSnapshot.customer_id)
+        ).all()
+    )
+    if not snapshots:
+        raise ValueError(
+            "Historical scoring requires immutable customer feature snapshots "
+            f"for as_of_date={as_of_date.isoformat()}."
+        )
+    return snapshots
+
+
+def _customer_frame(
+    customers: list[Customer | CustomerFeatureSnapshot],
+) -> tuple[pd.DataFrame, pd.Series]:
     """ORM 고객 목록을 모델 원본 컬럼명을 가진 DataFrame으로 변환합니다."""
     records: list[dict[str, Any]] = []
     customer_ids: list[int] = []
@@ -386,17 +502,21 @@ def _reusable_snapshot(
     session: Session,
     *,
     processed_rows: int,
-    batch_key_sha256: str,
+    reuse_key_sha256: str,
     run_specs: list[dict[str, Any]],
 ) -> BatchSummary | None:
-    """동일 배치 key로 이미 완성된 scoring batch를 재사용합니다."""
+    """동일 입력·정책·artifact로 이미 완성된 scoring batch를 재사용합니다."""
     batch = session.scalar(
         select(ScoringBatch)
         .where(
-            ScoringBatch.batch_key_sha256 == batch_key_sha256,
+            ScoringBatch.reuse_key_sha256 == reuse_key_sha256,
             ScoringBatch.status == ModelRunStatus.SUCCEEDED.value,
         )
-        .order_by(ScoringBatch.completed_at.desc(), ScoringBatch.id.desc())
+        .order_by(
+            ScoringBatch.attempt_number.desc(),
+            ScoringBatch.completed_at.desc(),
+            ScoringBatch.id.desc(),
+        )
         .limit(1)
     )
     if batch is None:
@@ -456,6 +576,7 @@ def _reusable_snapshot(
         decision_policy_sha256=batch.decision_policy.policy_sha256,
         risk_counts={str(key): int(value) for key, value in risk_counts.items()},
         cluster_counts={str(key): int(value) for key, value in cluster_counts.items()},
+        attempt_number=batch.attempt_number,
     )
 
 
@@ -474,18 +595,46 @@ def run_batch(
         raise ValueError("Thresholds must satisfy 0 <= medium < high <= 1.")
     if not 0.0 < activity_gap_quantile < 1.0:
         raise ValueError("activity_gap_quantile must satisfy 0 < quantile < 1.")
-    resolved_as_of_date = as_of_date or datetime.now(timezone.utc).date()
-    if resolved_as_of_date > datetime.now(timezone.utc).date():
+    current_date = datetime.now(timezone.utc).date()
+    resolved_as_of_date = as_of_date or current_date
+    if resolved_as_of_date > current_date:
         raise ValueError("as_of_date cannot be in the future.")
 
-    customers = list(
-        session.scalars(select(Customer).order_by(Customer.customer_id)).all()
-    )
+    uses_historical_snapshots = resolved_as_of_date < current_date
+    if uses_historical_snapshots:
+        customers: list[Customer | CustomerFeatureSnapshot] = list(
+            _load_historical_feature_snapshots(
+                session,
+                as_of_date=resolved_as_of_date,
+            )
+        )
+    else:
+        customers = list(
+            session.scalars(select(Customer).order_by(Customer.customer_id)).all()
+        )
     if not customers:
         raise ValueError("No customers found. Import customers before scoring.")
 
-    source_dataset_sha256 = _dataset_hash()
     dataset_sha256 = _customer_dataset_hash(customers)
+    if uses_historical_snapshots:
+        historical_source_hashes = {
+            snapshot.source_dataset_sha256
+            for snapshot in customers
+            if isinstance(snapshot, CustomerFeatureSnapshot)
+            and snapshot.source_dataset_sha256 is not None
+        }
+        source_dataset_sha256 = (
+            next(iter(historical_source_hashes))
+            if len(historical_source_hashes) == 1
+            else None
+        )
+    else:
+        source_dataset_sha256 = _dataset_hash() or dataset_sha256
+    decision_policy_json = _decision_policy_payload(
+        medium_threshold=medium_threshold,
+        high_threshold=high_threshold,
+        activity_gap_quantile=activity_gap_quantile,
+    )
     decision_policy_sha256 = _decision_policy_sha256(
         medium_threshold=medium_threshold,
         high_threshold=high_threshold,
@@ -581,19 +730,18 @@ def run_batch(
     ]
 
     now = datetime.now(timezone.utc)
-    batch_key = _batch_key_sha256(
+    reuse_key = _batch_key_sha256(
         as_of_date=resolved_as_of_date,
         dataset_sha256=dataset_sha256,
         decision_policy_sha256=decision_policy_sha256,
         run_specs=run_specs,
-        force_nonce=now.isoformat() if force else None,
     )
 
     if not force:
         reusable = _reusable_snapshot(
             session,
             processed_rows=len(customers),
-            batch_key_sha256=batch_key,
+            reuse_key_sha256=reuse_key,
             run_specs=run_specs,
         )
         if reusable is not None:
@@ -605,9 +753,13 @@ def run_batch(
         medium_threshold=medium_threshold,
         high_threshold=high_threshold,
         activity_gap_quantile=activity_gap_quantile,
+        policy_json=decision_policy_json,
     )
+    attempt_number, batch_key = _next_batch_attempt(session, reuse_key)
     scoring_batch = ScoringBatch(
         batch_key_sha256=batch_key,
+        reuse_key_sha256=reuse_key,
+        attempt_number=attempt_number,
         as_of_date=resolved_as_of_date,
         source_dataset_sha256=source_dataset_sha256,
         dataset_sha256=dataset_sha256,
@@ -637,17 +789,40 @@ def run_batch(
         for spec in run_specs
     ]
     session.add_all(runs)
+    session.flush()
     run_ids = [run.id for run in runs]
     scoring_batch_id = scoring_batch.id
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        reusable = _reusable_snapshot(
+            session,
+            processed_rows=len(customers),
+            reuse_key_sha256=reuse_key,
+            run_specs=run_specs,
+        )
+        if reusable is not None:
+            return reusable
+        raise RuntimeError(
+            "An identical scoring batch is already running. Retry after it completes."
+        ) from None
 
     try:
-        snapshots = _ensure_feature_snapshots(
-            session,
-            customers,
-            source_dataset_sha256=source_dataset_sha256,
-            as_of_at=now,
-            as_of_date=resolved_as_of_date,
+        snapshots = (
+            [
+                snapshot
+                for snapshot in customers
+                if isinstance(snapshot, CustomerFeatureSnapshot)
+            ]
+            if uses_historical_snapshots
+            else _ensure_feature_snapshots(
+                session,
+                [customer for customer in customers if isinstance(customer, Customer)],
+                source_dataset_sha256=source_dataset_sha256,
+                as_of_at=now,
+                as_of_date=resolved_as_of_date,
+            )
         )
 
         transaction_count_median = float(raw_features["Total_Trans_Ct"].median())
@@ -736,4 +911,5 @@ def run_batch(
         decision_policy_sha256=decision_policy_sha256,
         risk_counts=dict(Counter(record["risk_level"] for record in insight_records)),
         cluster_counts=dict(Counter(record["cluster_name"] for record in insight_records)),
+        attempt_number=attempt_number,
     )

@@ -8,6 +8,7 @@ import {
   updateCampaignTarget,
   type CampaignStatus,
   type CampaignTarget,
+  type CampaignResultCode,
 } from "../../api/campaigns";
 import { listCustomerInsights, type CustomerInsight, type CustomerInsightList } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
@@ -29,10 +30,20 @@ const campaignStatusLabels: Record<CampaignStatus, string> = {
 
 const campaignStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
   pending: ["pending", "assigned", "cancelled"],
-  assigned: ["assigned", "contacted", "cancelled"],
+  assigned: ["pending", "assigned", "contacted", "cancelled"],
   contacted: ["contacted", "completed", "cancelled"],
   completed: ["completed"],
   cancelled: ["cancelled"],
+};
+
+const campaignResultLabels: Record<CampaignResultCode, string> = {
+  contacted: "접촉",
+  converted: "전환",
+  not_converted: "미전환",
+  no_response: "응답 없음",
+  declined: "거절",
+  opted_out: "수신 거부",
+  invalid_contact: "연락처 오류",
 };
 
 const roleDescriptions: Record<AuthUser["role"], string> = {
@@ -51,6 +62,7 @@ type DepartmentDashboardPageProps = {
 type CampaignDraft = {
   status: CampaignStatus;
   result: string;
+  result_code: CampaignResultCode | "";
   assigned_to_user_id: number | null;
   converted: boolean;
 };
@@ -240,11 +252,13 @@ function CampaignQueue({
   targets,
   canManage,
   assignees,
+  user,
   onUpdated,
 }: {
   targets: CampaignTarget[];
   canManage: boolean;
   assignees: TeamMember[];
+  user: AuthUser;
   onUpdated: (target: CampaignTarget) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
@@ -255,6 +269,7 @@ function CampaignQueue({
     const draft = drafts[target.id] ?? {
       status: target.status,
       result: target.result ?? "",
+      result_code: target.result_code ?? "",
       assigned_to_user_id: target.assigned_to_user_id,
       converted: target.converted,
     };
@@ -263,9 +278,11 @@ function CampaignQueue({
     try {
       const updated = await updateCampaignTarget(target.id, {
         status: draft.status,
-        assigned_to_user_id: draft.assigned_to_user_id ?? undefined,
+        ...(draft.assigned_to_user_id !== target.assigned_to_user_id
+          ? { assigned_to_user_id: draft.assigned_to_user_id }
+          : {}),
         result: draft.result || undefined,
-        converted: draft.converted,
+        result_code: draft.result_code || undefined,
       });
       onUpdated(updated);
     } catch (requestError) {
@@ -293,9 +310,28 @@ function CampaignQueue({
             const draft = drafts[target.id] ?? {
               status: target.status,
               result: target.result ?? "",
+              result_code: target.result_code ?? "",
               assigned_to_user_id: target.assigned_to_user_id,
               converted: target.converted,
             };
+            const canEditTarget = canManage && (
+              user.role === "admin"
+              || (
+                target.experiment_group === "treatment"
+                && (target.assigned_to_user_id === null || target.assigned_to_user_id === user.id)
+              )
+            );
+            const availableStatuses = campaignStatusTransitions[target.status].filter((status) => {
+              if (target.experiment_group === "control") {
+                return status === "pending" || status === "cancelled";
+              }
+              if (target.campaign_status !== "active") {
+                return !["contacted", "completed"].includes(status);
+              }
+              return true;
+            });
+            const finalCodeRequired = draft.status === "completed"
+              && !["converted", "not_converted", "no_response", "declined", "opted_out", "invalid_contact"].includes(draft.result_code);
             return (
               <div className="department-campaign-row" key={target.id}>
                 <div>
@@ -305,7 +341,7 @@ function CampaignQueue({
                 <span className={`campaign-status campaign-status--${target.status}`}>
                   {campaignStatusLabels[target.status]}
                 </span>
-                {canManage ? (
+                {canEditTarget ? (
                   <div className="department-campaign-controls">
                     <select
                       aria-label={`${target.customer_id} 처리 상태`}
@@ -315,21 +351,34 @@ function CampaignQueue({
                         [target.id]: { ...draft, status: event.target.value as CampaignStatus },
                       }))}
                     >
-                      {campaignStatusTransitions[target.status].map((value) => (
+                      {availableStatuses.map((value) => (
                         <option value={value} key={value}>
                           {campaignStatusLabels[value]}
                         </option>
                       ))}
                     </select>
+                    <select
+                      aria-label={`${target.customer_id} 결과 코드`}
+                      value={draft.result_code}
+                      onChange={(event) => setDrafts((current) => ({
+                        ...current,
+                        [target.id]: {
+                          ...draft,
+                          result_code: event.target.value as CampaignResultCode | "",
+                          converted: event.target.value === "converted",
+                        },
+                      }))}
+                    >
+                      <option value="">결과 코드</option>
+                      {Object.entries(campaignResultLabels)
+                        .filter(([code]) => target.experiment_group !== "control" || code !== "contacted")
+                        .map(([code, label]) => <option value={code} key={code}>{label}</option>)}
+                    </select>
                     <label className="campaign-conversion">
                       <input
                         type="checkbox"
-                        checked={draft.converted}
-                        disabled={draft.status !== "completed"}
-                        onChange={(event) => setDrafts((current) => ({
-                          ...current,
-                          [target.id]: { ...draft, converted: event.target.checked },
-                        }))}
+                        checked={draft.result_code === "converted"}
+                        disabled
                       />
                       전환
                     </label>
@@ -360,7 +409,7 @@ function CampaignQueue({
                         [target.id]: { ...draft, result: event.target.value },
                       }))}
                     />
-                    <button type="button" disabled={savingId === target.id} onClick={() => void save(target)}>
+                    <button type="button" disabled={savingId === target.id || finalCodeRequired} onClick={() => void save(target)}>
                       {savingId === target.id ? "저장 중..." : "저장"}
                     </button>
                   </div>
@@ -433,7 +482,9 @@ function TeamRoster({
               </div>
               <select
                 aria-label={`${member.display_name} 역할`}
+                className={member.role === "admin" ? "department-team-select department-team-select--locked" : "department-team-select"}
                 value={draft.role}
+                disabled={member.role === "admin"}
                 onChange={(event) => setDrafts((current) => ({
                   ...current,
                   [member.id]: { ...draft, role: event.target.value as TeamMember["role"] },
@@ -446,6 +497,7 @@ function TeamRoster({
               </select>
               <select
                 aria-label={`${member.display_name} 계정 상태`}
+                className="department-team-select"
                 value={draft.is_active ? "active" : "inactive"}
                 onChange={(event) => setDrafts((current) => ({
                   ...current,
@@ -519,7 +571,16 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
     void listTeamMembers(user.role === "admin")
       .then((response) => {
         if (isActive) {
-          setMembers(response);
+          const operationsMembers = response.filter(
+            (member) => member.role === "operations" && member.is_active,
+          );
+          setMembers(
+            user.role === "admin"
+              ? response
+              : user.role === "operations"
+              ? operationsMembers.filter((member) => member.id === user.id)
+              : operationsMembers,
+          );
         }
       })
       .catch(() => {
@@ -530,7 +591,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
     return () => {
       isActive = false;
     };
-  }, [user.role]);
+  }, [user.id, user.role]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -555,10 +616,9 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       const target = await createCampaignTarget({
         customer_insight_id: insight.id,
         campaign_name: user.role === "marketing" ? "세그먼트 리텐션 캠페인" : "고위험 고객 리텐션",
-        assigned_to_user_id: user.id,
       });
       setTargets((current) => [target, ...current]);
-      setCreateMessage("캠페인 대상에 등록하고 현재 담당자에게 배정했습니다.");
+      setCreateMessage("캠페인 대상에 미배정 상태로 등록했습니다.");
     } catch (requestError) {
       setCreateMessage(requestError instanceof Error ? requestError.message : "캠페인 등록에 실패했습니다.");
     } finally {
@@ -585,7 +645,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         <BatchCard batch={batch} />
       </section>
       <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="리텐션 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members.filter((member) => member.role === "operations" && member.is_active)} user={user} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : user.role === "marketing" ? (
     <>
@@ -613,7 +673,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         </div>
       </section>
       <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="캠페인 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members.filter((member) => member.role === "operations" && member.is_active)} user={user} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : (
     <>
@@ -622,22 +682,6 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         <StatCard label="CAMPAIGN QUEUE" value={formatNumber(targets.length)} caption="전체 업무 대상" tone="orange" />
         <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="고위험 고객" tone="pink" />
         <BatchCard batch={batch} />
-      </section>
-      <section className="department-panel department-panel--wide">
-        <div className="department-panel__heading">
-          <div>
-            <p className="card-kicker">ACCESS CONTROL</p>
-            <h2>역할별 업무 권한</h2>
-          </div>
-        </div>
-        <div className="department-permission-grid">
-          {(Object.keys(roleLabels) as AuthUser["role"][]).map((role) => (
-            <div key={role} className={role === user.role ? "department-permission department-permission--active" : "department-permission"}>
-              <strong>{roleLabels[role]}</strong>
-              <span>{roleDescriptions[role]}</span>
-            </div>
-          ))}
-        </div>
       </section>
       <TeamRoster members={members} onUpdated={(updated) => setMembers((current) => current.map((member) => member.id === updated.id ? updated : member))} />
     </>

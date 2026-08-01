@@ -224,19 +224,21 @@ Content-Type: application/json
 ~~~
 
 기존 클라이언트 호환을 위해 `campaign_name`만 전달하는 요청도 지원합니다.
-이 경우 같은 이름의 캠페인을 재사용하거나 `active` 캠페인을 자동 생성합니다.
+이 경우 같은 이름의 캠페인을 재사용하거나 안전한 초기 상태인 `draft` 캠페인을
+자동 생성합니다.
 새 클라이언트는 `campaign_id` 사용을 권장합니다.
 
-담당자는 반드시 활성 상태의 `operations` 또는 `marketing` 역할이어야 합니다.
+담당자는 반드시 활성 상태의 `operations` 역할이어야 합니다.
 `admin`과 `analyst`, 비활성 계정은 담당자로 지정할 수 없습니다.
 
 `POST /api/v1/campaign-targets`는 `admin`, `marketing`만 호출할 수 있습니다.
 `PATCH /api/v1/campaign-targets/{target_id}`는 `admin`, `operations`만 호출할
 수 있습니다. 권한이 없는 역할의 직접 API 요청도 `403 Forbidden`으로 차단합니다.
 
-동일 고객이 `pending`, `assigned`, `contacted` 상태로 다른 활성 캠페인에 이미
-등록되어 있으면 등록을 거부합니다. 고객 행 잠금과 서버 검사를 함께 사용해
-동시 요청에서도 중복 접촉을 줄입니다.
+동일 고객이 이미 접촉됐거나 동급·상위·수동 활성 캠페인에 등록되어 있으면
+등록을 거부합니다. 상위 자동 세그먼트는 아직 접촉하지 않은 하위 자동 캠페인을
+취소하고 대체할 수 있습니다. 고객 행 잠금과 DB unique 제약을 함께 사용해 동시
+요청에서도 같은 캠페인·고객 중복을 차단합니다.
 
 ### 대상 상태 변경·결과 기록
 

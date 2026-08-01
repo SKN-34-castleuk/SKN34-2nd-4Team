@@ -51,6 +51,19 @@ def get_auth_cookie_secure() -> bool:
     }
 
 
+def get_app_env() -> str:
+    """실행 환경을 안전한 기본값(production)으로 정규화합니다."""
+    return os.getenv("APP_ENV", "production").strip().lower()
+
+
+def get_login_rate_limit() -> tuple[int, int, int]:
+    """로그인 사용자·IP별 시도 한도와 관측 구간(초)을 반환합니다."""
+    attempts = max(1, int(os.getenv("LOGIN_MAX_ATTEMPTS", "5")))
+    ip_attempts = max(attempts, int(os.getenv("LOGIN_IP_MAX_ATTEMPTS", "30")))
+    window_seconds = max(60, int(os.getenv("LOGIN_RATE_WINDOW_SECONDS", "900")))
+    return attempts, ip_attempts, window_seconds
+
+
 def get_allow_test_user_seeding() -> bool:
     """로컬 테스트 계정 생성 허용 여부를 반환합니다."""
     return os.getenv("ALLOW_TEST_USER_SEEDING", "false").strip().lower() in {

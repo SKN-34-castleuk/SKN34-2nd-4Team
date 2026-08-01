@@ -272,6 +272,7 @@ function CampaignQueue({
   targets,
   drafts,
   canManage,
+  user,
   isLoading,
   onDraftChange,
   onSave,
@@ -279,6 +280,7 @@ function CampaignQueue({
   targets: CampaignTarget[];
   drafts: Record<number, CampaignDraft>;
   canManage: boolean;
+  user: AuthUser;
   isLoading: boolean;
   onDraftChange: (targetId: number, draft: CampaignDraft) => void;
   onSave: (targetId: number) => void;
@@ -305,6 +307,13 @@ function CampaignQueue({
               result_notes: target.result_notes ?? "",
               converted: target.converted,
             };
+            const canEditTarget = canManage
+              && target.experiment_group === "treatment"
+              && target.campaign_status === "active"
+              && (user.role === "admin" || target.assigned_to_user_id === user.id);
+            const availableStatuses = campaignStatusTransitions[target.status].filter(
+              (value) => value !== "assigned" || target.assigned_to_user_id !== null,
+            );
             return (
               <div className="campaign-row" key={target.id}>
                 <div className="campaign-row__customer">
@@ -317,7 +326,7 @@ function CampaignQueue({
                 <span className="campaign-assignee">
                   {target.assigned_to_display_name ?? "미배정"}
                 </span>
-                {canManage ? (
+                {canEditTarget ? (
                   <div className="campaign-row__controls">
                     <select
                       value={draft.status}
@@ -329,7 +338,7 @@ function CampaignQueue({
                         })
                       }
                     >
-                      {campaignStatusTransitions[target.status].map((value) => (
+                      {availableStatuses.map((value) => (
                         <option value={value} key={value}>
                           {campaignStatusLabels[value]}
                         </option>
@@ -536,7 +545,8 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
 
-  const canManageCampaigns = user.role !== "analyst";
+  const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
+  const canProcessCampaignTargets = user.role === "admin" || user.role === "operations";
 
   useEffect(() => {
     let isActive = true;
@@ -659,7 +669,6 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
       const target = await createCampaignTarget({
         customer_insight_id: selectedDetail.id,
         campaign_name: campaignName.trim(),
-        assigned_to_user_id: canManageCampaigns ? user.id : undefined,
       });
       setCampaignTargets((current) => [target, ...current]);
       setCampaignMessage("캠페인 대상에 등록했습니다.");
@@ -693,6 +702,9 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
         status: draft.status,
         result: draft.result || undefined,
         result_notes: draft.result_notes || undefined,
+        result_code: draft.status === "completed"
+          ? (draft.converted ? "converted" : "not_converted")
+          : draft.status === "contacted" ? "contacted" : undefined,
         converted: draft.converted,
       });
       setCampaignTargets((current) =>
@@ -976,7 +988,8 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
           <CampaignQueue
             targets={campaignTargets}
             drafts={campaignDrafts}
-            canManage={canManageCampaigns}
+            canManage={canProcessCampaignTargets}
+            user={user}
             isLoading={campaignLoading}
             onDraftChange={handleCampaignDraftChange}
             onSave={(targetId) => void handleSaveCampaign(targetId)}
@@ -993,7 +1006,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
             history={selectedHistory}
             historyLoading={historyLoading}
             campaigns={campaignTargets.filter((target) => target.customer_id === selectedCustomerId)}
-            canManageCampaigns={canManageCampaigns}
+            canManageCampaigns={canCreateCampaignTargets}
             campaignName={campaignName}
             campaignSubmitting={campaignSubmitting}
             campaignMessage={campaignMessage}

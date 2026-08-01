@@ -69,7 +69,7 @@ function BreakdownTable({
                 <th scope="col">구분</th>
                 <th scope="col">대상</th>
                 <th scope="col">대조군</th>
-                <th scope="col">전환율</th>
+                <th scope="col">대상군 전환율</th>
                 <th scope="col">유지율</th>
                 <th scope="col">ROI</th>
               </tr>
@@ -80,7 +80,7 @@ function BreakdownTable({
                   <th scope="row">{item.label}</th>
                   <td>{formatNumber(item.target_count)}</td>
                   <td>{formatNumber(item.control_count)}</td>
-                  <td>{formatPercent(item.conversion_rate)}</td>
+                  <td>{formatPercent(item.treatment_conversion_rate)}</td>
                   <td>{formatPercent(item.retention_rate)}</td>
                   <td>{formatPercent(item.roi)}</td>
                 </tr>
@@ -151,14 +151,16 @@ export function CampaignPerformancePanel({ campaignId, refreshKey }: CampaignPer
         </span>
       </div>
       <div className="campaign-performance-cards">
-        <PerformanceCard label="전환율" value={formatPercent(metrics.conversion_rate)} detail={`${formatNumber(metrics.converted_count)}명 전환`} />
-        <PerformanceCard label="유지율" value={formatPercent(metrics.retention_rate)} detail={`${formatNumber(metrics.retention_observed_count)}명 관측`} />
-        <PerformanceCard label="증분 전환효과" value={formatPercent(metrics.incremental_conversion_effect)} detail="대상군 − 대조군" />
-        <PerformanceCard label="ROI" value={formatPercent(metrics.roi)} detail={`${formatCurrency(metrics.total_revenue)} 매출`} />
+        <PerformanceCard label="대상군 전환율" value={formatPercent(metrics.treatment_conversion_rate)} detail={`${formatNumber(metrics.converted_count)}명 전체 전환`} />
+        <PerformanceCard label="유지율" value={formatPercent(metrics.retention_rate)} detail={`${formatNumber(metrics.retention_observed_count)} / ${formatNumber(metrics.retention_eligible_count)}명 관측`} />
+        <PerformanceCard label="증분 전환효과" value={formatPercent(metrics.incremental_conversion_effect)} detail={`${metrics.incremental_conversions.toFixed(1)}명 추정`} />
+        <PerformanceCard label="증분 ROI" value={formatPercent(metrics.roi)} detail={`${formatCurrency(metrics.incremental_revenue)} 귀속 매출`} />
       </div>
       <div className="campaign-performance-substats">
         <span>접촉률 <strong>{formatPercent(metrics.contact_rate)}</strong></span>
         <span>총 비용 <strong>{formatCurrency(metrics.total_cost)}</strong></span>
+        <span>관측 매출 <strong>{formatCurrency(metrics.observed_revenue)}</strong></span>
+        <span>유지 관측률 <strong>{formatPercent(metrics.retention_observation_rate)}</strong></span>
         <span>대상군 전환율 <strong>{formatPercent(metrics.treatment_conversion_rate)}</strong></span>
         <span>대조군 전환율 <strong>{formatPercent(metrics.control_conversion_rate)}</strong></span>
         <span>증분 유지효과 <strong>{formatPercent(metrics.incremental_retention_effect)}</strong></span>

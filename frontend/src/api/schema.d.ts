@@ -613,6 +613,8 @@ export interface components {
             max_targets: number;
             /** Source As Of Date */
             source_as_of_date?: string | null;
+            /** Scoring Batch Id */
+            scoring_batch_id?: number | null;
             /**
              * Experiment Enabled
              * @default false
@@ -690,6 +692,8 @@ export interface components {
             rerun_of_id: number | null;
             /** Source As Of Date */
             source_as_of_date: string | null;
+            /** Scoring Batch Id */
+            scoring_batch_id: number | null;
             /** Rules */
             rules: {
                 [key: string]: unknown;
@@ -760,8 +764,6 @@ export interface components {
              * @default 0.2
              */
             control_group_ratio: number;
-            /** Experiment Seed */
-            experiment_seed?: string | null;
             /**
              * Fixed Cost
              * @default 0
@@ -869,8 +871,12 @@ export interface components {
             converted_count: number;
             /** Retained Count */
             retained_count: number;
+            /** Retention Eligible Count */
+            retention_eligible_count: number;
             /** Retention Observed Count */
             retention_observed_count: number;
+            /** Retention Observation Rate */
+            retention_observation_rate: number | null;
             /** Contact Rate */
             contact_rate: number;
             /** Conversion Rate */
@@ -893,8 +899,14 @@ export interface components {
             incremental_conversion_effect: number | null;
             /** Incremental Retention Effect */
             incremental_retention_effect: number | null;
+            /** Incremental Conversions */
+            incremental_conversions: number;
             /** Total Cost */
             total_cost: number;
+            /** Observed Revenue */
+            observed_revenue: number;
+            /** Incremental Revenue */
+            incremental_revenue: number;
             /** Total Revenue */
             total_revenue: number;
             /** Roi */
@@ -923,8 +935,12 @@ export interface components {
             converted_count: number;
             /** Retained Count */
             retained_count: number;
+            /** Retention Eligible Count */
+            retention_eligible_count: number;
             /** Retention Observed Count */
             retention_observed_count: number;
+            /** Retention Observation Rate */
+            retention_observation_rate: number | null;
             /** Contact Rate */
             contact_rate: number;
             /** Conversion Rate */
@@ -947,8 +963,14 @@ export interface components {
             incremental_conversion_effect: number | null;
             /** Incremental Retention Effect */
             incremental_retention_effect: number | null;
+            /** Incremental Conversions */
+            incremental_conversions: number;
             /** Total Cost */
             total_cost: number;
+            /** Observed Revenue */
+            observed_revenue: number;
+            /** Incremental Revenue */
+            incremental_revenue: number;
             /** Total Revenue */
             total_revenue: number;
             /** Roi */
@@ -1003,8 +1025,13 @@ export interface components {
             experiment_enabled: boolean;
             /** Control Group Ratio */
             control_group_ratio: number;
-            /** Experiment Seed */
-            experiment_seed?: string | null;
+            /**
+             * Experiment Policy Locked
+             * @default false
+             */
+            experiment_policy_locked: boolean;
+            /** Experiment Assignment Version */
+            experiment_assignment_version: string;
             /** Fixed Cost */
             fixed_cost: number;
             /** Cost Per Contact */
@@ -1187,8 +1214,6 @@ export interface components {
             experiment_enabled?: boolean | null;
             /** Control Group Ratio */
             control_group_ratio?: number | null;
-            /** Experiment Seed */
-            experiment_seed?: string | null;
             /** Fixed Cost */
             fixed_cost?: number | null;
             /** Cost Per Contact */
@@ -1519,6 +1544,8 @@ export interface components {
         LatestBatchResponse: {
             /** Scoring Batch Id */
             scoring_batch_id?: number | null;
+            /** Attempt Number */
+            attempt_number?: number | null;
             /** As Of Date */
             as_of_date?: string | null;
             /** Decision Policy Id */

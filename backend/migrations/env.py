@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import os
 from logging.config import fileConfig
 
@@ -27,6 +28,13 @@ def _normalized_timestamp_default(value: str | None) -> str | None:
     return value.lower().replace(" ", "").strip("()")
 
 
+def _normalized_scalar_default(value: str | None) -> str | None:
+    """MySQL이 숫자 기본값에 붙이는 따옴표·괄호 차이를 정규화합니다."""
+    if value is None:
+        return None
+    return value.lower().replace(" ", "").strip("()'\"")
+
+
 def _compare_server_default(
     migration_context,
     inspected_column,
@@ -42,6 +50,19 @@ def _compare_server_default(
         timestamp_defaults = {"now", "current_timestamp"}
         if inspected in timestamp_defaults and rendered in timestamp_defaults:
             return False
+        inspected_scalar = _normalized_scalar_default(inspected_default)
+        rendered_scalar = _normalized_scalar_default(rendered_metadata_default)
+        if inspected_scalar == rendered_scalar:
+            return False
+        try:
+            if (
+                inspected_scalar is not None
+                and rendered_scalar is not None
+                and Decimal(inspected_scalar) == Decimal(rendered_scalar)
+            ):
+                return False
+        except InvalidOperation:
+            pass
     return None
 
 

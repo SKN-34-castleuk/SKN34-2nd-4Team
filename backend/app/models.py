@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -89,6 +90,10 @@ class User(Base):
     bulk_targeting_runs: Mapped[list[BulkTargetingRun]] = relationship(
         back_populates="requested_by",
         foreign_keys="BulkTargetingRun.requested_by_user_id",
+    )
+    auth_events: Mapped[list[AuthEvent]] = relationship(
+        back_populates="user",
+        foreign_keys="AuthEvent.user_id",
     )
 
 
@@ -284,6 +289,11 @@ class DecisionPolicy(Base):
     medium_threshold: Mapped[float] = mapped_column(Float, nullable=False)
     high_threshold: Mapped[float] = mapped_column(Float, nullable=False)
     activity_gap_quantile: Mapped[float] = mapped_column(Float, nullable=False)
+    policy_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -308,12 +318,29 @@ class ScoringBatch(Base):
             "batch_key_sha256",
             name="uq_scoring_batches_batch_key_sha256",
         ),
+        UniqueConstraint(
+            "reuse_key_sha256",
+            "attempt_number",
+            name="uq_scoring_batches_reuse_attempt",
+        ),
         Index("ix_scoring_batches_as_of_date", "as_of_date"),
         Index("ix_scoring_batches_status_started_at", "status", "started_at"),
+        Index(
+            "ix_scoring_batches_reuse_status",
+            "reuse_key_sha256",
+            "status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     batch_key_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    reuse_key_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     source_dataset_sha256: Mapped[str | None] = mapped_column(
         String(64),
@@ -553,6 +580,11 @@ class Campaign(Base):
             "retention_window_days BETWEEN 1 AND 365",
             name="ck_campaigns_retention_window",
         ),
+        CheckConstraint(
+            "experiment_assignment_version IN "
+            "('sha256_campaign_customer_v1', 'sha256_seed_customer_v1')",
+            name="ck_campaigns_experiment_assignment_version",
+        ),
         Index("ix_campaigns_status_period", "status", "start_at", "end_at"),
         Index("ix_campaigns_created_by", "created_by_user_id"),
         Index("ix_campaigns_segment", "segment_code"),
@@ -593,20 +625,26 @@ class Campaign(Base):
         String(64),
         nullable=True,
     )
+    experiment_assignment_version: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default="sha256_seed_customer_v1",
+        server_default="sha256_seed_customer_v1",
+    )
     fixed_cost: Mapped[float] = mapped_column(
-        Float,
+        Numeric(18, 2),
         nullable=False,
         default=0.0,
         server_default="0",
     )
     cost_per_contact: Mapped[float] = mapped_column(
-        Float,
+        Numeric(18, 2),
         nullable=False,
         default=0.0,
         server_default="0",
     )
     revenue_per_conversion: Mapped[float] = mapped_column(
-        Float,
+        Numeric(18, 2),
         nullable=False,
         default=0.0,
         server_default="0",
@@ -662,6 +700,11 @@ class CampaignTarget(Base):
             "customer_insight_id",
             "campaign_name",
             name="uq_campaign_targets_insight_campaign",
+        ),
+        UniqueConstraint(
+            "campaign_id",
+            "customer_id",
+            name="uq_campaign_targets_campaign_customer",
         ),
         Index("ix_campaign_targets_status", "status"),
         Index("ix_campaign_targets_assigned_to", "assigned_to_user_id"),
@@ -766,7 +809,7 @@ class CampaignTarget(Base):
         nullable=True,
     )
     outcome_revenue: Mapped[float | None] = mapped_column(
-        Float,
+        Numeric(18, 2),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -853,6 +896,49 @@ class CampaignEvent(Base):
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
 
 
+class AuthEvent(Base):
+    """로그인·가입·계정 관리 보안 이벤트를 변경 불가능한 형태로 기록합니다."""
+
+    __tablename__ = "auth_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('signup_requested', 'login_succeeded', 'login_failed', "
+            "'login_rate_limited', 'logout', 'user_updated')",
+            name="ck_auth_events_type",
+        ),
+        Index("ix_auth_events_type_created", "event_type", "created_at"),
+        Index("ix_auth_events_username_created", "username", "created_at"),
+        Index("ix_auth_events_ip_created", "ip_address", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    username: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    user: Mapped[User | None] = relationship(
+        back_populates="auth_events",
+        foreign_keys=[user_id],
+    )
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
+
+
 class BulkTargetingRun(Base):
     """세그먼트 미리보기·실행·취소·재실행을 추적하는 일괄 타기팅 배치입니다."""
 
@@ -870,6 +956,7 @@ class BulkTargetingRun(Base):
         Index("ix_bulk_targeting_runs_status_created", "status", "created_at"),
         Index("ix_bulk_targeting_runs_campaign", "campaign_id"),
         Index("ix_bulk_targeting_runs_rerun_of", "rerun_of_id"),
+        Index("ix_bulk_targeting_runs_scoring_batch", "scoring_batch_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -893,6 +980,11 @@ class BulkTargetingRun(Base):
     rerun_of_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("bulk_targeting_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    scoring_batch_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("scoring_batches.id", ondelete="RESTRICT"),
         nullable=True,
     )
     source_as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -971,3 +1063,80 @@ class BulkTargetingRun(Base):
     targets: Mapped[list[CampaignTarget]] = relationship(
         back_populates="bulk_targeting_run",
     )
+    scoring_batch: Mapped[ScoringBatch | None] = relationship()
+    candidate_snapshots: Mapped[list[BulkTargetingCandidateSnapshot]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="BulkTargetingCandidateSnapshot.rank",
+    )
+
+
+class BulkTargetingCandidateSnapshot(Base):
+    """일괄 타기팅 미리보기 당시 후보·순위·제외 사유를 보존합니다."""
+
+    __tablename__ = "bulk_targeting_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "customer_id",
+            name="uq_bulk_targeting_candidates_run_customer",
+        ),
+        CheckConstraint(
+            "exclusion_reason IS NULL OR exclusion_reason IN "
+            "('opted_out', 'active_campaign', 'recent_contact')",
+            name="ck_bulk_targeting_candidates_exclusion_reason",
+        ),
+        CheckConstraint(
+            "execution_status IN ('pending', 'created', 'skipped', 'cancelled')",
+            name="ck_bulk_targeting_candidates_execution_status",
+        ),
+        Index("ix_bulk_targeting_candidates_run_rank", "run_id", "rank"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("bulk_targeting_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    customer_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("customers.customer_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    customer_insight_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("customer_insights.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    selected: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    exclusion_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    execution_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    campaign_target_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("campaign_targets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    run: Mapped[BulkTargetingRun] = relationship(back_populates="candidate_snapshots")
+    customer: Mapped[Customer] = relationship()
+    customer_insight: Mapped[CustomerInsight] = relationship()
+    campaign_target: Mapped[CampaignTarget | None] = relationship()

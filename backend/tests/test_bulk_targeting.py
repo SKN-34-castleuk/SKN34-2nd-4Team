@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.enums import BulkTargetingSegment, UserRole
 from backend.app.migration_runner import upgrade_database
 from backend.app.models import (
+    BulkTargetingCandidateSnapshot,
     Campaign,
     CampaignTarget,
     Customer,
@@ -77,6 +78,7 @@ def _seed_database(session: Session) -> tuple[User, list[CustomerInsight]]:
     session.flush()
     batch = ScoringBatch(
         batch_key_sha256="b" * 64,
+        reuse_key_sha256="b" * 64,
         as_of_date=date(2026, 8, 1),
         decision_policy_id=policy.id,
         status="succeeded",
@@ -179,6 +181,8 @@ def test_bulk_targeting_preview_execute_cancel_and_rerun(tmp_path: Path) -> None
                 payload=BulkTargetingPreviewRequest(
                     segment=BulkTargetingSegment.HIGH_RISK_RETENTION,
                     campaign_name="고위험 일괄 리텐션",
+                    experiment_enabled=True,
+                    control_group_ratio=0.5,
                 ),
                 actor=actor,
             )
@@ -188,9 +192,18 @@ def test_bulk_targeting_preview_execute_cancel_and_rerun(tmp_path: Path) -> None
             assert run.skipped_opt_out_count == 1
             assert run.skipped_active_campaign_count == 1
             assert [item.insight.id for item in scan.candidates] == [insights[0].id]
+            assert run.scoring_batch_id == insights[0].scoring_batch_id
+            snapshots = session.scalars(
+                select(BulkTargetingCandidateSnapshot)
+                .where(BulkTargetingCandidateSnapshot.run_id == run.id)
+                .order_by(BulkTargetingCandidateSnapshot.rank)
+            ).all()
+            assert len(snapshots) == 3
+            assert [snapshot.customer_id for snapshot in snapshots if snapshot.selected] == [1]
 
             executed = execute_bulk_targeting(session, run=run, actor=actor)
             assert executed.created_count == 1
+            assert execute_bulk_targeting(session, run=executed, actor=actor).campaign_id == executed.campaign_id
             target = session.scalar(
                 select(CampaignTarget).where(
                     CampaignTarget.bulk_targeting_run_id == executed.id
@@ -209,6 +222,16 @@ def test_bulk_targeting_preview_execute_cancel_and_rerun(tmp_path: Path) -> None
             )
             assert rerun.rerun_of_id == cancelled.id
             assert rerun.status == "previewed"
+            assert rerun.scoring_batch_id == cancelled.scoring_batch_id
+            assert rerun.rules_json["experiment_seed"] == cancelled.rules_json["experiment_seed"]
             assert len(rerun_scan.candidates) == 1
+            rerun_executed = execute_bulk_targeting(session, run=rerun, actor=actor)
+            rerun_target = session.scalar(
+                select(CampaignTarget).where(
+                    CampaignTarget.bulk_targeting_run_id == rerun_executed.id
+                )
+            )
+            assert rerun_target is not None
+            assert rerun_target.experiment_group == target.experiment_group
     finally:
         engine.dispose()

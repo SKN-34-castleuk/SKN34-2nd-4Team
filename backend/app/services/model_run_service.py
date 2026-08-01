@@ -18,7 +18,11 @@ def fetch_latest_scoring_batch(db: Session) -> ScoringBatch | None:
             selectinload(ScoringBatch.decision_policy),
         )
         .where(ScoringBatch.status == ModelRunStatus.SUCCEEDED.value)
-        .order_by(ScoringBatch.completed_at.desc(), ScoringBatch.id.desc())
+        .order_by(
+            ScoringBatch.as_of_date.desc(),
+            ScoringBatch.completed_at.desc(),
+            ScoringBatch.id.desc(),
+        )
         .limit(1)
     )
 

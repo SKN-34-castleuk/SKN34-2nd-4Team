@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from alembic import command
+import pytest
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.customer_import import load_customer_rows, upsert_customers
-from backend.app.migration_runner import upgrade_database
+from backend.app.migration_runner import build_alembic_config, upgrade_database
 from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 from backend.app.models import (
     CampaignTarget,
@@ -37,6 +39,8 @@ EXPECTED_TABLES = {
     "campaigns",
     "campaign_events",
     "bulk_targeting_runs",
+    "bulk_targeting_candidates",
+    "auth_events",
 }
 
 
@@ -86,12 +90,64 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
             "experiment_enabled",
             "control_group_ratio",
             "experiment_seed",
+            "experiment_assignment_version",
             "fixed_cost",
             "cost_per_contact",
             "revenue_per_conversion",
             "retention_window_days",
         } <= campaign_columns
-        assert revision == "20260801_0008"
+        policy_columns = {
+            column["name"]
+            for column in inspector.get_columns("decision_policies")
+        }
+        assert "policy_json" in policy_columns
+        bulk_run_columns = {
+            column["name"]
+            for column in inspector.get_columns("bulk_targeting_runs")
+        }
+        assert "scoring_batch_id" in bulk_run_columns
+        scoring_batch_columns = {
+            column["name"]
+            for column in inspector.get_columns("scoring_batches")
+        }
+        assert {"reuse_key_sha256", "attempt_number"} <= scoring_batch_columns
+        assert revision == "20260802_0010"
+    finally:
+        engine.dispose()
+
+
+def test_duplicate_campaign_customers_fail_before_0009_schema_changes(
+    tmp_path: Path,
+) -> None:
+    """중복 대상이 있으면 0009가 다른 컬럼을 추가하기 전에 안전하게 중단됩니다."""
+    database_url = f"sqlite:///{tmp_path / 'duplicate-targets.sqlite3'}"
+    config = build_alembic_config(database_url)
+    command.upgrade(config, "20260801_0008")
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO campaign_targets (
+                        customer_id, customer_insight_id, campaign_id,
+                        campaign_name, status, converted, experiment_group
+                    ) VALUES
+                        (1001, 2001, 3001, 'duplicate-test', 'pending', 0, 'treatment'),
+                        (1001, 2002, 3001, 'duplicate-test', 'assigned', 0, 'treatment')
+                    """
+                )
+            )
+
+        with pytest.raises(RuntimeError, match="duplicate campaign_targets"):
+            upgrade_database(database_url, bootstrap_existing=False)
+
+        inspector = inspect(engine)
+        policy_columns = {
+            column["name"]
+            for column in inspector.get_columns("decision_policies")
+        }
+        assert "policy_json" not in policy_columns
     finally:
         engine.dispose()
 
@@ -225,6 +281,7 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
             session.flush()
             batch = ScoringBatch(
                 batch_key_sha256="f" * 64,
+                reuse_key_sha256="f" * 64,
                 as_of_date=date(2026, 8, 1),
                 dataset_sha256="c" * 64,
                 decision_policy_id=policy.id,

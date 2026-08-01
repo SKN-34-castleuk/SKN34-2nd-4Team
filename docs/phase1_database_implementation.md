@@ -50,30 +50,29 @@ import_customers 명령
         ├─ campaigns
         ├─ campaign_events
         ├─ campaign_targets
-        └─ bulk_targeting_runs
+        ├─ bulk_targeting_runs
+        ├─ bulk_targeting_candidates
+        └─ auth_events
 ~~~
 
-최근 Docker MySQL에 적용한 검증 상태는 다음과 같습니다.
+2026-08-02 로컬 Docker MySQL과 빈 SQLite에서 확인한 스키마 검증 상태입니다.
+업무 테이블의 행 수는 개발 진행에 따라 달라지므로 스키마 계약으로 고정하지
+않습니다.
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0008 |
-| 기존 사용자 | 1명 보존 |
-| 기존 사용자 역할 | operations |
-| customers 행 수 | 10,127 |
+| Alembic 최신 revision | 20260802_0010 |
+| 빈 DB upgrade | head까지 성공 |
+| downgrade·재-upgrade | 0008 → 0010 왕복 성공 |
+| SQLAlchemy schema drift | `alembic check` 통과 |
+| 기존 사용자·업무 데이터 | migration 후 보존 |
+| campaign_id·customer_id 중복 | unique 적용 전 정리, 적용 후 0건 |
 | customers.customer_id 중복 | 없음 |
-| 최신 scoring batch | 성공 1건 (ID 1, 기준일 2026-08-01) |
-| 최신 model_runs | 성공 3건 (ID 7, 8, 9) |
-| customer_feature_snapshots | 10,127건 |
-| customer_insights | 10,127건 |
-| campaign_targets | 5건 |
-| campaigns | 1건 (기존 campaign_name backfill) |
-| campaign_events | 5건 (기존 대상 생성 이력 backfill) |
 
-기존 `campaign_name` 기반 대상 5건은 migration 0005에서 캠페인 1건과 생성
-이벤트 5건으로 backfill되었습니다. 신규 대상은 명시적인 캠페인 계보와 상태
-전이 이벤트를 함께 저장합니다. 모델 배치의 재실행은 동일 artifact·데이터
-조합이면 기존 스냅샷을 재사용합니다.
+기존 `campaign_name` 기반 대상은 migration 0005에서 실제 캠페인과 생성 이벤트로
+backfill됩니다. 신규 대상은 명시적인 캠페인 계보와 상태 전이 이벤트를 함께
+저장합니다. 모델 배치는 성공한 동일 입력을 재사용하고 실패한 동일 입력은 다음
+시도 번호로 재실행합니다.
 
 ## 3. 관련 파일
 
@@ -88,6 +87,9 @@ import_customers 명령
 | backend/migrations/versions/20260801_0005_campaign_domain.py | campaigns·campaign_events·대상 결과 집계 필드와 기존 데이터 backfill |
 | backend/migrations/versions/20260801_0006_campaign_converted_not_null.py | 전환 여부 컬럼을 필수 boolean으로 고정 |
 | backend/migrations/versions/20260801_0007_bulk_targeting.py | 수신 거부·최근 접촉 필드와 세그먼트 일괄 타기팅 배치 추가 |
+| backend/migrations/versions/20260801_0008_performance_measurement.py | A/B 실험·유지·비용·매출 성과 필드 추가 |
+| backend/migrations/versions/20260802_0009_immediate_correctness.py | 시점 재시도·후보 스냅샷·금액 정밀도·인증 감사 보완 |
+| backend/migrations/versions/20260802_0010_campaign_money_defaults.py | MySQL 금액 컬럼 서버 기본값 복구 |
 | backend/app/database.py | DB 엔진·세션 생성 및 migration 여부 검증 |
 | backend/app/models.py | SQLAlchemy 모델 전체 정의 |
 | backend/app/enums.py | 역할·상태·위험등급 상수 정의 |
@@ -135,7 +137,7 @@ Argon2 해시만 저장합니다.
 위한 정책입니다.
 캠페인 생성·수정·대상 등록·일괄 타기팅은 `admin`, `marketing` 역할로 제한되며,
 대상 상태·담당자·결과 변경은 `admin`, `operations`가 수행합니다. 대상 담당자는
-활성 `operations` 또는 `marketing` 사용자만 지정할 수 있습니다.
+활성 `operations` 사용자만 지정할 수 있습니다.
 `analyst`는 분석 결과와 캠페인 큐를 조회만 할 수 있습니다.
 
 ### 4.2 customers
@@ -220,6 +222,7 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | medium_threshold | 중위험 기준값 |
 | high_threshold | 고위험 기준값 |
 | activity_gap_quantile | 활동성 갭 우선순위 분위수 |
+| policy_json | 사유·추천·군집·입력 계약을 포함한 전체 정책 JSON |
 | created_at | 정책 등록 시각 |
 
 ### 4.5 scoring_batches
@@ -231,7 +234,9 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | 컬럼 | 설명 |
 |---|---|
 | id | 배치 기본키 |
-| batch_key_sha256 | 기준일·데이터·artifact·정책을 묶은 재사용 key |
+| batch_key_sha256 | 개별 실행 시도의 고유 key |
+| reuse_key_sha256 | 기준일·데이터·artifact·정책이 같은 논리 배치 key |
+| attempt_number | 동일 논리 배치의 실행 시도 번호 |
 | as_of_date | 업무 분석 기준일 |
 | source_dataset_sha256 | 원천 데이터 hash |
 | dataset_sha256 | 실제 DB 고객 입력 전체 hash |
@@ -291,6 +296,7 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | start_at, end_at | 캠페인 실행 기간 |
 | experiment_enabled, control_group_ratio | A/B 테스트와 대조군 비율 |
 | experiment_seed | 재현 가능한 대상군·대조군 배정 seed |
+| experiment_assignment_version | 기존·신규 A/B 해시 알고리즘 버전 |
 | fixed_cost, cost_per_contact, revenue_per_conversion | ROI 계산 기준 금액 |
 | retention_window_days | 유지 여부 관측 기준 기간 |
 | created_by_user_id | 생성자 외래키 |
@@ -335,8 +341,9 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | outcome_revenue | 고객별 실제 매출, 캠페인 기본값보다 우선 |
 | created_at, updated_at | 생성·수정 시각 |
 
-같은 분석 스냅샷에 같은 캠페인을 중복 생성하지 않도록
-customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
+같은 캠페인에 같은 고객을 중복 생성하지 않도록 `campaign_id + customer_id`에
+unique 제약을 둡니다. 기존 호환을 위해 `customer_insight_id + campaign_name`
+제약도 유지합니다.
 
 ### 4.11 bulk_targeting_runs
 
@@ -349,6 +356,7 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
 | campaign_id | 실행 시 생성된 draft campaigns 외래키 |
 | requested_by_user_id | 미리보기·실행 요청 사용자 |
 | rerun_of_id | 재실행 원본 배치 외래키 |
+| scoring_batch_id | 후보 전체가 공유하는 성공 분석 배치 외래키 |
 | source_as_of_date | 분석 결과 기준일 |
 | rules_json | 분위수·threshold·제외 기간·최대 대상 등 고정 정책 |
 | preview_count, eligible_count, created_count | 미리보기·등록 집계 |
@@ -358,6 +366,18 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
 실행된 대상에는 `campaign_targets.bulk_targeting_run_id`가 저장되므로 어느
 세그먼트 배치가 만든 대상인지 추적할 수 있습니다. 상세 규칙과 API 흐름은
 [`bulk_targeting.md`](bulk_targeting.md)에 정리했습니다.
+
+### 4.12 bulk_targeting_candidates
+
+미리보기에서 평가한 고객별 분석 스냅샷, 순위, 제외 사유, 선택 여부와 실제 실행
+결과를 저장합니다. 실행은 이 행을 기준으로 하므로 미리보기와 실행 사이에 최신
+분석 결과가 바뀌어도 대상 목록이 조용히 달라지지 않습니다.
+
+### 4.13 auth_events
+
+가입 요청, 로그인 성공·실패·제한, 로그아웃, 관리자 계정 변경을 사용자·IP·수행자·
+구조화 metadata와 함께 기록합니다. 로그인 실패 이벤트는 DB 기반 시도 제한의
+근거로도 사용합니다.
 
 ## 5. Alembic migration 동작
 
@@ -388,6 +408,12 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
         │
         ▼
 20260801_0008_performance_measurement
+        │
+        ▼
+20260802_0009_immediate_correctness
+        │
+        ▼
+20260802_0010_campaign_money_defaults
 ~~~
 
 첫 번째 revision은 users 기준선 테이블을 만들고, 두 번째 revision은
@@ -401,7 +427,10 @@ decision policy, 분석 기준일을 연결합니다. 다섯 번째 revision은 
 세그먼트 일괄 타기팅 실행 이력, 대상-배치 연결을 추가합니다. 여덟 번째 revision은
 A/B 대상군·대조군, 구조화 결과 시각, 유지 관측값과 캠페인 비용·매출 정책을
 추가합니다. 성과 계산식은 [`campaign_performance.md`](campaign_performance.md)에
-정리했습니다.
+정리했습니다. 아홉 번째 revision은 정책 JSON과 배치 재시도 계보, 타기팅 후보
+스냅샷, 고객-캠페인 중복 제약, A/B 배정 버전, `NUMERIC(18, 2)` 금액과 인증 감사
+이벤트를 추가합니다. 열 번째 revision은 MySQL 타입 변경 과정에서 사라질 수 있는
+캠페인 금액 컬럼의 서버 기본값 `0`을 복구합니다.
 
 ### 5.2 기존 DB
 
@@ -566,7 +595,7 @@ Persistence 테스트는 다음을 검증합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 구현 검증 결과는 Backend 테스트 27개 통과입니다. Frontend 인증 타입과
+현재 구현 검증 결과는 Backend 테스트 31개 통과입니다. Frontend 인증 타입과
 OpenAPI 생성 타입도 role 필드를 포함하도록 갱신했으며 Frontend lint,
 typecheck, test, build를 통과했습니다.
 
