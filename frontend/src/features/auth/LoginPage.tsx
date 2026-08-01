@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 
-import { login, signup } from "../../api/auth";
+import { login, signup, type AuthUser } from "../../api/auth";
 
 type AuthMode = "login" | "signup";
 
@@ -10,6 +10,10 @@ type FormErrors = {
   displayName?: string;
   password?: string;
   confirmPassword?: string;
+};
+
+type LoginPageProps = {
+  onAuthenticated?: (user: AuthUser) => void;
 };
 
 function BrandMark() {
@@ -46,7 +50,7 @@ function ArrowIcon() {
   );
 }
 
-export function LoginPage() {
+export function LoginPage({ onAuthenticated }: LoginPageProps) {
   const accountId = useId();
   const displayNameId = useId();
   const passwordId = useId();
@@ -131,6 +135,7 @@ export function LoginPage() {
           password: passwordValue,
           remember_me: form.get("rememberAccount") === "on",
         });
+        onAuthenticated?.(result.user);
         setNotice(`${result.user.display_name}님, 로그인되었습니다.`);
       }
     } catch (error) {
