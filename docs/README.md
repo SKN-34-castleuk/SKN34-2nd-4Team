@@ -154,6 +154,8 @@ MYSQL_DATABASE=cardops
 MYSQL_USER=cardops_app
 MYSQL_PASSWORD=change-app-password
 MYSQL_PORT=3307
+JWT_SECRET=change-this-local-jwt-secret-to-at-least-32-characters
+AUTH_COOKIE_SECURE=false
 ```
 
 `.env`에는 비밀번호가 포함될 수 있으므로 커밋하지 않습니다. 저장소에는
@@ -219,8 +221,10 @@ Frontend `5173` 또는 Backend `8000`이 사용 중이면 `compose.yaml`의 호�
 - React/Vite Frontend 실행
 - Frontend에서 Backend로의 API 프록시
 
-MySQL 서버가 실행되는 것과 회원가입·로그인 기능이 완성되는 것은 별개의 작업입니다.
-사용자 테이블, 마이그레이션, 인증 API, Frontend 인증 연결은 별도로 구현해야 합니다.
+현재 Docker 구성에는 MySQL 기반 회원가입·로그인 기능이 연결되어 있습니다.
+Backend 시작 시 `users` 테이블을 준비하고, Argon2로 비밀번호를 해시한 뒤 로그인
+성공 시 HttpOnly JWT 쿠키를 발급합니다. 역할·권한, 예측 이력 저장, 운영용
+Alembic 마이그레이션은 별도 확장 작업입니다.
 
 또한 현재 Frontend는 개발용 Vite 서버로 실행되므로, 운영 배포 시에는 Frontend를
 빌드한 뒤 Nginx 등의 정적 서버로 제공하는 구성이 추가로 필요합니다.

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # 프론트엔드용 snake_case 필드명을 학습 데이터의 원본 컬럼명으로 연결합니다.
@@ -110,3 +111,71 @@ class PredictionResponse(BaseModel):
     decision_threshold: float = Field(ge=0.0, le=1.0)
     model_name: str
     model_version: str
+
+
+USERNAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,49}$"
+
+
+def normalize_username(value: object) -> object:
+    """팀 계정 아이디의 앞뒤 공백을 제거하고 소문자로 통일합니다."""
+    if isinstance(value, str):
+        return value.strip().lower()
+    return value
+
+
+class SignupRequest(BaseModel):
+    """팀 계정 회원가입 요청입니다."""
+
+    username: str = Field(
+        min_length=3,
+        max_length=50,
+        pattern=USERNAME_PATTERN,
+    )
+    display_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_signup_username(cls, value: object) -> object:
+        return normalize_username(value)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class LoginRequest(BaseModel):
+    """팀 계정 로그인 요청입니다."""
+
+    username: str = Field(
+        min_length=3,
+        max_length=50,
+        pattern=USERNAME_PATTERN,
+    )
+    password: str = Field(min_length=8, max_length=128)
+    remember_me: bool = False
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_login_username(cls, value: object) -> object:
+        return normalize_username(value)
+
+
+class UserResponse(BaseModel):
+    """외부에 공개할 수 있는 사용자 정보입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+    created_at: datetime
+
+
+class AuthResponse(BaseModel):
+    """회원가입·로그인 성공 응답입니다."""
+
+    user: UserResponse

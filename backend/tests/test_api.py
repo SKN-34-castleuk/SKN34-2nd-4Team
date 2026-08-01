@@ -189,7 +189,27 @@ def model_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="module")
 def client(model_dir: Path) -> Iterator[TestClient]:
     """테스트 모델을 적재한 FastAPI TestClient를 제공합니다."""
-    with TestClient(create_app(model_dir=model_dir)) as test_client:
+    with TestClient(
+        create_app(model_dir=model_dir, database_url="", jwt_secret="")
+    ) as test_client:
+        yield test_client
+
+
+@pytest.fixture(scope="module")
+def auth_client(
+    model_dir: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[TestClient]:
+    """SQLite 임시 DB를 사용하는 인증 API TestClient를 제공합니다."""
+    database_path = tmp_path_factory.mktemp("auth") / "auth.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    with TestClient(
+        create_app(
+            model_dir=model_dir,
+            database_url=database_url,
+            jwt_secret="test-jwt-secret-for-authentication-tests",
+        )
+    ) as test_client:
         yield test_client
 
 
@@ -297,6 +317,60 @@ def test_prediction_rejects_missing_and_extra_fields(
         ).status_code
         == 422
     )
+
+
+def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
+    """회원가입부터 로그인, 현재 사용자 조회, 로그아웃까지 검증합니다."""
+    signup_response = auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "Analysis_Team",
+            "display_name": "분석팀",
+            "password": "strong-password-123",
+        },
+    )
+
+    assert signup_response.status_code == 201
+    assert signup_response.json()["user"]["username"] == "analysis_team"
+    assert "password" not in signup_response.json()["user"]
+
+    duplicate_response = auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "analysis_team",
+            "display_name": "중복팀",
+            "password": "strong-password-123",
+        },
+    )
+    assert duplicate_response.status_code == 409
+
+    invalid_login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "analysis_team",
+            "password": "wrong-password",
+        },
+    )
+    assert invalid_login_response.status_code == 401
+
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "ANALYSIS_TEAM",
+            "password": "strong-password-123",
+            "remember_me": True,
+        },
+    )
+    assert login_response.status_code == 200
+    assert "cardops_access_token" in login_response.headers["set-cookie"]
+
+    current_user_response = auth_client.get("/api/v1/auth/me")
+    assert current_user_response.status_code == 200
+    assert current_user_response.json()["display_name"] == "분석팀"
+
+    logout_response = auth_client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 204
+    assert auth_client.get("/api/v1/auth/me").status_code == 401
 
 
 def test_openapi_and_swagger_are_available(client: TestClient) -> None:

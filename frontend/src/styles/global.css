@@ -49,6 +49,12 @@ button {
   background: #ffffff;
 }
 
+/* 회원가입은 입력 필드가 추가되므로 로그인 화면보다 세로 간격을 압축합니다. */
+.login-panel--signup {
+  padding-top: clamp(24px, 4vh, 40px);
+  padding-bottom: clamp(24px, 4vh, 40px);
+}
+
 .login-shell {
   width: min(440px, 100%);
   margin: auto;
@@ -66,6 +72,10 @@ button {
   gap: 17px;
   margin-bottom: 48px;
   color: var(--navy);
+}
+
+.login-panel--signup .login-brand {
+  margin-bottom: 32px;
 }
 
 .brand-mark {
@@ -143,12 +153,20 @@ button {
   margin-top: 22px;
 }
 
+.login-panel--signup .form-field + .form-field {
+  margin-top: 16px;
+}
+
 .form-field label {
   display: block;
   margin-bottom: 9px;
   color: #343d5e;
   font-size: 13px;
   font-weight: 680;
+}
+
+.login-panel--signup .form-field label {
+  margin-bottom: 7px;
 }
 
 .form-field > input,
@@ -318,6 +336,10 @@ button {
     filter 160ms ease;
 }
 
+.login-panel--signup .submit-button {
+  margin-top: 20px;
+}
+
 .submit-button:hover {
   box-shadow: 0 17px 32px rgba(73, 76, 201, 0.28);
   filter: brightness(1.03);
@@ -386,6 +408,10 @@ button {
   font-size: 10px;
 }
 
+.login-panel--signup .login-panel__footer {
+  margin-top: 32px;
+}
+
 @media (max-width: 480px) {
   .login-panel {
     padding: 32px 20px;
@@ -394,6 +420,10 @@ button {
   .login-brand {
     gap: 14px;
     margin-bottom: 42px;
+  }
+
+  .login-panel--signup .login-brand {
+    margin-bottom: 28px;
   }
 
   .brand__copy strong {
@@ -418,6 +448,10 @@ button {
 
   .login-panel__footer {
     margin-top: 42px;
+  }
+
+  .login-panel--signup .login-panel__footer {
+    margin-top: 28px;
   }
 }
 

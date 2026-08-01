@@ -1,8 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginPage } from "./LoginPage";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("로그인 페이지", () => {
   it("CardOps 로고와 팀 계정 로그인 화면을 표시합니다", () => {
@@ -47,7 +51,20 @@ describe("로그인 페이지", () => {
     ).toBeInTheDocument();
   });
 
-  it("유효한 입력이면 인증 API 연결 안내를 표시합니다", async () => {
+  it("유효한 입력이면 로그인 API를 호출하고 성공 메시지를 표시합니다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        user: {
+          id: 1,
+          username: "analysis_team",
+          display_name: "분석팀",
+          created_at: "2026-08-01T00:00:00Z",
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<LoginPage />);
 
@@ -56,7 +73,47 @@ describe("로그인 페이지", () => {
     await user.click(screen.getByRole("button", { name: "로그인" }));
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "인증 API 연결 후 부서별 콘솔로 이동합니다.",
+      "분석팀님, 로그인되었습니다.",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("회원가입 모드에서 회원가입 API를 호출합니다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        user: {
+          id: 2,
+          username: "analysis_team",
+          display_name: "분석팀",
+          created_at: "2026-08-01T00:00:00Z",
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+    await user.type(screen.getByLabelText("팀 계정 아이디"), "analysis_team");
+    await user.type(screen.getByLabelText("표시 이름"), "분석팀");
+    await user.type(screen.getByLabelText("비밀번호"), "temporary-password");
+    await user.type(
+      screen.getByLabelText("비밀번호 확인"),
+      "temporary-password",
+    );
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/signup",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "회원가입이 완료되었습니다. 로그인해 주세요.",
     );
   });
 });
