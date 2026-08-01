@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from .routes import auth, bulk_targeting, campaigns, customers, insights, model_runs, predictions, system
+from .routes import auth, bulk_targeting, campaigns, customers, insights, model_runs, performance, predictions, system
 
 
 api_router = APIRouter()
@@ -14,3 +14,4 @@ api_router.include_router(model_runs.model_runs_router)
 api_router.include_router(campaigns.campaigns_router)
 api_router.include_router(bulk_targeting.bulk_targeting_router)
 api_router.include_router(customers.customers_router)
+api_router.include_router(performance.performance_router)

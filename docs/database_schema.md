@@ -42,8 +42,8 @@ erDiagram
 | `scoring_batches` | 분석 기준일, 데이터·정책·artifact를 묶은 배치 실행 단위 |
 | `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 배치·실행 시각·상태 |
 | `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 배치·입력 스냅샷 |
-| `campaigns` | 캠페인 이름·설명·채널, 실행 기간과 생명주기 상태 |
-| `campaign_targets` | 대상 고객, 담당자, 캠페인 상태·처리 시각·결과 |
+| `campaigns` | 캠페인 기본 정보·실행 기간·생명주기, A/B 정책과 비용·매출 기준 |
+| `campaign_targets` | 대상 고객, 대상군·대조군, 담당자, 처리 시각·구조화 결과·유지·매출 |
 | `campaign_events` | 캠페인·대상 생성, 담당자 배정, 상태 전이와 결과 변경 이력 |
 | `bulk_targeting_runs` | 세그먼트 일괄 타기팅 정책, 미리보기·실행·취소·재실행과 제외 집계 |
 
@@ -147,3 +147,6 @@ python -m backend.app.migration_runner
 이벤트 이력·중복 접촉 차단·서버 집계 API와 세그먼트 일괄 타기팅까지 구현되어
 있습니다. API 상세는 [`customer_insights_api.md`](customer_insights_api.md)와
 [`bulk_targeting.md`](bulk_targeting.md)를 참조합니다.
+
+캠페인 성과 집계와 A/B 실험·ROI 계산 기준은
+[`campaign_performance.md`](campaign_performance.md)를 참조합니다.

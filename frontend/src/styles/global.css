@@ -2416,6 +2416,158 @@ button {
   color: #247b67;
 }
 
+.campaign-performance-panel {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid #e8e9f6;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fcfcff 0%, #ffffff 100%);
+}
+
+.campaign-performance-experiment {
+  color: var(--primary-dark);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.campaign-performance-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.campaign-performance-card {
+  display: flex;
+  min-height: 100px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  border: 1px solid #eef0f7;
+  border-radius: 13px;
+  background: #ffffff;
+}
+
+.campaign-performance-card span,
+.campaign-performance-card small,
+.campaign-performance-substats {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.campaign-performance-card strong {
+  color: var(--navy);
+  font-size: 24px;
+  letter-spacing: -0.06em;
+}
+
+.campaign-performance-substats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+}
+
+.campaign-performance-substats strong {
+  color: var(--navy);
+}
+
+.campaign-performance-comparisons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.campaign-performance-breakdown {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #eef0f6;
+  border-radius: 13px;
+  background: #ffffff;
+}
+
+.campaign-performance-breakdown h4 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 11px;
+}
+
+.campaign-performance-breakdown .campaign-panel-heading > span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.campaign-performance-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.campaign-performance-table {
+  width: 100%;
+  min-width: 380px;
+  border-collapse: collapse;
+  color: var(--muted);
+  font-size: 9px;
+  text-align: right;
+}
+
+.campaign-performance-table th,
+.campaign-performance-table td {
+  padding: 8px 4px;
+  border-top: 1px solid #f0f1f7;
+  white-space: nowrap;
+}
+
+.campaign-performance-table thead th,
+.campaign-performance-table tbody th {
+  color: var(--navy);
+  font-weight: 750;
+  text-align: left;
+}
+
+.campaign-experiment-badge {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.campaign-experiment-badge--treatment {
+  color: #247b67;
+  background: #e9f8f2;
+}
+
+.campaign-experiment-badge--control {
+  color: #8d5e19;
+  background: #fff3d9;
+}
+
+.campaign-target-retention {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.campaign-target-retention label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.campaign-target-retention label input {
+  width: auto;
+  min-height: auto;
+}
+
+.campaign-target-retention > input {
+  min-width: 60px;
+}
+
 .campaign-target-panel,
 .campaign-event-panel {
   margin-top: 16px;
@@ -2447,7 +2599,7 @@ button {
 .campaign-target-table__head,
 .campaign-target-table__row {
   display: grid;
-  grid-template-columns: minmax(135px, 1.1fr) 120px 125px minmax(150px, 1.3fr) 58px 55px;
+  grid-template-columns: minmax(135px, 1.1fr) 120px 125px minmax(150px, 1.3fr) 58px 90px 55px;
   align-items: center;
   gap: 8px;
 }
@@ -2597,6 +2749,24 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.campaign-editor__checkbox,
+.bulk-targeting-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 20px;
+}
+
+.campaign-editor__checkbox input,
+.bulk-targeting-checkbox input {
+  width: auto;
+  min-height: auto;
+}
+
+.bulk-targeting-form-row--experiment {
+  grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr));
 }
 
 .campaign-editor__actions {
@@ -3394,6 +3564,11 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .campaign-performance-cards,
+  .campaign-performance-comparisons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .campaign-target-filters,
   .campaign-editor__row,
   .bulk-targeting-form-row {
@@ -3412,6 +3587,13 @@ button {
   .campaign-detail-heading__actions {
     align-items: flex-start;
     flex-direction: row;
+  }
+}
+
+@media (max-width: 480px) {
+  .campaign-performance-cards,
+  .campaign-performance-comparisons {
+    grid-template-columns: 1fr;
   }
 }
 

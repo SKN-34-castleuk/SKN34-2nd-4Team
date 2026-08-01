@@ -57,7 +57,7 @@ import_customers 명령
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0007 |
+| Alembic revision | 20260801_0008 |
 | 기존 사용자 | 1명 보존 |
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
@@ -286,8 +286,13 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | name | 캠페인 이름, unique |
 | description | 캠페인 목적·운영 메모 |
 | channel | 실행 채널 |
+| segment_code | 성과 비교용 분석 세그먼트 |
 | status | draft, scheduled, active, paused, completed, cancelled |
 | start_at, end_at | 캠페인 실행 기간 |
+| experiment_enabled, control_group_ratio | A/B 테스트와 대조군 비율 |
+| experiment_seed | 재현 가능한 대상군·대조군 배정 seed |
+| fixed_cost, cost_per_contact, revenue_per_conversion | ROI 계산 기준 금액 |
+| retention_window_days | 유지 여부 관측 기준 기간 |
 | created_by_user_id | 생성자 외래키 |
 | created_at, updated_at | 생성·수정 시각 |
 
@@ -324,6 +329,10 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | result_notes | 상세 메모 |
 | result_code | converted, not_converted, no_response 등 표준 결과 코드 |
 | converted | 전환 여부, 캠페인 집계 기준 |
+| experiment_group | treatment 대상군 또는 control 대조군 |
+| contacted_at, completed_at, converted_at | 성과 상태별 시각 |
+| retained, retention_checked_at | 유지 결과와 관측 시각 |
+| outcome_revenue | 고객별 실제 매출, 캠페인 기본값보다 우선 |
 | created_at, updated_at | 생성·수정 시각 |
 
 같은 분석 스냅샷에 같은 캠페인을 중복 생성하지 않도록
@@ -376,6 +385,9 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
         │
         ▼
 20260801_0007_bulk_targeting
+        │
+        ▼
+20260801_0008_performance_measurement
 ~~~
 
 첫 번째 revision은 users 기준선 테이블을 만들고, 두 번째 revision은
@@ -386,7 +398,10 @@ decision policy, 분석 기준일을 연결합니다. 다섯 번째 revision은 
 `campaign_name` 데이터를 캠페인으로 backfill합니다.
 여섯 번째 revision은 기존 NULL 전환 여부를 false로 보정하고 `converted`를
 필수 boolean으로 고정합니다. 일곱 번째 revision은 수신 거부·최근 접촉 필드와
-세그먼트 일괄 타기팅 실행 이력, 대상-배치 연결을 추가합니다.
+세그먼트 일괄 타기팅 실행 이력, 대상-배치 연결을 추가합니다. 여덟 번째 revision은
+A/B 대상군·대조군, 구조화 결과 시각, 유지 관측값과 캠페인 비용·매출 정책을
+추가합니다. 성과 계산식은 [`campaign_performance.md`](campaign_performance.md)에
+정리했습니다.
 
 ### 5.2 기존 DB
 

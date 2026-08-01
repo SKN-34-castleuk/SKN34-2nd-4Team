@@ -540,14 +540,29 @@ class Campaign(Base):
             "end_at IS NULL OR start_at IS NULL OR end_at >= start_at",
             name="ck_campaigns_period",
         ),
+        CheckConstraint(
+            "control_group_ratio >= 0 AND control_group_ratio < 1",
+            name="ck_campaigns_control_group_ratio",
+        ),
+        CheckConstraint(
+            "fixed_cost >= 0 AND cost_per_contact >= 0 AND "
+            "revenue_per_conversion >= 0",
+            name="ck_campaigns_financials",
+        ),
+        CheckConstraint(
+            "retention_window_days BETWEEN 1 AND 365",
+            name="ck_campaigns_retention_window",
+        ),
         Index("ix_campaigns_status_period", "status", "start_at", "end_at"),
         Index("ix_campaigns_created_by", "created_by_user_id"),
+        Index("ix_campaigns_segment", "segment_code"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    segment_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -561,6 +576,46 @@ class Campaign(Base):
     end_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+    experiment_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    control_group_ratio: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+    experiment_seed: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    fixed_cost: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+    cost_per_contact: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+    revenue_per_conversion: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+    retention_window_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=30,
+        server_default="30",
     )
     created_by_user_id: Mapped[int | None] = mapped_column(
         Integer,
@@ -628,8 +683,13 @@ class CampaignTarget(Base):
         ),
         CheckConstraint(
             "result_code IS NULL OR result_code IN "
-            "('converted', 'not_converted', 'no_response', 'declined', 'invalid_contact')",
+            "('contacted', 'converted', 'not_converted', 'no_response', "
+            "'declined', 'opted_out', 'invalid_contact')",
             name="ck_campaign_targets_result_code",
+        ),
+        CheckConstraint(
+            "experiment_group IN ('treatment', 'control')",
+            name="ck_campaign_targets_experiment_group",
         ),
     )
 
@@ -655,6 +715,12 @@ class CampaignTarget(Base):
         nullable=True,
     )
     campaign_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    experiment_group: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="treatment",
+        server_default="treatment",
+    )
     assigned_to_user_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -670,6 +736,18 @@ class CampaignTarget(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    contacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    converted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     result: Mapped[str | None] = mapped_column(String(100), nullable=True)
     result_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -678,6 +756,18 @@ class CampaignTarget(Base):
         nullable=False,
         default=False,
         server_default="0",
+    )
+    retained: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+    )
+    retention_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    outcome_revenue: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

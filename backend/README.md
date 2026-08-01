@@ -43,6 +43,7 @@ backend/
 │   │       ├── auth.py
 │   │       ├── bulk_targeting.py
 │   │       ├── campaigns.py
+│   │       ├── performance.py
 │   │       ├── customers.py
 │   │       ├── insights.py
 │   │       ├── model_runs.py
@@ -75,6 +76,7 @@ backend/
 ├── tests/
 │   ├── test_api.py
 │   ├── test_bulk_targeting.py
+│   ├── test_performance.py
 │   └── test_analysis_batch.py
 ├── README.md
 ├── requirements.txt
@@ -89,6 +91,7 @@ backend/
 | `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, 팀 계정 조회·관리, Argon2 해시, JWT 쿠키 검증 |
 | `backend/app/api/routes/campaigns.py` | 캠페인 CRUD·대상 조회·등록·상태 변경·이벤트 이력과 역할 제한 |
 | `backend/app/api/routes/bulk_targeting.py` | 세그먼트 일괄 타기팅 미리보기·실행·취소·재실행 API |
+| `backend/app/api/routes/performance.py` | 캠페인·세그먼트·담당자별 성과와 A/B 증분효과 조회 API |
 | `backend/app/api/routes/customers.py` | 관리자 전용 수신 거부 상태 변경 API |
 | `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
 | `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
@@ -102,6 +105,7 @@ backend/
 | `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
 | `backend/app/services/campaign_service.py` | 캠페인 생명주기, 대상 상태 전이, 담당자 역할, 중복 접촉, 서버 집계 규칙 |
 | `backend/app/services/bulk_targeting_service.py` | 최신 인사이트 기반 세그먼트 규칙, 제외 정책, 배치 실행·취소·재실행 |
+| `backend/app/services/performance_service.py` | 전환율·유지율·증분효과·비용·ROI 서버 집계 |
 | `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 이력, 필터·페이지네이션 조회 규칙 |
 | `backend/app/services/model_run_service.py` | 모델 task별 최신 성공 배치 선택 규칙 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
@@ -309,6 +313,8 @@ await fetch("/api/v1/predictions", {
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
 | `GET` | `/api/v1/customer-insights` | 최신 고객 분석 결과 목록·필터·페이지네이션 |
 | `GET` | `/api/v1/customer-insights/{customer_id}` | 고객별 최신 분석 결과와 특성 상세 |
+| `GET` | `/api/v1/campaign-performance` | 전체·필터 캠페인 성과와 캠페인·세그먼트·담당자별 비교 |
+| `GET` | `/api/v1/campaigns/{campaign_id}/performance` | 특정 캠페인 성과 조회 |
 | `POST` | `/api/v1/campaign-targeting/preview` | 세그먼트 일괄 타기팅 미리보기 |
 | `POST` | `/api/v1/campaign-targeting/runs/{run_id}/execute` | draft 캠페인·대상 생성 |
 | `POST` | `/api/v1/campaign-targeting/runs/{run_id}/cancel` | 일괄 타기팅 취소 |
