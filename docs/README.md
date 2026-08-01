@@ -7,6 +7,9 @@ Compose로 실행하고, 다른 노트북에서도 동일한 환경을 재현하
 [`phase1_database_implementation.md`](phase1_database_implementation.md)에서
 확인할 수 있습니다.
 
+모델 배치 실행과 `model_runs`·`customer_insights` 저장의 상세 명세는
+[`phase2_analysis_batch.md`](phase2_analysis_batch.md)에서 확인할 수 있습니다.
+
 ## 1. 구성 개요
 
 `compose.yaml`은 다음 세 개의 서비스를 하나의 Docker 네트워크로 실행합니다.
@@ -238,8 +241,9 @@ Frontend `5173` 또는 Backend `8000`이 사용 중이면 `compose.yaml`의 호�
 현재 Docker 구성에는 MySQL 기반 회원가입·로그인 기능이 연결되어 있습니다.
 Backend 시작 시 Alembic migration으로 사용자·고객·분석·캠페인 테이블을
 준비하고, Argon2로 비밀번호를 해시한 뒤 로그인 성공 시 HttpOnly JWT 쿠키를
-발급합니다. 역할 값은 저장하지만 역할별 권한 검사와 분석 결과 배치 계산은 후속
-작업입니다. DB 구조와 고객 적재 방법은
+발급합니다. 역할 값은 저장하지만 역할별 권한 검사와 분석 결과 조회·캠페인 처리는
+후속 작업입니다. 모델 분석 결과 배치는 `phase2_analysis_batch.md`, DB 구조와 고객
+적재 방법은
 [`database_schema.md`](database_schema.md)를 확인합니다.
 
 또한 현재 Frontend는 개발용 Vite 서버로 실행되므로, 운영 배포 시에는 Frontend를

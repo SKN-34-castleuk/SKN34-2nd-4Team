@@ -105,6 +105,8 @@ python -m backend.app.migration_runner
 
 ## 현재 범위
 
-현재 단계에서는 저장 스키마와 고객 적재까지 제공합니다. `model_runs`,
-`customer_insights`, `campaign_targets`를 채우는 모델 배치 작업과 이 테이블을
-조회·수정하는 API는 다음 단계에서 구현합니다.
+저장 스키마, 고객 적재, 분류·회귀·군집 모델 배치와
+`customer_insights` 저장까지 구현되어 있습니다. 배치 실행 방법과 재실행 정책은
+[`phase2_analysis_batch.md`](phase2_analysis_batch.md)에 정리했습니다.
+`customer_insights`와 `campaign_targets`를 조회·수정하는 업무 API, 역할별 권한
+제어는 다음 단계입니다.

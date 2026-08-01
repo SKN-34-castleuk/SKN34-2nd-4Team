@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from pydantic import ValidationError
 
@@ -165,7 +166,7 @@ class ModelRegistry:
 
         try:
             positive_index = list(classes).index(positive_value)
-            probabilities = self.model.predict_proba(input_frame)
+            probabilities = np.asarray(self.model.predict_proba(input_frame))
             churn_probability = float(probabilities[0][positive_index])
         except (IndexError, TypeError, ValueError) as exc:
             raise ModelPredictionError(
@@ -197,6 +198,61 @@ class ModelRegistry:
             "model_name": self.default_model.name,
             "model_version": self.manifest.generated_at.isoformat(),
         }
+
+    def predict_batch(self, features: pd.DataFrame) -> pd.DataFrame:
+        """여러 고객의 이탈 확률을 manifest 컬럼 순서대로 계산합니다.
+
+        온라인 API의 ``predict``와 동일한 검증·양성 클래스 선택 규칙을
+        유지하면서, 배치에서는 행 단위 Python 호출을 피하고 모델의 벡터화
+        예측을 사용합니다.
+        """
+        if self.manifest is None or self.model is None:
+            raise ModelPredictionError("The classification model is not ready.")
+
+        expected_features = [
+            feature.name for feature in self.manifest.features
+        ]
+        if set(features.columns) != set(expected_features):
+            raise ModelPredictionError(
+                "Batch prediction fields do not match the model manifest."
+            )
+
+        input_frame = features.loc[:, expected_features]
+        positive_value = self.manifest.target.positive_class.value
+        classes = getattr(self.model, "classes_", None)
+        if classes is None:
+            raise ModelPredictionError(
+                "Loaded model does not expose classification classes."
+            )
+
+        try:
+            positive_index = list(classes).index(positive_value)
+            probabilities = np.asarray(self.model.predict_proba(input_frame))
+            churn_probabilities = pd.Series(
+                probabilities[:, positive_index],
+                index=input_frame.index,
+                dtype="float64",
+            )
+        except (IndexError, TypeError, ValueError) as exc:
+            raise ModelPredictionError(
+                "Loaded model returned invalid batch probability output."
+            ) from exc
+        except Exception as exc:
+            raise ModelPredictionError("Batch model prediction failed.") from exc
+
+        if not ((churn_probabilities >= 0.0) & (churn_probabilities <= 1.0)).all():
+            raise ModelPredictionError(
+                "Loaded model returned a probability outside [0, 1]."
+            )
+
+        threshold = self.default_model.decision_threshold
+        return pd.DataFrame(
+            {
+                "churn_probability": churn_probabilities,
+                "prediction": (churn_probabilities >= threshold).astype(int),
+            },
+            index=input_frame.index,
+        )
 
     @staticmethod
     def _sha256(path: Path) -> str:
