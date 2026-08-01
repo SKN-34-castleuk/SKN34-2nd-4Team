@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import date
 
 from backend.app.analysis_batch import DEFAULT_ACTIVITY_GAP_QUANTILE, run_batch
 from backend.app.config import get_database_url, get_model_dir
@@ -38,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ACTIVITY_GAP_QUANTILE,
         help="재활성화 우선 활동성 갭 분위수(기본값: 0.2)",
     )
+    parser.add_argument(
+        "--as-of-date",
+        type=date.fromisoformat,
+        default=None,
+        help="분석 기준일(YYYY-MM-DD, 기본값: UTC 오늘)",
+    )
     return parser
 
 
@@ -57,6 +64,7 @@ def main() -> None:
                 medium_threshold=args.medium_threshold,
                 high_threshold=args.high_threshold,
                 activity_gap_quantile=args.activity_gap_quantile,
+                as_of_date=args.as_of_date,
                 force=args.force,
             )
             print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))

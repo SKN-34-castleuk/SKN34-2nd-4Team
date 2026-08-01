@@ -13,20 +13,27 @@ import json
 import os
 from collections import Counter
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
-from sqlalchemy import desc, func, insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
 from .config import PROJECT_ROOT, get_model_dir
 from .enums import ModelRunStatus, RiskLevel
 from .model_registry import ModelRegistry
-from .models import Customer, CustomerFeatureSnapshot, CustomerInsight, ModelRun
+from .models import (
+    Customer,
+    CustomerFeatureSnapshot,
+    CustomerInsight,
+    DecisionPolicy,
+    ModelRun,
+    ScoringBatch,
+)
 from .schemas import PREDICTION_FIELD_MAP
 
 
@@ -53,6 +60,9 @@ class BatchSummary:
     classification_run_id: int
     regression_run_id: int
     clustering_run_id: int
+    scoring_batch_id: int
+    decision_policy_id: int
+    as_of_date: date
     reused_existing_snapshot: bool
     decision_policy_sha256: str
     risk_counts: dict[str, int]
@@ -60,7 +70,9 @@ class BatchSummary:
 
     def to_dict(self) -> dict[str, Any]:
         """CLI에서 출력할 수 있는 JSON 직렬화용 딕셔너리입니다."""
-        return asdict(self)
+        payload = asdict(self)
+        payload["as_of_date"] = self.as_of_date.isoformat()
+        return payload
 
 
 def sha256_file(path: Path) -> str:
@@ -158,12 +170,68 @@ def _decision_policy_sha256(
     ).hexdigest()
 
 
+def _batch_key_sha256(
+    *,
+    as_of_date: date,
+    dataset_sha256: str | None,
+    decision_policy_sha256: str,
+    run_specs: list[dict[str, Any]],
+    force_nonce: str | None = None,
+) -> str:
+    """배치 입력·artifact·정책·시점을 묶은 재사용 키를 생성합니다."""
+    return hashlib.sha256(
+        _canonical_json(
+            {
+                "as_of_date": as_of_date.isoformat(),
+                "dataset_sha256": dataset_sha256,
+                "decision_policy_sha256": decision_policy_sha256,
+                "artifacts": [
+                    {
+                        "task": spec["task"],
+                        "artifact_sha256": spec["artifact_sha256"],
+                    }
+                    for spec in run_specs
+                ],
+                "force_nonce": force_nonce,
+            }
+        )
+    ).hexdigest()
+
+
+def _get_or_create_decision_policy(
+    session: Session,
+    *,
+    policy_sha256: str,
+    medium_threshold: float,
+    high_threshold: float,
+    activity_gap_quantile: float,
+) -> DecisionPolicy:
+    """동일 정책은 하나의 immutable registry 행으로 재사용합니다."""
+    policy = session.scalar(
+        select(DecisionPolicy).where(
+            DecisionPolicy.policy_sha256 == policy_sha256
+        )
+    )
+    if policy is None:
+        policy = DecisionPolicy(
+            version=DECISION_POLICY_VERSION,
+            policy_sha256=policy_sha256,
+            medium_threshold=medium_threshold,
+            high_threshold=high_threshold,
+            activity_gap_quantile=activity_gap_quantile,
+        )
+        session.add(policy)
+        session.flush()
+    return policy
+
+
 def _ensure_feature_snapshots(
     session: Session,
     customers: list[Customer],
     *,
     source_dataset_sha256: str | None,
     as_of_at: datetime,
+    as_of_date: date,
 ) -> list[CustomerFeatureSnapshot]:
     """현재 고객 특성을 재현 가능한 스냅샷으로 만들고 고객 순서를 보존합니다."""
     customer_ids = [customer.customer_id for customer in customers]
@@ -173,7 +241,7 @@ def _ensure_feature_snapshots(
         )
     ).all()
     existing_by_key = {
-        (snapshot.customer_id, snapshot.feature_sha256): snapshot
+        (snapshot.customer_id, snapshot.feature_sha256, snapshot.as_of_date): snapshot
         for snapshot in existing
     }
 
@@ -181,13 +249,16 @@ def _ensure_feature_snapshots(
     for customer in customers:
         values = _customer_feature_values(customer)
         feature_sha256 = _feature_sha256(values)
-        snapshot = existing_by_key.get((customer.customer_id, feature_sha256))
+        snapshot = existing_by_key.get(
+            (customer.customer_id, feature_sha256, as_of_date)
+        )
         if snapshot is None:
             snapshot = CustomerFeatureSnapshot(
                 customer_id=customer.customer_id,
                 feature_sha256=feature_sha256,
                 source_dataset_sha256=source_dataset_sha256,
                 as_of_at=as_of_at,
+                as_of_date=as_of_date,
                 **values,
             )
             session.add(snapshot)
@@ -311,56 +382,45 @@ def _recommended_action(
     return "일반 유지 관리"
 
 
-def _latest_succeeded_run(session: Session, task: str) -> ModelRun | None:
-    return session.scalar(
-        select(ModelRun)
-        .where(
-            ModelRun.task == task,
-            ModelRun.status == ModelRunStatus.SUCCEEDED.value,
-        )
-        .order_by(desc(ModelRun.completed_at), desc(ModelRun.id))
-        .limit(1)
-    )
-
-
 def _reusable_snapshot(
     session: Session,
     *,
     processed_rows: int,
-    dataset_sha256: str | None,
-    decision_policy_sha256: str,
+    batch_key_sha256: str,
     run_specs: list[dict[str, Any]],
 ) -> BatchSummary | None:
-    """동일 데이터·artifact로 이미 완성된 스냅샷이면 재사용합니다."""
-    latest = {
-        spec["task"]: _latest_succeeded_run(session, spec["task"])
-        for spec in run_specs
-    }
-    if any(latest[spec["task"]] is None for spec in run_specs):
+    """동일 배치 key로 이미 완성된 scoring batch를 재사용합니다."""
+    batch = session.scalar(
+        select(ScoringBatch)
+        .where(
+            ScoringBatch.batch_key_sha256 == batch_key_sha256,
+            ScoringBatch.status == ModelRunStatus.SUCCEEDED.value,
+        )
+        .order_by(ScoringBatch.completed_at.desc(), ScoringBatch.id.desc())
+        .limit(1)
+    )
+    if batch is None:
+        return None
+
+    runs = session.scalars(
+        select(ModelRun).where(
+            ModelRun.scoring_batch_id == batch.id,
+            ModelRun.status == ModelRunStatus.SUCCEEDED.value,
+        )
+    ).all()
+    runs_by_task = {run.task: run for run in runs}
+    if any(spec["task"] not in runs_by_task for spec in run_specs):
         return None
     for spec in run_specs:
-        run = latest[spec["task"]]
-        assert run is not None
-        if (
-            run.artifact_sha256 != spec["artifact_sha256"]
-            or run.dataset_sha256 != dataset_sha256
-            or run.decision_policy_sha256 != decision_policy_sha256
-        ):
+        run = runs_by_task[spec["task"]]
+        if run.artifact_sha256 != spec["artifact_sha256"]:
             return None
 
-    classification = latest[CLASSIFICATION_TASK]
-    regression = latest[REGRESSION_TASK]
-    clustering = latest[CLUSTERING_TASK]
-    assert classification is not None
-    assert regression is not None
-    assert clustering is not None
     count = session.scalar(
         select(func.count())
         .select_from(CustomerInsight)
         .where(
-            CustomerInsight.classification_run_id == classification.id,
-            CustomerInsight.regression_run_id == regression.id,
-            CustomerInsight.clustering_run_id == clustering.id,
+            CustomerInsight.scoring_batch_id == batch.id,
         )
     )
     if int(count or 0) != processed_rows:
@@ -370,9 +430,7 @@ def _reusable_snapshot(
         session.execute(
             select(CustomerInsight.risk_level, func.count())
             .where(
-                CustomerInsight.classification_run_id == classification.id,
-                CustomerInsight.regression_run_id == regression.id,
-                CustomerInsight.clustering_run_id == clustering.id,
+                CustomerInsight.scoring_batch_id == batch.id,
             )
             .group_by(CustomerInsight.risk_level)
         ).all()
@@ -381,20 +439,21 @@ def _reusable_snapshot(
         session.execute(
             select(CustomerInsight.cluster_name, func.count())
             .where(
-                CustomerInsight.classification_run_id == classification.id,
-                CustomerInsight.regression_run_id == regression.id,
-                CustomerInsight.clustering_run_id == clustering.id,
+                CustomerInsight.scoring_batch_id == batch.id,
             )
             .group_by(CustomerInsight.cluster_name)
         ).all()
     )
     return BatchSummary(
         processed_rows=processed_rows,
-        classification_run_id=classification.id,
-        regression_run_id=regression.id,
-        clustering_run_id=clustering.id,
+        classification_run_id=runs_by_task[CLASSIFICATION_TASK].id,
+        regression_run_id=runs_by_task[REGRESSION_TASK].id,
+        clustering_run_id=runs_by_task[CLUSTERING_TASK].id,
+        scoring_batch_id=batch.id,
+        decision_policy_id=batch.decision_policy_id,
+        as_of_date=batch.as_of_date,
         reused_existing_snapshot=True,
-        decision_policy_sha256=decision_policy_sha256,
+        decision_policy_sha256=batch.decision_policy.policy_sha256,
         risk_counts={str(key): int(value) for key, value in risk_counts.items()},
         cluster_counts={str(key): int(value) for key, value in cluster_counts.items()},
     )
@@ -407,6 +466,7 @@ def run_batch(
     medium_threshold: float = 0.5,
     high_threshold: float = 0.85,
     activity_gap_quantile: float = DEFAULT_ACTIVITY_GAP_QUANTILE,
+    as_of_date: date | None = None,
     force: bool = False,
 ) -> BatchSummary:
     """세 모델을 실행하고 고객별 분석 스냅샷을 MySQL에 저장합니다."""
@@ -414,6 +474,9 @@ def run_batch(
         raise ValueError("Thresholds must satisfy 0 <= medium < high <= 1.")
     if not 0.0 < activity_gap_quantile < 1.0:
         raise ValueError("activity_gap_quantile must satisfy 0 < quantile < 1.")
+    resolved_as_of_date = as_of_date or datetime.now(timezone.utc).date()
+    if resolved_as_of_date > datetime.now(timezone.utc).date():
+        raise ValueError("as_of_date cannot be in the future.")
 
     customers = list(
         session.scalars(select(Customer).order_by(Customer.customer_id)).all()
@@ -517,18 +580,43 @@ def run_batch(
         },
     ]
 
+    now = datetime.now(timezone.utc)
+    batch_key = _batch_key_sha256(
+        as_of_date=resolved_as_of_date,
+        dataset_sha256=dataset_sha256,
+        decision_policy_sha256=decision_policy_sha256,
+        run_specs=run_specs,
+        force_nonce=now.isoformat() if force else None,
+    )
+
     if not force:
         reusable = _reusable_snapshot(
             session,
             processed_rows=len(customers),
-            dataset_sha256=dataset_sha256,
-            decision_policy_sha256=decision_policy_sha256,
+            batch_key_sha256=batch_key,
             run_specs=run_specs,
         )
         if reusable is not None:
             return reusable
 
-    now = datetime.now(timezone.utc)
+    decision_policy = _get_or_create_decision_policy(
+        session,
+        policy_sha256=decision_policy_sha256,
+        medium_threshold=medium_threshold,
+        high_threshold=high_threshold,
+        activity_gap_quantile=activity_gap_quantile,
+    )
+    scoring_batch = ScoringBatch(
+        batch_key_sha256=batch_key,
+        as_of_date=resolved_as_of_date,
+        source_dataset_sha256=source_dataset_sha256,
+        dataset_sha256=dataset_sha256,
+        decision_policy_id=decision_policy.id,
+        status=ModelRunStatus.RUNNING.value,
+        started_at=now,
+    )
+    session.add(scoring_batch)
+    session.flush()
     runs = [
         ModelRun(
             task=spec["task"],
@@ -537,6 +625,7 @@ def run_batch(
             artifact_path=spec["artifact_path"],
             artifact_sha256=spec["artifact_sha256"],
             dataset_sha256=dataset_sha256,
+            scoring_batch_id=scoring_batch.id,
             decision_policy_sha256=decision_policy_sha256,
             medium_threshold=medium_threshold,
             high_threshold=high_threshold,
@@ -548,73 +637,90 @@ def run_batch(
         for spec in run_specs
     ]
     session.add_all(runs)
+    run_ids = [run.id for run in runs]
+    scoring_batch_id = scoring_batch.id
     session.commit()
 
-    snapshots = _ensure_feature_snapshots(
-        session,
-        customers,
-        source_dataset_sha256=source_dataset_sha256,
-        as_of_at=now,
-    )
-
-    transaction_count_median = float(raw_features["Total_Trans_Ct"].median())
-    count_change_median = float(raw_features["Total_Ct_Chng_Q4_Q1"].median())
-    insight_records: list[dict[str, Any]] = []
-    for index, row in raw_features.iterrows():
-        probability = float(classification_result.iloc[index]["churn_probability"])
-        gap = float(activity_gap[index])
-        risk = _risk_level(probability, medium_threshold, high_threshold)
-        cluster_name = cluster_names[index]
-        reasons = _reason_codes(
-            row,
-            transaction_count_median=transaction_count_median,
-            count_change_median=count_change_median,
-            activity_gap=gap,
-            activity_gap_priority_threshold=activity_gap_priority_threshold,
-        )
-        insight_records.append(
-            {
-                "customer_id": int(customer_ids.iloc[index]),
-                "customer_snapshot_id": snapshots[index].id,
-                "classification_run_id": runs[0].id,
-                "regression_run_id": runs[1].id,
-                "clustering_run_id": runs[2].id,
-                "churn_probability": probability,
-                "risk_level": risk,
-                "expected_transaction_count": float(expected_transactions[index]),
-                "activity_gap": gap,
-                "cluster_name": cluster_name,
-                "cluster_confidence": float(cluster_confidence[index])
-                if np.isfinite(cluster_confidence[index])
-                else None,
-                "recommended_action": _recommended_action(
-                    risk,
-                    gap,
-                    cluster_name,
-                    activity_gap_priority_threshold=activity_gap_priority_threshold,
-                ),
-                "reason_codes": reasons,
-                "scored_at": now,
-            }
-        )
-
     try:
+        snapshots = _ensure_feature_snapshots(
+            session,
+            customers,
+            source_dataset_sha256=source_dataset_sha256,
+            as_of_at=now,
+            as_of_date=resolved_as_of_date,
+        )
+
+        transaction_count_median = float(raw_features["Total_Trans_Ct"].median())
+        count_change_median = float(raw_features["Total_Ct_Chng_Q4_Q1"].median())
+        insight_records: list[dict[str, Any]] = []
+        for index, row in raw_features.iterrows():
+            probability = float(
+                classification_result.iloc[index]["churn_probability"]
+            )
+            gap = float(activity_gap[index])
+            risk = _risk_level(probability, medium_threshold, high_threshold)
+            cluster_name = cluster_names[index]
+            reasons = _reason_codes(
+                row,
+                transaction_count_median=transaction_count_median,
+                count_change_median=count_change_median,
+                activity_gap=gap,
+                activity_gap_priority_threshold=activity_gap_priority_threshold,
+            )
+            insight_records.append(
+                {
+                    "customer_id": int(customer_ids.iloc[index]),
+                    "customer_snapshot_id": snapshots[index].id,
+                    "scoring_batch_id": scoring_batch.id,
+                    "as_of_date": resolved_as_of_date,
+                    "classification_run_id": runs[0].id,
+                    "regression_run_id": runs[1].id,
+                    "clustering_run_id": runs[2].id,
+                    "churn_probability": probability,
+                    "risk_level": risk,
+                    "expected_transaction_count": float(
+                        expected_transactions[index]
+                    ),
+                    "activity_gap": gap,
+                    "cluster_name": cluster_name,
+                    "cluster_confidence": float(cluster_confidence[index])
+                    if np.isfinite(cluster_confidence[index])
+                    else None,
+                    "recommended_action": _recommended_action(
+                        risk,
+                        gap,
+                        cluster_name,
+                        activity_gap_priority_threshold=activity_gap_priority_threshold,
+                    ),
+                    "reason_codes": reasons,
+                    "scored_at": now,
+                }
+            )
+
         session.execute(insert(CustomerInsight), insight_records)
         completed_at = datetime.now(timezone.utc)
         for run in runs:
             run.status = ModelRunStatus.SUCCEEDED.value
             run.processed_rows = len(customers)
             run.completed_at = completed_at
+        scoring_batch.status = ModelRunStatus.SUCCEEDED.value
+        scoring_batch.processed_rows = len(customers)
+        scoring_batch.completed_at = completed_at
         session.commit()
     except Exception as exc:
         session.rollback()
         failed_runs = list(
-            session.scalars(select(ModelRun).where(ModelRun.id.in_([run.id for run in runs]))).all()
+            session.scalars(select(ModelRun).where(ModelRun.id.in_(run_ids))).all()
         )
         for run in failed_runs:
             run.status = ModelRunStatus.FAILED.value
             run.error_message = str(exc)[:4000]
             run.completed_at = datetime.now(timezone.utc)
+        failed_batch = session.get(ScoringBatch, scoring_batch_id)
+        if failed_batch is not None:
+            failed_batch.status = ModelRunStatus.FAILED.value
+            failed_batch.error_message = str(exc)[:4000]
+            failed_batch.completed_at = datetime.now(timezone.utc)
         session.commit()
         raise
 
@@ -623,6 +729,9 @@ def run_batch(
         classification_run_id=runs[0].id,
         regression_run_id=runs[1].id,
         clustering_run_id=runs[2].id,
+        scoring_batch_id=scoring_batch.id,
+        decision_policy_id=decision_policy.id,
+        as_of_date=resolved_as_of_date,
         reused_existing_snapshot=False,
         decision_policy_sha256=decision_policy_sha256,
         risk_counts=dict(Counter(record["risk_level"] for record in insight_records)),

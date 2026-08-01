@@ -16,6 +16,9 @@ erDiagram
     CUSTOMERS ||--o{ CUSTOMER_FEATURE_SNAPSHOTS : snapshots
     CUSTOMER_FEATURE_SNAPSHOTS ||--o{ CUSTOMER_INSIGHTS : input_for
     CUSTOMERS ||--o{ CAMPAIGN_TARGETS : targeted
+    DECISION_POLICIES ||--o{ SCORING_BATCHES : governs
+    SCORING_BATCHES ||--o{ MODEL_RUNS : groups
+    SCORING_BATCHES ||--o{ CUSTOMER_INSIGHTS : produces
     MODEL_RUNS ||--o{ CUSTOMER_INSIGHTS : produces
     CUSTOMER_INSIGHTS ||--o{ CAMPAIGN_TARGETS : recommends
 ```
@@ -27,14 +30,18 @@ erDiagram
 | `users` | 팀 계정, Argon2 비밀번호 해시, 활성 여부, 업무 역할 |
 | `customers` | `CLIENTNUM`을 보존한 고객 ID와 모델 입력 특성 19개 |
 | `customer_feature_snapshots` | 분석 당시 고객 19개 입력 특성과 특성 해시 |
-| `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 실행 시각·상태 |
-| `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 입력 스냅샷 |
+| `decision_policies` | 위험도 기준·활동성 분위수·정책 버전과 정책 SHA-256 |
+| `scoring_batches` | 분석 기준일, 데이터·정책·artifact를 묶은 배치 실행 단위 |
+| `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 배치·실행 시각·상태 |
+| `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 배치·입력 스냅샷 |
 | `campaign_targets` | 대상 고객, 담당자, 캠페인 상태·처리 시각·결과 |
 
 `CLIENTNUM`은 고객 조회와 테이블 연결에만 사용하며 모델 입력에는 포함하지
 않습니다. `customer_insights`는 고객별 최신 값만 덮어쓰지 않고 분석 시점별로
-누적합니다. 각 행은 분류·회귀·군집 `model_runs`를 각각 참조해 결과의 계보를
-추적할 수 있습니다.
+누적합니다. 각 행은 `scoring_batches`와 세 개의 `model_runs`, 고객 입력
+스냅샷을 참조합니다. `scoring_batches`는 하나의 분석 기준일과
+`decision_policies`를 연결하므로 모델 실행·정책·입력·결과를 하나의 계보로
+재현할 수 있습니다.
 
 ## 사용자 역할
 
@@ -50,10 +57,12 @@ erDiagram
 로그인할 수 있습니다. 캠페인 대상 등록·수정 API는 `admin`, `operations`,
 `marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만 가능합니다.
 
-신규 스키마에서는 `customer_insights.customer_snapshot_id`가 분석 당시 입력을
+신규 스키마에서는 `customer_insights.scoring_batch_id`가 분석 배치를,
+`customer_insights.customer_snapshot_id`가 분석 당시 입력을
 `customer_feature_snapshots`에 연결합니다. 고객 특성이 이후 upsert로 변경돼도
-과거 분석 결과가 사용한 입력을 재현할 수 있습니다. 기존 P0 이전 결과는 과거
-입력을 복원할 수 없으므로 이 컬럼이 일시적으로 NULL일 수 있습니다.
+과거 분석 결과가 사용한 입력을 재현할 수 있습니다. `as_of_date`는 배치,
+인사이트, 고객 입력 스냅샷에 저장되는 업무 기준일입니다. 기존 P0 이전 결과는
+배치·정책·기준일을 복원할 수 없으므로 관련 컬럼이 일시적으로 NULL일 수 있습니다.
 
 ## Migration 적용
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -144,6 +144,38 @@ class CustomerProfileResponse(BaseModel):
     updated_at: datetime
 
 
+class CustomerFeatureSnapshotResponse(BaseModel):
+    """분석 결과가 실제로 사용한 고객 입력 특성의 시점별 스냅샷입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_id: int
+    feature_sha256: str
+    source_dataset_sha256: str | None
+    as_of_date: date
+    as_of_at: datetime
+    customer_age: int
+    gender: str
+    dependent_count: int
+    education_level: str
+    marital_status: str
+    income_category: str
+    card_category: str
+    months_on_book: int
+    total_relationship_count: int
+    months_inactive_12_mon: int
+    contacts_count_12_mon: int
+    credit_limit: float
+    total_revolving_bal: int
+    avg_open_to_buy: float
+    total_amt_chng_q4_q1: float
+    total_trans_amt: int
+    total_trans_ct: int
+    total_ct_chng_q4_q1: float
+    avg_utilization_ratio: float
+
+
 class CustomerInsightResponse(BaseModel):
     """고객별 최신 분석 결과 목록 항목입니다."""
 
@@ -152,6 +184,8 @@ class CustomerInsightResponse(BaseModel):
     id: int
     customer_id: int
     customer_snapshot_id: int | None = None
+    scoring_batch_id: int | None = None
+    as_of_date: date | None = None
     classification_run_id: int
     regression_run_id: int
     clustering_run_id: int
@@ -193,6 +227,7 @@ class ModelRunResponse(BaseModel):
     model_version: str
     artifact_sha256: str
     dataset_sha256: str | None
+    scoring_batch_id: int | None
     decision_policy_sha256: str | None
     medium_threshold: float | None
     high_threshold: float | None
@@ -206,6 +241,10 @@ class ModelRunResponse(BaseModel):
 class LatestBatchResponse(BaseModel):
     """가장 최근 성공한 전체 모델 배치의 요약입니다."""
 
+    scoring_batch_id: int | None = None
+    as_of_date: date | None = None
+    decision_policy_id: int | None = None
+    decision_policy_sha256: str | None = None
     status: ModelRunStatus
     started_at: datetime
     completed_at: datetime | None
@@ -280,6 +319,7 @@ class CustomerInsightDetailResponse(CustomerInsightResponse):
     """고객 특성을 포함한 분석 결과 상세 응답입니다."""
 
     customer: CustomerProfileResponse
+    customer_snapshot: CustomerFeatureSnapshotResponse | None = None
 
 
 USERNAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,49}$"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, select, text
@@ -15,7 +16,9 @@ from backend.app.models import (
     Customer,
     CustomerFeatureSnapshot,
     CustomerInsight,
+    DecisionPolicy,
     ModelRun,
+    ScoringBatch,
     User,
 )
 from backend.app.schemas import PREDICTION_FIELD_MAP
@@ -26,6 +29,8 @@ EXPECTED_TABLES = {
     "users",
     "customers",
     "customer_feature_snapshots",
+    "decision_policies",
+    "scoring_batches",
     "model_runs",
     "customer_insights",
     "campaign_targets",
@@ -45,7 +50,7 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
         assert "role" in {
             column["name"] for column in inspector.get_columns("users")
         }
-        assert revision == "20260801_0003"
+        assert revision == "20260801_0004"
     finally:
         engine.dispose()
 
@@ -156,6 +161,7 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
             snapshot = CustomerFeatureSnapshot(
                 customer_id=customer.customer_id,
                 feature_sha256="d" * 64,
+                as_of_date=date(2026, 8, 1),
                 **{
                     field: customer_row[field]
                     for field in PREDICTION_FIELD_MAP
@@ -167,6 +173,25 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
                 password_hash="argon2-test-hash",
                 role=UserRole.OPERATIONS.value,
             )
+            policy = DecisionPolicy(
+                version="activity-gap-v2",
+                policy_sha256="e" * 64,
+                medium_threshold=0.5,
+                high_threshold=0.85,
+                activity_gap_quantile=0.2,
+            )
+            session.add(policy)
+            session.flush()
+            batch = ScoringBatch(
+                batch_key_sha256="f" * 64,
+                as_of_date=date(2026, 8, 1),
+                dataset_sha256="c" * 64,
+                decision_policy_id=policy.id,
+                status=ModelRunStatus.SUCCEEDED.value,
+                processed_rows=1,
+            )
+            session.add(batch)
+            session.flush()
             runs = [
                 ModelRun(
                     task=task,
@@ -174,6 +199,8 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
                     model_version="test-v1",
                     artifact_path=f"outputs/models/{model_name}.joblib",
                     artifact_sha256=character * 64,
+                    scoring_batch_id=batch.id,
+                    decision_policy_sha256=policy.policy_sha256,
                     status=ModelRunStatus.SUCCEEDED.value,
                     processed_rows=1,
                 )
@@ -189,6 +216,8 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
             insight = CustomerInsight(
                 customer_id=customer.customer_id,
                 customer_snapshot_id=snapshot.id,
+                scoring_batch_id=batch.id,
+                as_of_date=batch.as_of_date,
                 classification_run_id=runs[0].id,
                 regression_run_id=runs[1].id,
                 clustering_run_id=runs[2].id,
@@ -221,6 +250,10 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
             assert stored_target.customer_insight.customer_snapshot is not None
             assert stored_target.customer_insight.customer_snapshot.feature_sha256 == (
                 "d" * 64
+            )
+            assert stored_target.customer_insight.scoring_batch is not None
+            assert stored_target.customer_insight.scoring_batch.decision_policy.version == (
+                "activity-gap-v2"
             )
             assert stored_target.customer_insight.classification_run.model_name == "xgboost"
             assert stored_target.customer_insight.regression_run.model_name == "voting"

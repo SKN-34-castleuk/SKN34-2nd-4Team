@@ -138,7 +138,8 @@ def fetch_latest_customer_insight(
 ) -> CustomerInsight | None:
     """고객 한 명의 최신 분석 결과와 고객 특성을 조회합니다."""
     query = _filtered_query(InsightFilters(customer_id=customer_id)).options(
-        selectinload(CustomerInsight.customer)
+        selectinload(CustomerInsight.customer),
+        selectinload(CustomerInsight.customer_snapshot),
     )
     return db.scalar(query)
 
