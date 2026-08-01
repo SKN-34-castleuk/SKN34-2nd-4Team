@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,10 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
 from backend.app.migration_runner import upgrade_database
+from backend.app.customer_import import load_customer_rows
+from backend.app.enums import ModelRunStatus, RiskLevel
 from backend.app.model_registry import ModelLoadError, ModelRegistry
+from backend.app.models import Customer, CustomerInsight, ModelRun
 from backend.app.schemas import PREDICTION_FIELD_MAP
 
 
@@ -393,6 +397,141 @@ def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
     assert auth_client.get("/api/v1/auth/me").status_code == 401
 
 
+def test_customer_insight_list_filters_and_detail(
+    auth_client: TestClient,
+) -> None:
+    """인증, 최신 스냅샷 선택, 필터·페이지네이션·상세 조회를 검증합니다."""
+    assert (
+        auth_client.get("/api/v1/customer-insights").status_code == 401
+    )
+    signup_response = auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "insight_viewer",
+            "display_name": "인사이트 조회자",
+            "password": "strong-password-123",
+        },
+    )
+    assert signup_response.status_code == 201
+    assert (
+        auth_client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "insight_viewer",
+                "password": "strong-password-123",
+            },
+        ).status_code
+        == 200
+    )
+
+    raw_rows = load_customer_rows(
+        Path(__file__).resolve().parents[2]
+        / "data"
+        / "raw"
+        / "BankChurners.csv"
+    )[:2]
+    session_factory = auth_client.app.state.session_factory
+    assert session_factory is not None
+    with session_factory() as session:
+        customers = [Customer(**row) for row in raw_rows]
+        runs = [
+            ModelRun(
+                task=task,
+                model_name=name,
+                model_version="test-v1",
+                artifact_path=f"outputs/models/{name}.joblib",
+                artifact_sha256=character * 64,
+                status=ModelRunStatus.SUCCEEDED.value,
+                processed_rows=2,
+            )
+            for task, name, character in [
+                ("classification", "xgboost", "a"),
+                ("regression", "voting", "b"),
+                ("clustering", "activity-gap-gmm", "c"),
+            ]
+        ]
+        session.add_all([*customers, *runs])
+        session.flush()
+        old_insight = CustomerInsight(
+            customer_id=customers[0].customer_id,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.95,
+            risk_level=RiskLevel.HIGH.value,
+            expected_transaction_count=40.0,
+            activity_gap=-20.0,
+            cluster_name="우선케어(거래 감소)",
+            cluster_confidence=0.8,
+            recommended_action="이전 결과",
+            reason_codes=["old_snapshot"],
+            scored_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        latest_insight = CustomerInsight(
+            customer_id=customers[0].customer_id,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.2,
+            risk_level=RiskLevel.LOW.value,
+            expected_transaction_count=70.0,
+            activity_gap=5.0,
+            cluster_name="일반관리(유지)",
+            cluster_confidence=0.7,
+            recommended_action="일반 유지 관리",
+            reason_codes=["stable_activity"],
+            scored_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        )
+        second_customer_insight = CustomerInsight(
+            customer_id=customers[1].customer_id,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.9,
+            risk_level=RiskLevel.HIGH.value,
+            expected_transaction_count=35.0,
+            activity_gap=-25.0,
+            cluster_name="우선케어(거래 감소)",
+            cluster_confidence=0.9,
+            recommended_action="이탈 위험 우선 상담 및 거래 활성화 혜택",
+            reason_codes=["below_expected_activity"],
+            scored_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        )
+        session.add_all([old_insight, latest_insight, second_customer_insight])
+        session.commit()
+
+    response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={"page": 1, "page_size": 1},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert payload["total_pages"] == 2
+    assert payload["items"][0]["churn_probability"] == 0.9
+    assert payload["stats"]["risk_counts"] == {"high": 1, "low": 1}
+
+    filtered_response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={"risk_level": "high", "page_size": 100},
+    )
+    assert filtered_response.status_code == 200
+    assert filtered_response.json()["total"] == 1
+
+    customer_id = raw_rows[0]["customer_id"]
+    detail_response = auth_client.get(
+        f"/api/v1/customer-insights/{customer_id}"
+    )
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["risk_level"] == "low"
+    assert detail["recommended_action"] == "일반 유지 관리"
+    assert detail["customer"]["customer_id"] == customer_id
+
+    missing_response = auth_client.get("/api/v1/customer-insights/999999999")
+    assert missing_response.status_code == 404
+
+
 def test_openapi_and_swagger_are_available(client: TestClient) -> None:
     """OpenAPI·Swagger가 제공되고 공개 경로가 의도와 일치하는지 확인합니다."""
     openapi_response = client.get("/openapi.json")
@@ -401,6 +540,8 @@ def test_openapi_and_swagger_are_available(client: TestClient) -> None:
     assert client.get("/docs").status_code == 200
     paths = openapi_response.json()["paths"]
     assert "/api/v1/predictions" in paths
+    assert "/api/v1/customer-insights" in paths
+    assert "/api/v1/customer-insights/{customer_id}" in paths
     assert "/api/v1/models" not in paths
     assert "/health" not in paths
 

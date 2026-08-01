@@ -1,4 +1,4 @@
-"""회원가입, 로그인, 로그아웃과 인증 쿠키를 제공합니다."""
+"""회원가입, 로그인, 로그아웃과 인증 쿠키를 제공하는 API입니다."""
 
 from __future__ import annotations
 
@@ -13,19 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .config import (
-    AUTH_COOKIE_NAME,
-    get_auth_cookie_secure,
-    get_jwt_secret,
-)
-from .database import get_db
-from .models import User
-from .schemas import (
-    AuthResponse,
-    LoginRequest,
-    SignupRequest,
-    UserResponse,
-)
+from ...config import AUTH_COOKIE_NAME, get_auth_cookie_secure, get_jwt_secret
+from ...database import get_db
+from ...models import User
+from ...schemas import AuthResponse, LoginRequest, SignupRequest, UserResponse
 
 
 auth_router = APIRouter(

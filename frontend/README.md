@@ -18,15 +18,18 @@
 - 회원가입 버튼
 - 데스크톱과 모바일 반응형 화면
 - 회원가입·로그인 API 호출
+- customer_insights 조회 API 클라이언트와 OpenAPI 타입 연결
 - HttpOnly 인증 쿠키 기반 로그인 상태 확인
 
 아직 구현되지 않은 기능:
 
 - 로그인 후 부서별 페이지 이동
+- customer_insights 대시보드 화면
 - 역할·권한별 화면 제어
 - 로그아웃 이후 이동할 별도 화면
 
-로그인과 회원가입은 `/api/v1/auth` 아래의 FastAPI API를 호출합니다. Backend는
+로그인과 회원가입은 `/api/v1/auth` 아래의 FastAPI API를 호출합니다. 분석 결과는
+`/api/v1/customer-insights` API 클라이언트로 조회할 수 있습니다. Backend는
 비밀번호를 Argon2로 해시하고 로그인 성공 시 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키를 발급합니다. Frontend는 쿠키를 직접 저장하지 않고
 `credentials: "include"`로 요청합니다.

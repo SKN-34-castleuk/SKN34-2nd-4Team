@@ -144,6 +144,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer-insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 최신 고객 분석 결과 목록 조회
+         * @description 로그인 사용자가 고객별 최신 분석 결과를 필터·페이지 단위로 조회합니다.
+         */
+        get: operations["list_customer_insights_api_v1_customer_insights_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer-insights/{customer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 고객별 최신 분석 결과 상세 조회
+         * @description 로그인 사용자가 고객 특성과 최신 분석 결과를 함께 조회합니다.
+         */
+        get: operations["get_customer_insight_api_v1_customer_insights__customer_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -154,6 +194,174 @@ export interface components {
          */
         AuthResponse: {
             user: components["schemas"]["UserResponse"];
+        };
+        /**
+         * CustomerInsightDetailResponse
+         * @description 고객 특성을 포함한 분석 결과 상세 응답입니다.
+         */
+        CustomerInsightDetailResponse: {
+            /** Id */
+            id: number;
+            /** Customer Id */
+            customer_id: number;
+            /** Classification Run Id */
+            classification_run_id: number;
+            /** Regression Run Id */
+            regression_run_id: number;
+            /** Clustering Run Id */
+            clustering_run_id: number;
+            /** Churn Probability */
+            churn_probability: number;
+            risk_level: components["schemas"]["RiskLevel"];
+            /** Expected Transaction Count */
+            expected_transaction_count: number;
+            /** Activity Gap */
+            activity_gap: number;
+            /** Cluster Name */
+            cluster_name: string;
+            /** Cluster Confidence */
+            cluster_confidence?: number | null;
+            /** Recommended Action */
+            recommended_action: string;
+            /** Reason Codes */
+            reason_codes: string[] | {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Scored At
+             * Format: date-time
+             */
+            scored_at: string;
+            customer: components["schemas"]["CustomerProfileResponse"];
+        };
+        /**
+         * CustomerInsightListResponse
+         * @description 고객 분석 결과 목록과 페이지네이션·요약 통계입니다.
+         */
+        CustomerInsightListResponse: {
+            /** Items */
+            items: components["schemas"]["CustomerInsightResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Total Pages */
+            total_pages: number;
+            stats: components["schemas"]["CustomerInsightStats"];
+        };
+        /**
+         * CustomerInsightResponse
+         * @description 고객별 최신 분석 결과 목록 항목입니다.
+         */
+        CustomerInsightResponse: {
+            /** Id */
+            id: number;
+            /** Customer Id */
+            customer_id: number;
+            /** Classification Run Id */
+            classification_run_id: number;
+            /** Regression Run Id */
+            regression_run_id: number;
+            /** Clustering Run Id */
+            clustering_run_id: number;
+            /** Churn Probability */
+            churn_probability: number;
+            risk_level: components["schemas"]["RiskLevel"];
+            /** Expected Transaction Count */
+            expected_transaction_count: number;
+            /** Activity Gap */
+            activity_gap: number;
+            /** Cluster Name */
+            cluster_name: string;
+            /** Cluster Confidence */
+            cluster_confidence?: number | null;
+            /** Recommended Action */
+            recommended_action: string;
+            /** Reason Codes */
+            reason_codes: string[] | {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Scored At
+             * Format: date-time
+             */
+            scored_at: string;
+        };
+        /**
+         * CustomerInsightStats
+         * @description 필터가 적용된 분석 결과의 대시보드 요약 통계입니다.
+         */
+        CustomerInsightStats: {
+            /** Total */
+            total: number;
+            /** Average Churn Probability */
+            average_churn_probability: number;
+            /** Risk Counts */
+            risk_counts: {
+                [key: string]: number;
+            };
+            /** Cluster Counts */
+            cluster_counts: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * CustomerProfileResponse
+         * @description 분석 상세 화면에 제공할 고객 원본 특성입니다.
+         */
+        CustomerProfileResponse: {
+            /** Customer Id */
+            customer_id: number;
+            /** Customer Age */
+            customer_age: number;
+            /** Gender */
+            gender: string;
+            /** Dependent Count */
+            dependent_count: number;
+            /** Education Level */
+            education_level: string;
+            /** Marital Status */
+            marital_status: string;
+            /** Income Category */
+            income_category: string;
+            /** Card Category */
+            card_category: string;
+            /** Months On Book */
+            months_on_book: number;
+            /** Total Relationship Count */
+            total_relationship_count: number;
+            /** Months Inactive 12 Mon */
+            months_inactive_12_mon: number;
+            /** Contacts Count 12 Mon */
+            contacts_count_12_mon: number;
+            /** Credit Limit */
+            credit_limit: number;
+            /** Total Revolving Bal */
+            total_revolving_bal: number;
+            /** Avg Open To Buy */
+            avg_open_to_buy: number;
+            /** Total Amt Chng Q4 Q1 */
+            total_amt_chng_q4_q1: number;
+            /** Total Trans Amt */
+            total_trans_amt: number;
+            /** Total Trans Ct */
+            total_trans_ct: number;
+            /** Total Ct Chng Q4 Q1 */
+            total_ct_chng_q4_q1: number;
+            /** Avg Utilization Ratio */
+            avg_utilization_ratio: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -290,6 +498,12 @@ export interface components {
             /** Model Version */
             model_version: string;
         };
+        /**
+         * RiskLevel
+         * @description 고객 이탈 위험 등급입니다.
+         * @enum {string}
+         */
+        RiskLevel: "low" | "medium" | "high";
         /**
          * SignupRequest
          * @description 팀 계정 회원가입 요청입니다.
@@ -522,6 +736,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_customer_insights_api_v1_customer_insights_get: {
+        parameters: {
+            query?: {
+                /** @description 이탈 위험 등급 필터 */
+                risk_level?: components["schemas"]["RiskLevel"] | null;
+                /** @description 활동성 군집명 필터 */
+                cluster_name?: string | null;
+                /** @description 고객 ID 정확히 검색 */
+                customer_id?: number | null;
+                /** @description 정렬 기준 */
+                sort_by?: "churn_probability" | "activity_gap" | "scored_at";
+                /** @description 정렬 방향 */
+                sort_order?: "asc" | "desc";
+                /** @description 페이지 번호 */
+                page?: number;
+                /** @description 페이지당 결과 수 */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerInsightListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_customer_insight_api_v1_customer_insights__customer_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerInsightDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

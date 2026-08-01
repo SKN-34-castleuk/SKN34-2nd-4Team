@@ -35,6 +35,14 @@ SKN34-2nd-4Team/
 │   └── 05_clustering.ipynb
 ├── backend/
 │   ├── app/
+│   │   ├── api/
+│   │   │   └── routes/
+│   │   │       ├── auth.py
+│   │   │       ├── insights.py
+│   │   │       ├── predictions.py
+│   │   │       └── system.py
+│   │   ├── services/
+│   │   │   └── insight_service.py
 │   │   ├── config.py
 │   │   ├── main.py
 │   │   ├── model_manifest.py
@@ -48,8 +56,12 @@ SKN34-2nd-4Team/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/
+│   │   │   ├── auth.ts
+│   │   │   ├── client.ts
+│   │   │   └── insights.ts
 │   │   ├── features/
-│   │   │   └── auth/
+│   │   │   ├── auth/
+│   │   │   └── insights/
 │   │   ├── styles/
 │   │   ├── test/
 │   │   └── main.tsx
@@ -172,7 +184,9 @@ MySQL 데이터를 초기화할 때만 `docker compose down -v`를 사용합니�
 ## React 프론트엔드 환경
 
 `frontend/`에는 React·TypeScript·Vite 기반의 반응형 팀 계정 로그인 화면이
-구현되어 있습니다. 흰색 배경 중앙에 CardOps 로고와 로그인 폼을 배치했으며,
+구현되어 있습니다. API 클라이언트는 인증과 customer_insights 도메인별로
+분리되어 있으며, 다음 단계에서 insights 기능 화면을 연결합니다. 흰색 배경
+중앙에 CardOps 로고와 로그인 폼을 배치했으며,
 필수 입력값 검증, 비밀번호 표시 전환, 회원가입, MySQL 기반 로그인 연동을
 제공합니다.
 
