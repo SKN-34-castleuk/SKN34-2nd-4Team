@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .enums import RiskLevel, UserRole
+from .enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 
 
 # 프론트엔드용 snake_case 필드명을 학습 데이터의 원본 컬럼명으로 연결합니다.
@@ -172,6 +172,92 @@ class CustomerInsightStats(BaseModel):
     average_churn_probability: float = Field(ge=0.0, le=1.0)
     risk_counts: dict[str, int]
     cluster_counts: dict[str, int]
+
+
+class CustomerInsightHistoryResponse(BaseModel):
+    """고객 한 명의 분석 스냅샷 이력입니다."""
+
+    customer_id: int
+    items: list[CustomerInsightResponse]
+
+
+class ModelRunResponse(BaseModel):
+    """모델 배치 실행 이력의 외부 응답 구조입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task: str
+    model_name: str
+    model_version: str
+    artifact_sha256: str
+    dataset_sha256: str | None
+    status: ModelRunStatus
+    processed_rows: int | None
+    started_at: datetime
+    completed_at: datetime | None
+
+
+class LatestBatchResponse(BaseModel):
+    """가장 최근 성공한 전체 모델 배치의 요약입니다."""
+
+    status: ModelRunStatus
+    started_at: datetime
+    completed_at: datetime | None
+    processed_rows: int | None
+    dataset_sha256: str | None
+    runs: list[ModelRunResponse]
+
+
+class CampaignTargetResponse(BaseModel):
+    """캠페인 대상과 현재 업무 처리 상태입니다."""
+
+    id: int
+    customer_id: int
+    customer_insight_id: int
+    campaign_name: str
+    assigned_to_user_id: int | None
+    assigned_to_display_name: str | None = None
+    status: CampaignStatus
+    processed_at: datetime | None
+    result: str | None
+    result_notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CampaignTargetCreateRequest(BaseModel):
+    """분석 결과를 캠페인 업무 대상으로 등록하는 요청입니다."""
+
+    customer_insight_id: int = Field(ge=1)
+    campaign_name: str = Field(min_length=1, max_length=150)
+    assigned_to_user_id: int | None = Field(default=None, ge=1)
+
+    @field_validator("campaign_name", mode="before")
+    @classmethod
+    def normalize_campaign_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CampaignTargetUpdateRequest(BaseModel):
+    """캠페인 대상의 담당자·상태·처리 결과를 변경하는 요청입니다."""
+
+    status: CampaignStatus | None = None
+    assigned_to_user_id: int | None = Field(default=None, ge=1)
+    result: str | None = Field(default=None, max_length=100)
+    result_notes: str | None = Field(default=None, max_length=2000)
+
+
+class CampaignTargetListResponse(BaseModel):
+    """캠페인 대상 목록과 페이지네이션 응답입니다."""
+
+    items: list[CampaignTargetResponse]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
 
 
 class CustomerInsightListResponse(BaseModel):

@@ -164,6 +164,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer-insights/history/{customer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 고객 분석 이력 조회
+         * @description 고객의 분석 시점별 이탈 확률과 활동성 변화를 반환합니다.
+         */
+        get: operations["get_customer_insight_history_api_v1_customer_insights_history__customer_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer-insights/{customer_id}": {
         parameters: {
             query?: never;
@@ -184,6 +204,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/model-runs/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 최근 성공 모델 배치 조회
+         * @description 대시보드에서 데이터 갱신 시각과 사용 모델을 확인할 수 있게 합니다.
+         */
+        get: operations["get_latest_batch_api_v1_model_runs_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 캠페인 대상 목록 조회
+         * @description 인증된 사용자가 캠페인 처리 큐를 조회합니다.
+         */
+        get: operations["list_campaign_targets_api_v1_campaign_targets_get"];
+        put?: never;
+        /**
+         * 캠페인 대상 등록
+         * @description 분석 결과를 캠페인 처리 대상으로 등록합니다.
+         */
+        post: operations["create_campaign_target_api_api_v1_campaign_targets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targets/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 캠페인 대상 처리 상태 변경
+         * @description 캠페인 대상의 담당자·상태·처리 결과를 저장합니다.
+         */
+        patch: operations["update_campaign_target_api_api_v1_campaign_targets__target_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -194,6 +278,88 @@ export interface components {
          */
         AuthResponse: {
             user: components["schemas"]["UserResponse"];
+        };
+        /**
+         * CampaignStatus
+         * @description 캠페인 대상 고객의 업무 처리 상태입니다.
+         * @enum {string}
+         */
+        CampaignStatus: "pending" | "assigned" | "contacted" | "completed" | "cancelled";
+        /**
+         * CampaignTargetCreateRequest
+         * @description 분석 결과를 캠페인 업무 대상으로 등록하는 요청입니다.
+         */
+        CampaignTargetCreateRequest: {
+            /** Customer Insight Id */
+            customer_insight_id: number;
+            /** Campaign Name */
+            campaign_name: string;
+            /** Assigned To User Id */
+            assigned_to_user_id?: number | null;
+        };
+        /**
+         * CampaignTargetListResponse
+         * @description 캠페인 대상 목록과 페이지네이션 응답입니다.
+         */
+        CampaignTargetListResponse: {
+            /** Items */
+            items: components["schemas"]["CampaignTargetResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Total Pages */
+            total_pages: number;
+        };
+        /**
+         * CampaignTargetResponse
+         * @description 캠페인 대상과 현재 업무 처리 상태입니다.
+         */
+        CampaignTargetResponse: {
+            /** Id */
+            id: number;
+            /** Customer Id */
+            customer_id: number;
+            /** Customer Insight Id */
+            customer_insight_id: number;
+            /** Campaign Name */
+            campaign_name: string;
+            /** Assigned To User Id */
+            assigned_to_user_id: number | null;
+            /** Assigned To Display Name */
+            assigned_to_display_name?: string | null;
+            status: components["schemas"]["CampaignStatus"];
+            /** Processed At */
+            processed_at: string | null;
+            /** Result */
+            result: string | null;
+            /** Result Notes */
+            result_notes: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CampaignTargetUpdateRequest
+         * @description 캠페인 대상의 담당자·상태·처리 결과를 변경하는 요청입니다.
+         */
+        CampaignTargetUpdateRequest: {
+            status?: components["schemas"]["CampaignStatus"] | null;
+            /** Assigned To User Id */
+            assigned_to_user_id?: number | null;
+            /** Result */
+            result?: string | null;
+            /** Result Notes */
+            result_notes?: string | null;
         };
         /**
          * CustomerInsightDetailResponse
@@ -233,6 +399,16 @@ export interface components {
              */
             scored_at: string;
             customer: components["schemas"]["CustomerProfileResponse"];
+        };
+        /**
+         * CustomerInsightHistoryResponse
+         * @description 고객 한 명의 분석 스냅샷 이력입니다.
+         */
+        CustomerInsightHistoryResponse: {
+            /** Customer Id */
+            customer_id: number;
+            /** Items */
+            items: components["schemas"]["CustomerInsightResponse"][];
         };
         /**
          * CustomerInsightListResponse
@@ -392,6 +568,26 @@ export interface components {
             manifest_generated_at: string;
         };
         /**
+         * LatestBatchResponse
+         * @description 가장 최근 성공한 전체 모델 배치의 요약입니다.
+         */
+        LatestBatchResponse: {
+            status: components["schemas"]["ModelRunStatus"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Processed Rows */
+            processed_rows: number | null;
+            /** Dataset Sha256 */
+            dataset_sha256: string | null;
+            /** Runs */
+            runs: components["schemas"]["ModelRunResponse"][];
+        };
+        /**
          * LivenessResponse
          * @description API 프로세스의 생존 상태 응답입니다.
          */
@@ -421,6 +617,40 @@ export interface components {
              */
             remember_me: boolean;
         };
+        /**
+         * ModelRunResponse
+         * @description 모델 배치 실행 이력의 외부 응답 구조입니다.
+         */
+        ModelRunResponse: {
+            /** Id */
+            id: number;
+            /** Task */
+            task: string;
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: string;
+            /** Artifact Sha256 */
+            artifact_sha256: string;
+            /** Dataset Sha256 */
+            dataset_sha256: string | null;
+            status: components["schemas"]["ModelRunStatus"];
+            /** Processed Rows */
+            processed_rows: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at: string | null;
+        };
+        /**
+         * ModelRunStatus
+         * @description 모델 배치 실행의 처리 상태입니다.
+         * @enum {string}
+         */
+        ModelRunStatus: "running" | "succeeded" | "failed";
         /**
          * PredictionRequest
          * @description 학습된 분류 파이프라인이 요구하는 고객 특성 입력값입니다.
@@ -783,6 +1013,39 @@ export interface operations {
             };
         };
     };
+    get_customer_insight_history_api_v1_customer_insights_history__customer_id__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerInsightHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_customer_insight_api_v1_customer_insights__customer_id__get: {
         parameters: {
             query?: never;
@@ -801,6 +1064,128 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerInsightDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_latest_batch_api_v1_model_runs_latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestBatchResponse"];
+                };
+            };
+        };
+    };
+    list_campaign_targets_api_v1_campaign_targets_get: {
+        parameters: {
+            query?: {
+                /** @description 캠페인 처리 상태 필터 */
+                status?: components["schemas"]["CampaignStatus"] | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTargetListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_campaign_target_api_api_v1_campaign_targets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignTargetCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTargetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_campaign_target_api_api_v1_campaign_targets__target_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignTargetUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTargetResponse"];
                 };
             };
             /** @description Validation Error */

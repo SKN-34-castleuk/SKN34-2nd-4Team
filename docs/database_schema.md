@@ -43,7 +43,8 @@ erDiagram
 - `marketing`: 캠페인 대상과 결과 관리
 
 회원가입 API에서 역할을 입력받지 않으며 모든 신규 계정은 최소권한인
-`operations`로 생성됩니다. 역할 변경과 역할별 API 권한 검사는 후속 기능입니다.
+`operations`로 생성됩니다. 캠페인 대상 등록·수정 API는 `admin`, `operations`,
+`marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만 가능합니다.
 
 ## Migration 적용
 
@@ -108,5 +109,7 @@ python -m backend.app.migration_runner
 저장 스키마, 고객 적재, 분류·회귀·군집 모델 배치와
 `customer_insights` 저장까지 구현되어 있습니다. 배치 실행 방법과 재실행 정책은
 [`phase2_analysis_batch.md`](phase2_analysis_batch.md)에 정리했습니다.
-`customer_insights`와 `campaign_targets`를 조회·수정하는 업무 API, 역할별 권한
-제어는 다음 단계입니다.
+`customer_insights` 최신 결과·이력, `model_runs` 최신 배치 상태,
+`campaign_targets` 조회·등록·수정 업무 API와 역할별 권한 제어까지 구현되어
+있습니다. API 상세는 [`customer_insights_api.md`](customer_insights_api.md)를
+참조합니다.

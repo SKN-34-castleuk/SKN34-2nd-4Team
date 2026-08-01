@@ -13,6 +13,7 @@ from ...enums import RiskLevel
 from ...models import CustomerInsight, User
 from ...schemas import (
     CustomerInsightDetailResponse,
+    CustomerInsightHistoryResponse,
     CustomerInsightListResponse,
     CustomerInsightResponse,
     CustomerInsightStats,
@@ -20,6 +21,7 @@ from ...schemas import (
 from ...services.insight_service import (
     InsightFilters,
     fetch_insight_page,
+    fetch_customer_insight_history,
     fetch_latest_customer_insight,
 )
 
@@ -101,6 +103,30 @@ def list_customer_insights(
             risk_counts=result.risk_counts,
             cluster_counts=result.cluster_counts,
         ),
+    )
+
+
+@insights_router.get(
+    "/history/{customer_id}",
+    response_model=CustomerInsightHistoryResponse,
+    summary="고객 분석 이력 조회",
+)
+def get_customer_insight_history(
+    customer_id: int,
+    limit: int = Query(default=24, ge=1, le=100),
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CustomerInsightHistoryResponse:
+    """고객의 분석 시점별 이탈 확률과 활동성 변화를 반환합니다."""
+    items = fetch_customer_insight_history(db, customer_id, limit=limit)
+    if not items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The customer insight history was not found.",
+        )
+    return CustomerInsightHistoryResponse(
+        customer_id=customer_id,
+        items=[_to_insight_response(insight) for insight in items],
     )
 
 

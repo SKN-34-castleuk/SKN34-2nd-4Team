@@ -115,7 +115,8 @@ Argon2 해시만 저장합니다.
 
 회원가입 요청에서는 role을 받지 않습니다. 신규 계정은 항상 operations로 생성됩니다.
 사용자가 직접 회원가입하면서 관리자 권한을 얻는 상황을 방지하기 위한 정책입니다.
-역할 변경 API와 역할별 접근 제어는 후속 구현 대상입니다.
+캠페인 등록·수정 API는 `admin`, `operations`, `marketing` 역할로 제한되며,
+`analyst`는 분석 결과와 캠페인 큐를 조회만 할 수 있습니다.
 
 ### 4.2 customers
 
@@ -417,11 +418,12 @@ typecheck, test, build를 통과했습니다.
   지울 때만 사용합니다.
 - 실제 운영 DB에는 migration 전 백업과 migration 후 alembic check를 권장합니다.
 
-## 10. 다음 구현 단계
+## 10. 저장 기반 위에 구현된 업무 기능
 
-현재 저장 기반 위에 다음 순서로 기능을 추가합니다.
+1. customers와 최신·과거 customer_insights 조회 API
+2. 우선관리 고객 목록·상세 화면과 고위험 필터 바로가기
+3. 추천 캠페인 대상 생성, 담당자 자동 배정, 처리 상태·결과 저장
+4. users.role 기준 캠페인 등록·수정 권한 제어
+5. 최신 model_runs 배치 상태·모델 버전 표시와 CSV 내보내기
 
-1. customers와 최신 customer_insights 조회 API를 추가합니다.
-2. 우선관리 고객 목록·상세 화면을 Frontend에 추가합니다.
-3. 추천 캠페인을 campaign_targets에 생성하고 담당자·처리 결과를 저장합니다.
-4. users.role을 기준으로 관리자·분석·운영·마케팅 API 권한을 적용합니다.
+모델 성능 Streamlit 대시보드 통합은 현재 범위에 포함하지 않습니다.

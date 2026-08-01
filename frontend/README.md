@@ -24,12 +24,22 @@
 - 새로고침 시 `/api/v1/auth/me`를 통한 세션 복원
 - 로그아웃 후 로그인 화면 복귀
 - 인증 확인 중·오류·재시도 상태 표시
+- customer_insights 기반 벤토 그리드 대시보드
+- 고객 수·평균 이탈 확률·고위험 고객·군집 요약 카드
+- 위험도·군집·고객 ID 필터와 정렬·페이지네이션
+- 고객별 분석 결과 목록과 상세 정보 패널
+- 예상 거래건수·활동성 갭·군집 신뢰도 표시
+- 고객별 분석 이력과 최신 모델 배치·버전 상태 표시
+- 고위험 고객 바로가기와 현재 필터 결과 CSV 다운로드
+- 캠페인 대상 등록, 담당자 자동 배정, 처리 상태·결과 저장 큐
+- analyst 읽기 전용 캠페인 화면과 운영·마케팅·관리자 변경 화면
 
-아직 구현되지 않은 기능:
+현재 대시보드 범위에서 제외한 기능:
 
-- 로그인 후 부서별 페이지 이동
-- customer_insights 대시보드의 실제 KPI·목록·상세 화면
-- 역할·권한별 화면 제어
+- 모델 성능 Streamlit 대시보드(`dashboard/app.py`)의 React 화면 통합
+
+모델 성능 화면은 기존 Streamlit 앱으로 별도 실행할 수 있으며, 고객 분석
+대시보드는 저장된 분석 결과와 운영 업무 처리에 집중합니다.
 
 로그인과 회원가입은 `/api/v1/auth` 아래의 FastAPI API를 호출합니다. 분석 결과는
 `/api/v1/customer-insights` API 클라이언트로 조회할 수 있습니다. Backend는
@@ -139,8 +149,10 @@ frontend/
 │   │   └── App.tsx
 │   ├── api/
 │   │   ├── auth.ts
+│   │   ├── campaigns.ts
 │   │   ├── client.ts
 │   │   ├── insights.ts
+│   │   ├── modelRuns.ts
 │   │   └── schema.d.ts
 │   ├── features/
 │   │   └── auth/
@@ -177,8 +189,11 @@ frontend/
 | `src/app/App.tsx` | 세션 확인과 인증 상태에 따른 화면 전환 | 인증 흐름 변경 |
 | `src/features/auth/LoginPage.tsx` | 로그인 화면 구조와 사용자 동작 | 로그인 필드와 버튼, 검증 로직 변경 |
 | `src/features/auth/LoginPage.test.tsx` | 로그인 화면 자동 테스트 | 로그인 동작을 변경하거나 기능 추가 |
-| `src/features/dashboard/DashboardPage.tsx` | 인증된 사용자용 앱 셸과 로그아웃 | 대시보드 화면 구현 |
+| `src/features/dashboard/DashboardPage.tsx` | 벤토 그리드 대시보드, 분석 이력·캠페인 큐·상세 패널과 로그아웃 | 대시보드 화면 구현 |
 | `src/styles/global.css` | 색상, 크기, 간격과 반응형 디자인 | 로그인 화면 디자인 변경 |
+| `src/api/insights.ts` | 고객 분석 목록·상세·이력 API 호출 | 분석 조회 API 변경 |
+| `src/api/modelRuns.ts` | 최신 모델 배치 상태 API 호출 | 배치 상태 표시 변경 |
+| `src/api/campaigns.ts` | 캠페인 대상 조회·등록·처리 API 호출 | 캠페인 업무 흐름 변경 |
 | `src/api/schema.d.ts` | FastAPI에서 생성한 API 요청·응답 타입 | 직접 수정하지 않고 명령으로 재생성 |
 | `src/test/setup.ts` | 모든 테스트에 공통 적용되는 준비 코드 | 테스트 라이브러리 설정 변경 |
 | `vite.config.ts` | 개발 서버, 프록시와 Vitest 설정 | 포트나 백엔드 주소 변경 |
@@ -601,15 +616,14 @@ Vite의 optional WASM fallback 의존성에서 `@emnapi` 관련 peer 경고가 �
 - 인증 토큰은 HttpOnly 쿠키로 관리하고, Backend에서 만료 시간을 설정합니다.
 - 코드 변경 후 `lint`, `typecheck`, `test`, `build`를 실행합니다.
 
-## 16. 다음 구현 순서
+## 16. 이후 확장 후보
 
-현재 화면에서 실제 서비스로 확장할 때 권장하는 순서입니다.
+현재 구현 이후 실제 서비스 요구사항에 따라 확장할 수 있는 항목입니다.
 
-1. 사용자 역할 정의: 관리자, 분석, 운영, 마케팅
-2. React Router 추가
-3. 로그인 후 역할별 화면 이동
-4. 인증 실패·만료 시 공통 화면 처리
-5. 예측 입력 화면과 `/api/v1/predictions` 연결
+1. 사용자·역할 관리 화면과 역할 변경 API
+2. React Router 기반 부서별 페이지
+3. 인증 만료 시 공통 재로그인 화면
+4. 예측 입력 화면과 `/api/v1/predictions` 연결
 
 Router, 폼 라이브러리, 서버 상태 관리 도구는 실제 요구사항이 정해졌을 때
 필요한 것만 추가합니다.

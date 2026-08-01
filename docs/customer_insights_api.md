@@ -6,8 +6,9 @@
 Backend API입니다. 같은 고객의 과거 분석 결과가 여러 건 있어도 가장 최근
 `scored_at` 결과 하나만 반환합니다.
 
-모든 경로는 HttpOnly JWT 인증 쿠키가 필요합니다. 현재는 로그인한 모든 활성
-사용자가 조회할 수 있으며, 역할별 접근 제한은 권한 기능 구현 단계에서 추가합니다.
+모든 경로는 HttpOnly JWT 인증 쿠키가 필요합니다. 분석 결과·이력·배치 상태는
+모든 활성 사용자가 조회할 수 있습니다. 캠페인 대상 등록·수정은 `admin`,
+`operations`, `marketing` 역할만 수행할 수 있고 `analyst`는 읽기 전용입니다.
 
 ## 목록 조회
 
@@ -91,6 +92,70 @@ GET /api/v1/customer-insights/{customer_id}
 
 분석 결과가 없는 고객은 `404 Not Found`를 반환합니다.
 
+## 고객 분석 이력
+
+~~~http
+GET /api/v1/customer-insights/history/{customer_id}?limit=24
+~~~
+
+한 고객의 분석 스냅샷을 최신순으로 반환합니다. 같은 고객의 이탈 확률,
+활동성 갭, 군집 결과가 시간에 따라 어떻게 바뀌었는지 상세 패널의 이력
+영역에서 확인할 때 사용합니다. `limit`은 1~100 사이입니다.
+
+## 최신 모델 배치 상태
+
+~~~http
+GET /api/v1/model-runs/latest
+~~~
+
+분류·회귀·군집별 가장 최근 성공 실행을 하나의 배치로 묶어 반환합니다.
+대시보드는 데이터 갱신 시각, 처리 행 수, 모델 버전을 표시합니다. 성공한
+실행 이력이 없으면 `404 Not Found`를 반환합니다.
+
+## 캠페인 대상 업무 API
+
+### 목록 조회
+
+~~~http
+GET /api/v1/campaign-targets?status=pending&page=1&page_size=20
+~~~
+
+캠페인 대상, 담당자, 처리 상태, 처리 일시와 결과를 반환합니다. `status`는
+`pending`, `assigned`, `contacted`, `completed`, `cancelled` 중 하나입니다.
+
+### 대상 등록
+
+~~~http
+POST /api/v1/campaign-targets
+Content-Type: application/json
+
+{
+  "customer_insight_id": 42,
+  "campaign_name": "이탈 위험 리텐션",
+  "assigned_to_user_id": 7
+}
+~~~
+
+같은 분석 스냅샷과 캠페인 이름 조합은 중복 등록할 수 없습니다. 담당자를
+지정하면 초기 상태는 `assigned`, 지정하지 않으면 `pending`입니다.
+
+### 처리 결과 수정
+
+~~~http
+PATCH /api/v1/campaign-targets/{target_id}
+Content-Type: application/json
+
+{
+  "status": "completed",
+  "result": "혜택 안내 완료",
+  "result_notes": "앱 푸시 발송 후 상담 완료"
+}
+~~~
+
+`contacted`, `completed`, `cancelled`로 상태를 변경하면 `processed_at`이
+자동으로 기록됩니다. `pending` 또는 `assigned`로 되돌리면 처리 시각이
+초기화됩니다.
+
 ## 인증과 오류
 
 | 상태 코드 | 상황 |
@@ -98,6 +163,8 @@ GET /api/v1/customer-insights/{customer_id}
 | `200` | 조회 성공 |
 | `401` | 인증 쿠키 없음·만료·비활성 사용자 |
 | `404` | 해당 고객의 최신 분석 결과 없음 |
+| `403` | 캠페인 등록·수정 권한 없음 |
+| `409` | 같은 캠페인 대상이 이미 등록됨 |
 | `422` | 잘못된 필터·페이지·정렬 파라미터 |
 | `503` | DB가 설정되지 않음 |
 
@@ -115,4 +182,3 @@ const data = await response.json();
 
 목록에서 고객을 선택하면 `/api/v1/customer-insights/{customer_id}`를 호출해
 상세 패널을 구성합니다.
-

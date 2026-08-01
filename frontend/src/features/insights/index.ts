@@ -3,11 +3,13 @@
 
 export {
   getCustomerInsight,
+  getCustomerInsightHistory,
   listCustomerInsights,
 } from "../../api/insights";
 export type {
   CustomerInsight,
   CustomerInsightDetail,
+  CustomerInsightHistory,
   CustomerInsightList,
   InsightQuery,
 } from "../../api/insights";
