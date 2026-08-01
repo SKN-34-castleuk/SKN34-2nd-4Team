@@ -13,16 +13,19 @@ from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRol
 from backend.app.models import (
     CampaignTarget,
     Customer,
+    CustomerFeatureSnapshot,
     CustomerInsight,
     ModelRun,
     User,
 )
+from backend.app.schemas import PREDICTION_FIELD_MAP
 
 
 EXPECTED_TABLES = {
     "alembic_version",
     "users",
     "customers",
+    "customer_feature_snapshots",
     "model_runs",
     "customer_insights",
     "campaign_targets",
@@ -42,7 +45,7 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
         assert "role" in {
             column["name"] for column in inspector.get_columns("users")
         }
-        assert revision == "20260801_0002"
+        assert revision == "20260801_0003"
     finally:
         engine.dispose()
 
@@ -150,6 +153,14 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
     try:
         with Session(engine) as session:
             customer = Customer(**customer_row)
+            snapshot = CustomerFeatureSnapshot(
+                customer_id=customer.customer_id,
+                feature_sha256="d" * 64,
+                **{
+                    field: customer_row[field]
+                    for field in PREDICTION_FIELD_MAP
+                },
+            )
             assignee = User(
                 username="operations_user",
                 display_name="운영 담당자",
@@ -172,11 +183,12 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
                     ("clustering", "activity-gap-gmm", "c"),
                 ]
             ]
-            session.add_all([customer, assignee, *runs])
+            session.add_all([customer, snapshot, assignee, *runs])
             session.flush()
 
             insight = CustomerInsight(
                 customer_id=customer.customer_id,
+                customer_snapshot_id=snapshot.id,
                 classification_run_id=runs[0].id,
                 regression_run_id=runs[1].id,
                 clustering_run_id=runs[2].id,
@@ -206,6 +218,10 @@ def test_analysis_and_campaign_records_preserve_model_lineage(
             stored_target = session.scalar(select(CampaignTarget))
             assert stored_target is not None
             assert stored_target.customer_insight.risk_level == RiskLevel.HIGH.value
+            assert stored_target.customer_insight.customer_snapshot is not None
+            assert stored_target.customer_insight.customer_snapshot.feature_sha256 == (
+                "d" * 64
+            )
             assert stored_target.customer_insight.classification_run.model_name == "xgboost"
             assert stored_target.customer_insight.regression_run.model_name == "voting"
             assert (

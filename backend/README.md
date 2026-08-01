@@ -309,7 +309,8 @@ await fetch("/api/v1/predictions", {
 처리하므로 프론트엔드용 모델 목록 API는 필요하지 않습니다.
 
 인증 API는 `users` 테이블에 계정 아이디, 표시 이름, Argon2 비밀번호 해시를
-역할과 함께 저장합니다. 신규 계정 역할은 `operations`입니다. 관리자는 팀 계정의
+역할과 함께 저장합니다. 신규 계정은 `analyst` 역할과 비활성 상태로 저장되며,
+관리자가 승인해 활성화하기 전에는 로그인할 수 없습니다. 관리자는 팀 계정의
 역할·활성 상태를 변경할 수 있으며, 최소 한 명의 활성 관리자는 유지됩니다. 로그인 성공 시
 발급되는 JWT는 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키에 저장되며, `/api/v1/auth/me`가 현재 사용자를 확인할 때 사용합니다.
@@ -317,9 +318,18 @@ DB 테이블은 `create_all()`로 변경하지 않으며 Alembic migration으로
 
 ### 로컬 역할별 테스트 계정
 
-Docker Compose 환경에서 다음 명령으로 테스트 계정을 생성하거나 갱신합니다.
+Docker Compose의 일회성 로컬 개발 DB에서만 다음처럼 명시적으로 허용한 뒤
+테스트 계정을 생성하거나 갱신합니다. 기본값은 비활성입니다.
 
 ```bash
+ALLOW_TEST_USER_SEEDING=true docker compose exec backend \
+  python -m backend.scripts.seed_test_users
+```
+
+또는 `.env`에 잠시 설정한 뒤 실행하고, 완료 후에는 반드시 `false`로 되돌립니다.
+
+```bash
+ALLOW_TEST_USER_SEEDING=true
 docker compose exec backend python -m backend.scripts.seed_test_users
 ```
 

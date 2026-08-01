@@ -49,3 +49,13 @@ def get_auth_cookie_secure() -> bool:
         "yes",
         "on",
     }
+
+
+def get_allow_test_user_seeding() -> bool:
+    """로컬 테스트 계정 생성 허용 여부를 반환합니다."""
+    return os.getenv("ALLOW_TEST_USER_SEEDING", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }

@@ -51,12 +51,13 @@ import_customers 명령
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0002 |
+| Alembic revision | 20260801_0003 |
 | 기존 사용자 | 1명 보존 |
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
 | customers.customer_id 중복 | 없음 |
-| model_runs | 성공 3건 |
+| 최신 model_runs | 성공 3건 (ID 4, 5, 6) |
+| customer_feature_snapshots | 10,127건 |
 | customer_insights | 10,127건 |
 | campaign_targets | 0건 |
 
@@ -113,8 +114,10 @@ Argon2 해시만 저장합니다.
 | created_at | DATETIME | 생성 시각 |
 | updated_at | DATETIME | 수정 시각 |
 
-회원가입 요청에서는 role을 받지 않습니다. 신규 계정은 항상 operations로 생성됩니다.
-사용자가 직접 회원가입하면서 관리자 권한을 얻는 상황을 방지하기 위한 정책입니다.
+회원가입 요청에서는 role을 받지 않습니다. 신규 계정은 `analyst` 역할과
+비활성(`is_active=false`) 상태로 생성되며, 관리자가 승인하기 전에는 로그인할 수
+없습니다. 사용자가 직접 회원가입하면서 운영·관리 권한을 얻는 상황을 방지하기
+위한 정책입니다.
 캠페인 등록·수정 API는 `admin`, `operations`, `marketing` 역할로 제한되며,
 `analyst`는 분석 결과와 캠페인 큐를 조회만 할 수 있습니다.
 
@@ -391,7 +394,8 @@ Persistence 테스트는 다음을 검증합니다.
 
 - 빈 SQLite DB를 최신 migration까지 생성
 - 기존 users 테이블과 회원 보존
-- users.role 기본값 operations
+- 신규 회원가입 계정이 analyst·비활성으로 생성되는지와 승인 전 로그인이 차단되는지
+- customer_feature_snapshots 테이블 및 customer_insights 입력 lineage
 - 원본 CSV 10,127행 파싱
 - 고객 upsert 재실행 시 중복 방지
 - 세 model_runs와 하나의 customer_insight 연결
@@ -403,13 +407,15 @@ Persistence 테스트는 다음을 검증합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 구현 검증 결과는 Backend 테스트 24개 통과입니다. Frontend 인증 타입과
+현재 구현 검증 결과는 Backend 테스트 25개 통과입니다. Frontend 인증 타입과
 OpenAPI 생성 타입도 role 필드를 포함하도록 갱신했으며 Frontend lint,
 typecheck, test, build를 통과했습니다.
 
 ## 9. 운영 및 보안 주의사항
 
 - .env에는 DB 비밀번호와 JWT secret이 있으므로 커밋하지 않습니다.
+- 테스트 계정 seed는 기본 비활성입니다. 로컬 일회성 DB에서만
+  `ALLOW_TEST_USER_SEEDING=true`를 명시적으로 설정합니다.
 - 회원 비밀번호 원문은 어떤 테이블에도 저장하지 않습니다.
 - CLIENTNUM은 모델 입력으로 사용하지 않습니다.
 - Attrition_Flag/Target은 운영 캠페인 규칙의 입력으로 사용하지 않습니다.

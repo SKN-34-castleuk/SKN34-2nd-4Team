@@ -32,6 +32,7 @@ services:
       MODEL_DIR: /app/outputs/models
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      ALLOW_TEST_USER_SEEDING: ${ALLOW_TEST_USER_SEEDING:-false}
     volumes:
       - ./outputs/models:/app/outputs/models:ro
       - ./data:/app/data:ro

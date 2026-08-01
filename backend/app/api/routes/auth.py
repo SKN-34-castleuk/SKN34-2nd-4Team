@@ -255,6 +255,8 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> AuthRespons
         username=payload.username,
         display_name=payload.display_name,
         password_hash=hash_password(payload.password),
+        role=UserRole.ANALYST.value,
+        is_active=False,
     )
     db.add(user)
     try:

@@ -13,6 +13,8 @@ MySQL에는 로그인 계정뿐 아니라 고객 원본 특성, 모델 실행 �
 erDiagram
     USERS ||--o{ CAMPAIGN_TARGETS : assigned_to
     CUSTOMERS ||--o{ CUSTOMER_INSIGHTS : has
+    CUSTOMERS ||--o{ CUSTOMER_FEATURE_SNAPSHOTS : snapshots
+    CUSTOMER_FEATURE_SNAPSHOTS ||--o{ CUSTOMER_INSIGHTS : input_for
     CUSTOMERS ||--o{ CAMPAIGN_TARGETS : targeted
     MODEL_RUNS ||--o{ CUSTOMER_INSIGHTS : produces
     CUSTOMER_INSIGHTS ||--o{ CAMPAIGN_TARGETS : recommends
@@ -24,8 +26,9 @@ erDiagram
 |---|---|
 | `users` | 팀 계정, Argon2 비밀번호 해시, 활성 여부, 업무 역할 |
 | `customers` | `CLIENTNUM`을 보존한 고객 ID와 모델 입력 특성 19개 |
-| `model_runs` | 모델 종류·버전, artifact 경로·SHA-256, 실행 시각·상태 |
-| `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션 |
+| `customer_feature_snapshots` | 분석 당시 고객 19개 입력 특성과 특성 해시 |
+| `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 실행 시각·상태 |
+| `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 입력 스냅샷 |
 | `campaign_targets` | 대상 고객, 담당자, 캠페인 상태·처리 시각·결과 |
 
 `CLIENTNUM`은 고객 조회와 테이블 연결에만 사용하며 모델 입력에는 포함하지
@@ -42,9 +45,15 @@ erDiagram
 - `operations`: 우선관리 고객과 상담 업무
 - `marketing`: 캠페인 대상과 결과 관리
 
-회원가입 API에서 역할을 입력받지 않으며 모든 신규 계정은 최소권한인
-`operations`로 생성됩니다. 캠페인 대상 등록·수정 API는 `admin`, `operations`,
+회원가입 API에서 역할을 입력받지 않으며 모든 신규 계정은 `analyst` 역할과
+비활성(`is_active=false`) 상태로 생성됩니다. 관리자가 승인해 활성화한 뒤에만
+로그인할 수 있습니다. 캠페인 대상 등록·수정 API는 `admin`, `operations`,
 `marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만 가능합니다.
+
+신규 스키마에서는 `customer_insights.customer_snapshot_id`가 분석 당시 입력을
+`customer_feature_snapshots`에 연결합니다. 고객 특성이 이후 upsert로 변경돼도
+과거 분석 결과가 사용한 입력을 재현할 수 있습니다. 기존 P0 이전 결과는 과거
+입력을 복원할 수 없으므로 이 컬럼이 일시적으로 NULL일 수 있습니다.
 
 ## Migration 적용
 

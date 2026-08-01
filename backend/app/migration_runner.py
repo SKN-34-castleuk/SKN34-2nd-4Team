@@ -26,6 +26,7 @@ MANAGED_TABLES_AFTER_BASELINE = {
     "model_runs",
     "customer_insights",
     "campaign_targets",
+    "customer_feature_snapshots",
 }
 
 

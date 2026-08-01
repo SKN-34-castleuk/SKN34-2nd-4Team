@@ -151,6 +151,7 @@ class CustomerInsightResponse(BaseModel):
 
     id: int
     customer_id: int
+    customer_snapshot_id: int | None = None
     classification_run_id: int
     regression_run_id: int
     clustering_run_id: int
@@ -192,6 +193,10 @@ class ModelRunResponse(BaseModel):
     model_version: str
     artifact_sha256: str
     dataset_sha256: str | None
+    decision_policy_sha256: str | None
+    medium_threshold: float | None
+    high_threshold: float | None
+    activity_gap_quantile: float | None
     status: ModelRunStatus
     processed_rows: int | None
     started_at: datetime
