@@ -266,7 +266,7 @@ def _split(task: RegressionTaskSpec, df: pd.DataFrame):
 # 1. 베이스라인 — 원본 피처(파생변수 없음, 금액 포함)로 3개 모델 기본 성능
 # ---------------------------------------------------------------------------
 def baseline_report(df: pd.DataFrame) -> pd.DataFrame:
-    """04번 노트북 2번 섹션과 동일: LinearRegression/RandomForest/XGBoost 기본 성능(미세튜닝 없음)."""
+    """LinearRegression/RandomForest/XGBoost 기본 성능(미세튜닝 없음)."""
     Xtr, Xva, Xte, ytr, yva, yte, _, _ = _split(RAW_TASK, df)
 
     candidates = {
@@ -286,7 +286,7 @@ def baseline_report(df: pd.DataFrame) -> pd.DataFrame:
 # 2. 피처 엔지니어링 — 원본 피처 vs 파생변수 추가 (XGB, 미세튜닝 없음, 금액은 둘 다 제외)
 # ---------------------------------------------------------------------------
 def feature_engineering_report(df: pd.DataFrame) -> pd.DataFrame:
-    """04번 노트북 3번 섹션과 동일: 파생변수 추가 전후 XGBoost 성능 비교.
+    """파생변수 추가 전후 XGBoost 성능 비교.
 
     금액(Total_Trans_Amt)은 처음부터 두 버전 모두 제외한다 — 04번 노트북 8번 섹션에서
     확인된 대로 금액을 포함하면 Test R²는 오르지만 활동성 갭의 이탈 판별력이 떨어지기
@@ -309,7 +309,7 @@ def feature_engineering_report(df: pd.DataFrame) -> pd.DataFrame:
 # 3. 하이퍼파라미터 최적화 — 수동/GridSearchCV/RandomizedSearchCV/Optuna 비교
 # ---------------------------------------------------------------------------
 def hyperparameter_search_report(df: pd.DataFrame, task: RegressionTaskSpec = CT_GAP_TASK) -> pd.DataFrame:
-    """04번 노트북 4번 섹션과 동일: 파생변수 추가 + 금액 제외 데이터에서 4가지 탐색법 비교.
+    """파생변수 추가 + 금액 제외 데이터에서 4가지 탐색법 비교.
 
     실제 최종 모델(final/regression_final.py)이 쓰는 피처 구성과 동일한 데이터로
     탐색해야 여기서 찾은 파라미터가 최종 모델에도 그대로 유효하다.
