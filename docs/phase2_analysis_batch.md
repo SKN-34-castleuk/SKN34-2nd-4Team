@@ -238,8 +238,11 @@ project_venv/bin/python -m pytest backend/tests -q
 - 최신 스냅샷 선택, 인증, 필터·페이지네이션·상세 조회 API
 - migration, 고객 upsert, 인증, 모델 manifest 무결성 검증
 
-## 11. 다음 단계
+## 11. 분석 대시보드 연계 현황
 
-`customer_insights` 최신 결과와 상세 조회 API가 구현되었습니다. API 사용법은
-[`customer_insights_api.md`](customer_insights_api.md)에 정리되어 있습니다. 다음 구현은
-고위험 고객 화면, 캠페인 대상 생성·처리 API, 역할별 권한 제어 순서로 진행합니다.
+`customer_insights` 최신 결과·상세·이력 조회 API, 최신 모델 배치 상태 API,
+캠페인 대상 생성·처리 API와 역할별 변경 권한이 구현되었습니다. API 사용법은
+[`customer_insights_api.md`](customer_insights_api.md)에 정리되어 있습니다.
+React 고객 분석 대시보드는 이 API를 사용해 고위험 고객 바로가기, CSV 내보내기,
+분석 이력과 캠페인 처리 큐를 제공합니다. 모델 성능 Streamlit 대시보드 통합은
+현재 범위에서 제외합니다.

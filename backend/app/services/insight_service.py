@@ -141,3 +141,18 @@ def fetch_latest_customer_insight(
         selectinload(CustomerInsight.customer)
     )
     return db.scalar(query)
+
+
+def fetch_customer_insight_history(
+    db: Session,
+    customer_id: int,
+    *,
+    limit: int = 24,
+) -> list[CustomerInsight]:
+    """고객의 분석 시점별 이력을 최신순으로 조회합니다."""
+    return db.scalars(
+        select(CustomerInsight)
+        .where(CustomerInsight.customer_id == customer_id)
+        .order_by(CustomerInsight.scored_at.desc(), CustomerInsight.id.desc())
+        .limit(limit)
+    ).all()

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from .routes import auth, insights, predictions, system
+from .routes import auth, campaigns, insights, model_runs, predictions, system
 
 
 api_router = APIRouter()
@@ -10,3 +10,5 @@ api_router.include_router(system.router)
 api_router.include_router(predictions.router)
 api_router.include_router(auth.auth_router)
 api_router.include_router(insights.insights_router)
+api_router.include_router(model_runs.model_runs_router)
+api_router.include_router(campaigns.campaigns_router)

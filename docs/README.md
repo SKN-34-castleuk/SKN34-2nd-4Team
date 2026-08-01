@@ -244,10 +244,14 @@ Frontend `5173` 또는 Backend `8000`이 사용 중이면 `compose.yaml`의 호�
 현재 Docker 구성에는 MySQL 기반 회원가입·로그인 기능이 연결되어 있습니다.
 Backend 시작 시 Alembic migration으로 사용자·고객·분석·캠페인 테이블을
 준비하고, Argon2로 비밀번호를 해시한 뒤 로그인 성공 시 HttpOnly JWT 쿠키를
-발급합니다. 역할 값은 저장하지만 역할별 권한 검사와 분석 결과 조회·캠페인 처리는
-후속 작업입니다. 모델 분석 결과 배치는 `phase2_analysis_batch.md`, DB 구조와 고객
-적재 방법은
+발급합니다. 분석 결과·이력·최신 배치 상태 조회와 캠페인 대상 업무 API도
+제공하며, 캠페인 등록·수정은 관리자·운영·마케팅 역할로 제한됩니다. 모델 분석
+결과 배치는 `phase2_analysis_batch.md`, DB 구조와 고객 적재 방법은
 [`database_schema.md`](database_schema.md)를 확인합니다.
+
+React 고객 분석 대시보드는 벤토 그리드 요약, 고위험 바로가기, CSV 내보내기,
+고객별 분석 이력, 배치 버전 표시, 캠페인 처리 큐를 제공합니다. 기존 모델
+성능 Streamlit 대시보드는 별도 앱으로 유지하며 React 화면에는 통합하지 않습니다.
 
 또한 현재 Frontend는 개발용 Vite 서버로 실행되므로, 운영 배포 시에는 Frontend를
 빌드한 뒤 Nginx 등의 정적 서버로 제공하는 구성이 추가로 필요합니다.

@@ -14,13 +14,14 @@ import joblib
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from backend.app.main import create_app
 from backend.app.migration_runner import upgrade_database
 from backend.app.customer_import import load_customer_rows
-from backend.app.enums import ModelRunStatus, RiskLevel
+from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 from backend.app.model_registry import ModelLoadError, ModelRegistry
-from backend.app.models import Customer, CustomerInsight, ModelRun
+from backend.app.models import Customer, CustomerInsight, ModelRun, User
 from backend.app.schemas import PREDICTION_FIELD_MAP
 
 
@@ -499,6 +500,7 @@ def test_customer_insight_list_filters_and_detail(
         )
         session.add_all([old_insight, latest_insight, second_customer_insight])
         session.commit()
+        latest_insight_id = latest_insight.id
 
     response = auth_client.get(
         "/api/v1/customer-insights",
@@ -531,6 +533,77 @@ def test_customer_insight_list_filters_and_detail(
     missing_response = auth_client.get("/api/v1/customer-insights/999999999")
     assert missing_response.status_code == 404
 
+    history_response = auth_client.get(
+        f"/api/v1/customer-insights/history/{customer_id}",
+    )
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert history["customer_id"] == customer_id
+    assert len(history["items"]) == 2
+    assert history["items"][0]["churn_probability"] == 0.2
+
+    latest_batch_response = auth_client.get("/api/v1/model-runs/latest")
+    assert latest_batch_response.status_code == 200
+    latest_batch = latest_batch_response.json()
+    assert latest_batch["status"] == "succeeded"
+    assert latest_batch["processed_rows"] == 2
+    assert {run["task"] for run in latest_batch["runs"]} == {
+        "classification",
+        "regression",
+        "clustering",
+    }
+
+    campaign_response = auth_client.post(
+        "/api/v1/campaign-targets",
+        json={
+            "customer_insight_id": latest_insight_id,
+            "campaign_name": "이탈 위험 리텐션",
+        },
+    )
+    assert campaign_response.status_code == 201
+    campaign = campaign_response.json()
+    assert campaign["status"] == CampaignStatus.PENDING.value
+    assert campaign["customer_id"] == customer_id
+
+    duplicate_campaign_response = auth_client.post(
+        "/api/v1/campaign-targets",
+        json={
+            "customer_insight_id": latest_insight_id,
+            "campaign_name": "이탈 위험 리텐션",
+        },
+    )
+    assert duplicate_campaign_response.status_code == 409
+
+    campaign_list_response = auth_client.get("/api/v1/campaign-targets")
+    assert campaign_list_response.status_code == 200
+    assert campaign_list_response.json()["total"] == 1
+
+    completed_campaign_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={
+            "status": CampaignStatus.COMPLETED.value,
+            "result": "혜택 안내 완료",
+        },
+    )
+    assert completed_campaign_response.status_code == 200
+    completed_campaign = completed_campaign_response.json()
+    assert completed_campaign["status"] == CampaignStatus.COMPLETED.value
+    assert completed_campaign["processed_at"] is not None
+    assert completed_campaign["result"] == "혜택 안내 완료"
+
+    with session_factory() as session:
+        current_user = session.scalar(
+            select(User).where(User.username == "insight_viewer"),
+        )
+        assert current_user is not None
+        current_user.role = UserRole.ANALYST.value
+        session.commit()
+    forbidden_campaign_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={"status": CampaignStatus.CANCELLED.value},
+    )
+    assert forbidden_campaign_response.status_code == 403
+
 
 def test_openapi_and_swagger_are_available(client: TestClient) -> None:
     """OpenAPI·Swagger가 제공되고 공개 경로가 의도와 일치하는지 확인합니다."""
@@ -542,6 +615,9 @@ def test_openapi_and_swagger_are_available(client: TestClient) -> None:
     assert "/api/v1/predictions" in paths
     assert "/api/v1/customer-insights" in paths
     assert "/api/v1/customer-insights/{customer_id}" in paths
+    assert "/api/v1/customer-insights/history/{customer_id}" in paths
+    assert "/api/v1/model-runs/latest" in paths
+    assert "/api/v1/campaign-targets" in paths
     assert "/api/v1/models" not in paths
     assert "/health" not in paths
 

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ...config import AUTH_COOKIE_NAME, get_auth_cookie_secure, get_jwt_secret
 from ...database import get_db
+from ...enums import UserRole
 from ...models import User
 from ...schemas import AuthResponse, LoginRequest, SignupRequest, UserResponse
 
@@ -123,6 +124,20 @@ def get_current_user(
             detail="The authenticated user is no longer available.",
         )
     return user
+
+
+def require_roles(*allowed_roles: UserRole):
+    """지정된 업무 역할만 접근할 수 있는 FastAPI 의존성을 만듭니다."""
+
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in {role.value for role in allowed_roles}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission for this operation.",
+            )
+        return current_user
+
+    return dependency
 
 
 @auth_router.post(

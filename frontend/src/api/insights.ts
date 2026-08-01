@@ -8,6 +8,8 @@ export type CustomerInsightDetail =
   components["schemas"]["CustomerInsightDetailResponse"];
 export type CustomerInsightList =
   components["schemas"]["CustomerInsightListResponse"];
+export type CustomerInsightHistory =
+  components["schemas"]["CustomerInsightHistoryResponse"];
 
 export type InsightQuery = {
   risk_level?: "low" | "medium" | "high";
@@ -43,5 +45,14 @@ export function getCustomerInsight(
 ): Promise<CustomerInsightDetail> {
   return request<CustomerInsightDetail>(
     `/api/v1/customer-insights/${customerId}`,
+  );
+}
+
+export function getCustomerInsightHistory(
+  customerId: number,
+  limit = 24,
+): Promise<CustomerInsightHistory> {
+  return request<CustomerInsightHistory>(
+    `/api/v1/customer-insights/history/${customerId}?limit=${limit}`,
   );
 }

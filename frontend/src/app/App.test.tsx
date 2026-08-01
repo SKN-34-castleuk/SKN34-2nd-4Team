@@ -28,13 +28,50 @@ function unauthorizedResponse() {
   };
 }
 
+function insightsResponse() {
+  return {
+    items: [],
+    page: 1,
+    page_size: 8,
+    total: 0,
+    total_pages: 1,
+    stats: {
+      total: 0,
+      average_churn_probability: 0,
+      risk_counts: { high: 0, medium: 0, low: 0 },
+      cluster_counts: {},
+    },
+  };
+}
+
+function dashboardResponse(input: RequestInfo | URL) {
+  const path = String(input);
+  if (path.includes("/model-runs/latest")) {
+    return successResponse({
+      status: "succeeded",
+      started_at: "2026-08-01T00:00:00Z",
+      completed_at: "2026-08-01T00:05:00Z",
+      processed_rows: 0,
+      dataset_sha256: null,
+      runs: [],
+    });
+  }
+  if (path.includes("/campaign-targets")) {
+    return successResponse({ items: [], page: 1, page_size: 20, total: 0, total_pages: 0 });
+  }
+  return successResponse(insightsResponse());
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("인증 상태 앱 셸", () => {
   it("HttpOnly 세션이 있으면 새로고침 후 대시보드를 표시합니다", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(successResponse(user));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successResponse(user))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
@@ -52,7 +89,8 @@ describe("인증 상태 앱 셸", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(unauthorizedResponse())
-      .mockResolvedValueOnce(successResponse({ user }));
+      .mockResolvedValueOnce(successResponse({ user }))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
     vi.stubGlobal("fetch", fetchMock);
     const userEventInstance = userEvent.setup();
 
@@ -77,7 +115,11 @@ describe("인증 상태 앱 셸", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(successResponse(user))
-      .mockResolvedValueOnce({ ok: true, status: 204 });
+      .mockImplementation((input: RequestInfo | URL) =>
+        String(input).includes("/auth/logout")
+          ? Promise.resolve({ ok: true, status: 204 })
+          : Promise.resolve(dashboardResponse(input)),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const userEventInstance = userEvent.setup();
 

@@ -22,9 +22,11 @@
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
 현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는
-Prediction API, 팀 계정 인증 API, customer_insights 조회 API를 제공합니다.
-별도의 CLI 배치는 전체 고객을 분석해 결과를 MySQL에 저장합니다. 캠페인 대상
-생성·처리 API와 역할별 권한 제어는 다음 단계입니다.
+Prediction API, 팀 계정 인증 API, customer_insights 조회·이력 API, 최신 모델
+배치 상태 API, 캠페인 대상 업무 API를 제공합니다. 별도의 CLI 배치는 전체
+고객을 분석해 결과를 MySQL에 저장하며, 대시보드는 이 결과를 읽어 고객 분석과
+캠페인 처리 큐를 제공합니다. 모델 성능 Streamlit 화면은 별도 도구로 유지하며
+React 대시보드에 통합하지 않습니다.
 
 ## 백엔드 파일 구조
 
@@ -38,7 +40,9 @@ backend/
 │   │   ├── router.py
 │   │   └── routes/
 │   │       ├── auth.py
+│   │       ├── campaigns.py
 │   │       ├── insights.py
+│   │       ├── model_runs.py
 │   │       ├── predictions.py
 │   │       └── system.py
 │   ├── analysis_batch.py
@@ -53,7 +57,9 @@ backend/
 │   ├── models.py
 │   ├── schemas.py
 │   └── services/
-│       └── insight_service.py
+│       ├── campaign_service.py
+│       ├── insight_service.py
+│       └── model_run_service.py
 ├── migrations/
 │   ├── env.py
 │   └── versions/
@@ -75,16 +81,20 @@ backend/
 | `backend/app/api/router.py` | 기능별 API router 조합 |
 | `backend/app/api/dependencies.py` | 모델 registry 등 공통 요청 의존성 |
 | `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
+| `backend/app/api/routes/campaigns.py` | 캠페인 대상 조회·등록·처리 결과 변경과 역할 제한 |
 | `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
 | `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
-| `backend/app/api/routes/insights.py` | customer_insights 조회 API |
+| `backend/app/api/routes/insights.py` | customer_insights 최신 결과·분석 이력 API |
+| `backend/app/api/routes/model_runs.py` | 최신 성공 모델 배치와 모델 버전 조회 API |
 | `backend/app/config.py` | 앱 이름·버전, 프로젝트 경로, 모델·DB·인증 설정 관리 |
 | `backend/app/database.py` | SQLAlchemy 엔진·세션과 migration 적용 여부 검증 |
 | `backend/app/models.py` | 사용자·고객·분석·캠페인 SQLAlchemy 모델 |
 | `backend/app/migration_runner.py` | 기존 users 기준선 처리와 Alembic upgrade 실행 |
 | `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
 | `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
-| `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 필터·페이지네이션 조회 규칙 |
+| `backend/app/services/campaign_service.py` | 캠페인 대상 생성, 상태·처리 결과 갱신 규칙 |
+| `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 이력, 필터·페이지네이션 조회 규칙 |
+| `backend/app/services/model_run_service.py` | 모델 task별 최신 성공 배치 선택 규칙 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
 | `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
 | `backend/scripts/run_analysis_batch.py` | 전체 고객 모델 분석 배치 명령 |
@@ -463,6 +473,8 @@ classification_xgboost.joblib
 - 누락·추가 필드와 잘못된 입력값 거부
 - 제거된 API가 `404`를 반환하는지 확인
 - Swagger UI와 Prediction OpenAPI Schema
+- customer_insights 분석 이력·최신 모델 배치·캠페인 대상 업무 API
+- 캠페인 중복 등록 차단과 analyst 역할의 캠페인 수정 권한 차단
 - 불완전한 매니페스트 거부
 - `MODEL_DIR` 밖으로 향하는 경로 거부
 - 모델 SHA-256 불일치 거부
@@ -483,16 +495,19 @@ python src/final/clustering_final.py
 
 배치는 `customers`에서 고객을 읽고 `model_runs` 3건과 고객별
 `customer_insights`를 저장합니다. `Target`은 운영 입력으로 사용하지 않습니다.
-`campaign_targets`는 자동 생성하지 않으며, 후속 캠페인 API에서 분석 결과를
-선별해 만듭니다.
+`campaign_targets`는 자동 생성하지 않으며, 사용자가 캠페인 API 또는 대시보드에서
+분석 결과를 선별해 만듭니다.
 
 ## 현재 범위와 알려진 제약
 
 - 현재 Prediction API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를
   저장하지 않습니다. 전체 결과 저장은 별도 배치 CLI가 담당합니다.
-- 고객 ID와 역할은 저장하지만 고객 조회 API, 역할별 권한 검사,
-  `campaign_targets` 생성·처리 API는 아직 구현하지 않았습니다. 분석 결과 조회
-  API는 구현되어 있으며 현재 모든 활성 로그인 사용자가 조회할 수 있습니다.
+- 분석 결과·이력·최신 배치 상태 조회는 모든 활성 로그인 사용자가 사용할 수
+  있습니다. `campaign_targets` 목록도 조회할 수 있지만, 등록·수정은 `admin`,
+  `operations`, `marketing` 역할로 제한됩니다. `analyst`는 읽기 전용입니다.
+- React 대시보드는 CSV 내보내기, 고위험 필터 바로가기, 고객별 분석 이력,
+  모델 배치 버전 표시, 캠페인 등록·처리 큐를 제공합니다. 모델 성능 지표를
+  보여 주는 기존 Streamlit 대시보드는 이번 대시보드 통합 범위에서 제외합니다.
 - 입력 수치의 최솟값과 최댓값은 현재 학습 데이터 범위를 기준으로 합니다.
   실제 운영 데이터에서는 업무상 유효 범위와 학습 범위를 분리해야 합니다.
 - 현재 lifespan에서 모델 적재가 실패하면 FastAPI 시작도 실패합니다. 따라서
