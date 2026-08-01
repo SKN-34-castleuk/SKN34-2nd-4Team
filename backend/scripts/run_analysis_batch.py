@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from backend.app.analysis_batch import run_batch
+from backend.app.analysis_batch import DEFAULT_ACTIVITY_GAP_QUANTILE, run_batch
 from backend.app.config import get_database_url, get_model_dir
 from backend.app.database import initialize_database
 
@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.85,
         help="고위험 이탈 확률 기준(기본값: 0.85)",
     )
+    parser.add_argument(
+        "--activity-gap-quantile",
+        type=float,
+        default=DEFAULT_ACTIVITY_GAP_QUANTILE,
+        help="재활성화 우선 활동성 갭 분위수(기본값: 0.2)",
+    )
     return parser
 
 
@@ -50,6 +56,7 @@ def main() -> None:
                 model_dir=get_model_dir(),
                 medium_threshold=args.medium_threshold,
                 high_threshold=args.high_threshold,
+                activity_gap_quantile=args.activity_gap_quantile,
                 force=args.force,
             )
             print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))

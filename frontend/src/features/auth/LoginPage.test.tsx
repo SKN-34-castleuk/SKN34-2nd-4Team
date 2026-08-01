@@ -115,7 +115,7 @@ describe("로그인 페이지", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "회원가입이 완료되었습니다. 로그인해 주세요.",
+      "가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.",
     );
   });
 });

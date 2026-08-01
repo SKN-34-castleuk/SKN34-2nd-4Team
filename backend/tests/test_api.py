@@ -356,8 +356,17 @@ def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
 
     assert signup_response.status_code == 201
     assert signup_response.json()["user"]["username"] == "analysis_team"
-    assert signup_response.json()["user"]["role"] == "operations"
+    assert signup_response.json()["user"]["role"] == "analyst"
     assert "password" not in signup_response.json()["user"]
+
+    session_factory = auth_client.app.state.session_factory
+    assert session_factory is not None
+    with session_factory() as session:
+        pending_user = session.scalar(
+            select(User).where(User.username == "analysis_team")
+        )
+        assert pending_user is not None
+        assert pending_user.is_active is False
 
     duplicate_response = auth_client.post(
         "/api/v1/auth/signup",
@@ -377,6 +386,14 @@ def test_signup_login_me_and_logout(auth_client: TestClient) -> None:
         },
     )
     assert invalid_login_response.status_code == 401
+
+    with session_factory() as session:
+        pending_user = session.scalar(
+            select(User).where(User.username == "analysis_team")
+        )
+        assert pending_user is not None
+        pending_user.is_active = True
+        session.commit()
 
     login_response = auth_client.post(
         "/api/v1/auth/login",
@@ -414,6 +431,16 @@ def test_customer_insight_list_filters_and_detail(
         },
     )
     assert signup_response.status_code == 201
+    session_factory = auth_client.app.state.session_factory
+    assert session_factory is not None
+    with session_factory() as session:
+        viewer = session.scalar(
+            select(User).where(User.username == "insight_viewer")
+        )
+        assert viewer is not None
+        viewer.is_active = True
+        viewer.role = UserRole.OPERATIONS.value
+        session.commit()
     assert (
         auth_client.post(
             "/api/v1/auth/login",
@@ -431,8 +458,6 @@ def test_customer_insight_list_filters_and_detail(
         / "raw"
         / "BankChurners.csv"
     )[:2]
-    session_factory = auth_client.app.state.session_factory
-    assert session_factory is not None
     with session_factory() as session:
         customers = [Customer(**row) for row in raw_rows]
         runs = [

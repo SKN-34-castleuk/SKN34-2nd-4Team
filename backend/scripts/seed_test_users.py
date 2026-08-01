@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.api.routes.auth import hash_password
-from backend.app.config import get_database_url
+from backend.app.config import get_allow_test_user_seeding, get_database_url
 from backend.app.database import initialize_database
 from backend.app.enums import UserRole
 from backend.app.models import User
@@ -75,6 +75,11 @@ def seed_test_users(session: Session) -> list[User]:
 
 def main() -> None:
     """환경변수 DATABASE_URL의 DB에 로컬 테스트 계정을 저장합니다."""
+    if not get_allow_test_user_seeding():
+        raise RuntimeError(
+            "Test user seeding is disabled. Set ALLOW_TEST_USER_SEEDING=true "
+            "only in a local development environment."
+        )
     database_url = get_database_url()
     if not database_url:
         raise RuntimeError("DATABASE_URL must be configured before seeding test users.")

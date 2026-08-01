@@ -410,6 +410,8 @@ export interface components {
             id: number;
             /** Customer Id */
             customer_id: number;
+            /** Customer Snapshot Id */
+            customer_snapshot_id?: number | null;
             /** Classification Run Id */
             classification_run_id: number;
             /** Regression Run Id */
@@ -674,6 +676,14 @@ export interface components {
             artifact_sha256: string;
             /** Dataset Sha256 */
             dataset_sha256: string | null;
+            /** Decision Policy Sha256 */
+            decision_policy_sha256: string | null;
+            /** Medium Threshold */
+            medium_threshold: number | null;
+            /** High Threshold */
+            high_threshold: number | null;
+            /** Activity Gap Quantile */
+            activity_gap_quantile: number | null;
             status: components["schemas"]["ModelRunStatus"];
             /** Processed Rows */
             processed_rows: number | null;

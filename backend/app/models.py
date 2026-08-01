@@ -50,14 +50,14 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        default=UserRole.OPERATIONS.value,
-        server_default=UserRole.OPERATIONS.value,
+        default=UserRole.ANALYST.value,
+        server_default=UserRole.ANALYST.value,
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
-        server_default="1",
+        default=False,
+        server_default="0",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -168,10 +168,74 @@ class Customer(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    feature_snapshots: Mapped[list[CustomerFeatureSnapshot]] = relationship(
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     campaign_targets: Mapped[list[CampaignTarget]] = relationship(
         back_populates="customer",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+
+
+class CustomerFeatureSnapshot(Base):
+    """분석 당시 고객 19개 입력 특성을 보존하는 시점별 스냅샷입니다."""
+
+    __tablename__ = "customer_feature_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "feature_sha256",
+            name="uq_customer_feature_snapshots_customer_feature",
+        ),
+        Index(
+            "ix_customer_feature_snapshots_customer_as_of",
+            "customer_id",
+            "as_of_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("customers.customer_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    feature_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_dataset_sha256: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    customer_age: Mapped[int] = mapped_column(Integer, nullable=False)
+    gender: Mapped[str] = mapped_column(String(1), nullable=False)
+    dependent_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    education_level: Mapped[str] = mapped_column(String(30), nullable=False)
+    marital_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    income_category: Mapped[str] = mapped_column(String(30), nullable=False)
+    card_category: Mapped[str] = mapped_column(String(20), nullable=False)
+    months_on_book: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_relationship_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    months_inactive_12_mon: Mapped[int] = mapped_column(Integer, nullable=False)
+    contacts_count_12_mon: Mapped[int] = mapped_column(Integer, nullable=False)
+    credit_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    total_revolving_bal: Mapped[int] = mapped_column(Integer, nullable=False)
+    avg_open_to_buy: Mapped[float] = mapped_column(Float, nullable=False)
+    total_amt_chng_q4_q1: Mapped[float] = mapped_column(Float, nullable=False)
+    total_trans_amt: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_trans_ct: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_ct_chng_q4_q1: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_utilization_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    as_of_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    customer: Mapped[Customer] = relationship(back_populates="feature_snapshots")
+    insights: Mapped[list[CustomerInsight]] = relationship(
+        back_populates="customer_snapshot",
     )
 
 
@@ -194,6 +258,16 @@ class ModelRun(Base):
     artifact_path: Mapped[str] = mapped_column(String(500), nullable=False)
     artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_policy_sha256: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    medium_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    activity_gap_quantile: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -255,6 +329,11 @@ class CustomerInsight(Base):
         ForeignKey("customers.customer_id", ondelete="CASCADE"),
         nullable=False,
     )
+    customer_snapshot_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("customer_feature_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     classification_run_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("model_runs.id", ondelete="RESTRICT"),
@@ -293,6 +372,9 @@ class CustomerInsight(Base):
     )
 
     customer: Mapped[Customer] = relationship(back_populates="insights")
+    customer_snapshot: Mapped[CustomerFeatureSnapshot | None] = relationship(
+        back_populates="insights",
+    )
     classification_run: Mapped[ModelRun] = relationship(
         foreign_keys=[classification_run_id],
     )

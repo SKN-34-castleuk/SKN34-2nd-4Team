@@ -10,7 +10,8 @@
 - 회귀: 예상 거래건수와 실제 거래건수의 활동성 갭
 - 군집: 활동성 갭 기반 고객 세그먼트와 군집 확률
 - 운영: 설명용 사유 코드와 추천 액션
-- 추적성: 사용한 모델 artifact·데이터 해시와 실행 상태
+- 추적성: 사용한 모델 artifact·데이터·의사결정 정책 해시와 실행 상태
+- 재현성: 분석 당시 고객 특성을 `customer_feature_snapshots`에 보존
 
 모델의 학습 정답인 `Target` 또는 `Attrition_Flag`는 운영 배치 입력에 사용하지
 않습니다. `customers`에 저장된 고객 특성과 모델 artifact만으로 결과를
@@ -112,14 +113,16 @@ CLI 기본 위험도 기준은 다음과 같습니다.
 
 - 고위험 + 음의 갭: 이탈 위험 우선 상담 및 거래 활성화 혜택
 - 고위험 + 양의 갭: 이탈 위험 고객 상담 및 관계 유지
-- 음의 갭: 저활동 고객 재활성화 캠페인
+- 활동성 갭 하위 20%: 저활동 고객 재활성화 캠페인
 - 저위험 + 우량 군집: 우량 고객 업셀링 검토
 - 그 외: 일반 유지 관리
 
 사유 코드는 원본 특성의 운영 신호를 설명하기 위해 JSON 배열로 저장합니다.
 예시는 `low_transaction_activity`, `transaction_decline`, `long_inactivity`,
 `frequent_contacts`, `low_relationship_count`, `below_expected_activity`입니다.
-신호가 없으면 `stable_activity`를 기록합니다.
+활동성 갭 하위 분위수에는 `priority_activity_gap`, 그보다 크면서 음수인 값에는
+`below_expected_activity`를 기록합니다. 신호가 없으면 `stable_activity`를
+기록합니다. 하위 분위수 기본값은 0.2이며 CLI에서 조정할 수 있습니다.
 
 ## 6. 실행 방법
 
@@ -155,14 +158,18 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch
 ~~~bash
 docker compose exec backend python -m backend.scripts.run_analysis_batch \
   --medium-threshold 0.5 \
-  --high-threshold 0.85
+  --high-threshold 0.85 \
+  --activity-gap-quantile 0.2
 ~~~
 
 ## 7. 재실행과 이력 정책
 
-기본 실행은 마지막 성공 실행의 세 artifact SHA-256과 데이터 SHA-256을 비교합니다.
-동일한 조합이고 고객별 결과 수가 현재 고객 수와 같으면 기존 스냅샷을 재사용해
-중복 결과를 만들지 않습니다.
+기본 실행은 마지막 성공 실행의 세 artifact SHA-256, 현재 DB 고객 입력 전체의
+정규화된 SHA-256, 그리고 위험도 기준·활동성 갭 분위수·정책 버전으로 계산한
+의사결정 정책 SHA-256을 비교합니다. 동일한 조합이고 고객별 결과 수가 현재
+고객 수와 같으면 기존 스냅샷을 재사용해 중복 결과를 만들지 않습니다. 기준값이나
+정책 버전이 바뀌면 자동으로 새 배치를 만들므로 이전 액션을 잘못 재사용하지
+않습니다.
 
 새로운 분석 스냅샷을 강제로 만들려면 `--force`를 사용합니다.
 
@@ -187,12 +194,14 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 | `clustering` | 활동성 갭 GMM artifact hash |
 
 각 실행은 `running`으로 기록한 뒤 성공하면 `succeeded`, 오류가 나면
-`failed`와 오류 메시지를 남깁니다. 데이터 파일이 확인되면 정제 CSV의
-SHA-256도 함께 저장합니다.
+`failed`와 오류 메시지를 남깁니다. 각 실행에는 고객 입력 데이터 해시와 함께
+`decision_policy_sha256`, `medium_threshold`, `high_threshold`,
+`activity_gap_quantile`도 저장합니다.
 
 ### `customer_insights` 고객별 1행
 
 - `customer_id`
+- `customer_snapshot_id` (분석 당시 19개 입력 특성 참조)
 - 세 `model_runs` 참조 ID
 - `churn_probability`, `risk_level`
 - `expected_transaction_count`, `activity_gap`
@@ -200,18 +209,27 @@ SHA-256도 함께 저장합니다.
 - `recommended_action`, `reason_codes`
 - `scored_at`
 
+### `customer_feature_snapshots`
+
+고객 특성이 수정돼도 분석 결과의 입력을 재현할 수 있도록 고객별 특성 조합을
+SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성은 중복 저장하지 않으며,
+특성이 바뀐 뒤 다음 배치를 실행하면 새 스냅샷이 생성됩니다.
+
 `campaign_targets`는 배치가 자동으로 생성하지 않습니다. 분석 결과를 확인한 뒤
 후속 캠페인 기능에서 필요한 고객만 캠페인 대상으로 전환하는 구조입니다.
 
 ## 9. 실제 검증 결과
 
-2026-08-01 Docker MySQL에서 다음 결과를 확인했습니다.
+2026-08-01 Docker MySQL에서 P0 migration과 새 정책 배치를 적용한 뒤 다음 결과를
+확인했습니다.
 
 | 항목 | 결과 |
 |---|---:|
 | 처리 고객 수 | 10,127 |
-| 성공 `model_runs` | 3 |
+| 이번 배치 성공 `model_runs` | 3 (ID 4, 5, 6) |
 | `customer_insights` | 10,127 |
+| `customer_feature_snapshots` | 10,127 |
+| 스냅샷 연결 인사이트 | 10,127 |
 | `campaign_targets` | 0 |
 | high | 1,519 |
 | medium | 253 |
@@ -220,9 +238,10 @@ SHA-256도 함께 저장합니다.
 | 일반관리(유지) | 5,464 |
 | 우량(예상이상) | 1,085 |
 
-동일 명령을 다시 실행했을 때 동일 run ID를 반환하고
-`reused_existing_snapshot: true`가 되는 것도 확인했습니다. Backend `/ready`는
-`model_loaded: true`로 응답했습니다.
+정책 해시는 `a93df6843d0d2f558b96a32f65c8ee5120272dbf90ab30b167359c3076de3dfe`이며,
+중위험 0.5·고위험 0.85·활동성 갭 하위 분위수 0.2가 기록됐습니다. 동일 명령을
+다시 실행했을 때 ID 4·5·6을 그대로 반환하고 `reused_existing_snapshot: true`가
+되는 것도 확인했습니다. Backend `/ready`는 `model_loaded: true`로 응답했습니다.
 
 ## 10. 테스트
 
@@ -230,7 +249,7 @@ SHA-256도 함께 저장합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 Backend 테스트는 24개이며 다음을 포함합니다.
+현재 Backend 테스트는 25개이며 다음을 포함합니다.
 
 - 온라인·배치 분류 결과의 양성 확률 일관성
 - 회귀 입력의 파생변수와 누수 컬럼 제거

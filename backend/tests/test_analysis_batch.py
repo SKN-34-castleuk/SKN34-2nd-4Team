@@ -5,6 +5,8 @@ from __future__ import annotations
 import pandas as pd
 
 from backend.app.analysis_batch import (
+    DECISION_POLICY_VERSION,
+    _decision_policy_sha256,
     _recommended_action,
     _risk_level,
     build_regression_input,
@@ -55,4 +57,37 @@ def test_risk_and_action_policy() -> None:
     assert _risk_level(0.2, 0.5, 0.85) == "low"
     assert _recommended_action("high", -3.0, "우선케어(거래 감소)") == (
         "이탈 위험 우선 상담 및 거래 활성화 혜택"
+    )
+    assert _recommended_action(
+        "low",
+        -3.0,
+        "일반관리(유지)",
+        activity_gap_priority_threshold=-5.0,
+    ) == "일반 유지 관리"
+    assert _recommended_action(
+        "low",
+        -5.0,
+        "일반관리(유지)",
+        activity_gap_priority_threshold=-5.0,
+    ) == "저활동 고객 재활성화 캠페인"
+
+
+def test_decision_policy_hash_is_stable_and_changes_with_policy() -> None:
+    """정책 버전과 기준값이 같을 때만 동일 배치 재사용 해시가 나옵니다."""
+    base = _decision_policy_sha256(
+        medium_threshold=0.5,
+        high_threshold=0.85,
+        activity_gap_quantile=0.2,
+    )
+
+    assert DECISION_POLICY_VERSION == "activity-gap-v2"
+    assert base == _decision_policy_sha256(
+        medium_threshold=0.5,
+        high_threshold=0.85,
+        activity_gap_quantile=0.2,
+    )
+    assert base != _decision_policy_sha256(
+        medium_threshold=0.6,
+        high_threshold=0.85,
+        activity_gap_quantile=0.2,
     )

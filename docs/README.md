@@ -110,9 +110,11 @@ docker compose exec backend python -m backend.scripts.import_customers
 
 정상 실행 시 `mysql`은 `healthy`, `backend`와 `frontend`는 `Up` 상태로 표시됩니다.
 
-역할별 화면을 확인하려면 Backend 컨테이너에서 로컬 테스트 계정을 생성합니다.
+역할별 화면을 확인하려면 일회성 로컬 DB에서만 테스트 계정 seed를 명시적으로
+허용한 뒤 Backend 컨테이너에서 생성합니다. 기본값은 비활성입니다.
 
 ```bash
+ALLOW_TEST_USER_SEEDING=true \
 docker compose exec backend python -m backend.scripts.seed_test_users
 ```
 
