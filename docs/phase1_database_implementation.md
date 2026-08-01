@@ -49,14 +49,15 @@ import_customers 명령
         ├─ customer_insights
         ├─ campaigns
         ├─ campaign_events
-        └─ campaign_targets
+        ├─ campaign_targets
+        └─ bulk_targeting_runs
 ~~~
 
 최근 Docker MySQL에 적용한 검증 상태는 다음과 같습니다.
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0006 |
+| Alembic revision | 20260801_0007 |
 | 기존 사용자 | 1명 보존 |
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
@@ -86,6 +87,7 @@ import_customers 명령
 | backend/migrations/versions/20260801_0004_scoring_lineage.py | scoring batch·decision policy·기준일 연결 |
 | backend/migrations/versions/20260801_0005_campaign_domain.py | campaigns·campaign_events·대상 결과 집계 필드와 기존 데이터 backfill |
 | backend/migrations/versions/20260801_0006_campaign_converted_not_null.py | 전환 여부 컬럼을 필수 boolean으로 고정 |
+| backend/migrations/versions/20260801_0007_bulk_targeting.py | 수신 거부·최근 접촉 필드와 세그먼트 일괄 타기팅 배치 추가 |
 | backend/app/database.py | DB 엔진·세션 생성 및 migration 여부 검증 |
 | backend/app/models.py | SQLAlchemy 모델 전체 정의 |
 | backend/app/enums.py | 역할·상태·위험등급 상수 정의 |
@@ -131,8 +133,9 @@ Argon2 해시만 저장합니다.
 비활성(`is_active=false`) 상태로 생성되며, 관리자가 승인하기 전에는 로그인할 수
 없습니다. 사용자가 직접 회원가입하면서 운영·관리 권한을 얻는 상황을 방지하기
 위한 정책입니다.
-캠페인 생성·등록·수정 API는 `admin`, `operations`, `marketing` 역할로 제한되며,
-대상 담당자는 활성 `operations` 또는 `marketing` 사용자만 지정할 수 있습니다.
+캠페인 생성·수정·대상 등록·일괄 타기팅은 `admin`, `marketing` 역할로 제한되며,
+대상 상태·담당자·결과 변경은 `admin`, `operations`가 수행합니다. 대상 담당자는
+활성 `operations` 또는 `marketing` 사용자만 지정할 수 있습니다.
 `analyst`는 분석 결과와 캠페인 큐를 조회만 할 수 있습니다.
 
 ### 4.2 customers
@@ -163,6 +166,8 @@ Argon2 해시만 저장합니다.
 | total_trans_ct | Total_Trans_Ct | 총 거래건수 |
 | total_ct_chng_q4_q1 | Total_Ct_Chng_Q4_Q1 | 거래건수 변화율 |
 | avg_utilization_ratio | Avg_Utilization_Ratio | 평균 이용률 |
+| marketing_opt_out | - | 마케팅 수신 거부 여부, 기본 false |
+| last_contacted_at | - | 최근 접촉 시각, 캠페인 contacted/completed 처리 시 자동 갱신 |
 | created_at, updated_at | - | 적재·수정 시각 |
 
 다음 컬럼은 customers에 저장하지 않습니다.
@@ -310,6 +315,7 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | customer_id | 대상 고객 외래키 |
 | customer_insight_id | 추천 근거가 된 분석 스냅샷 외래키 |
 | campaign_id | campaigns 외래키 |
+| bulk_targeting_run_id | 일괄 타기팅 생성 배치 외래키 |
 | campaign_name | 예: 이탈 위험 리텐션 |
 | assigned_to_user_id | 담당자, users.id 외래키 |
 | status | pending, assigned, contacted, completed, cancelled |
@@ -322,6 +328,27 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 
 같은 분석 스냅샷에 같은 캠페인을 중복 생성하지 않도록
 customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
+
+### 4.11 bulk_targeting_runs
+
+세그먼트 기반 일괄 타기팅의 의사결정과 실행 이력을 저장합니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| segment_code | high_risk_retention, medium_reactivation, low_risk_upsell |
+| status | previewed, executed, cancelled |
+| campaign_id | 실행 시 생성된 draft campaigns 외래키 |
+| requested_by_user_id | 미리보기·실행 요청 사용자 |
+| rerun_of_id | 재실행 원본 배치 외래키 |
+| source_as_of_date | 분석 결과 기준일 |
+| rules_json | 분위수·threshold·제외 기간·최대 대상 등 고정 정책 |
+| preview_count, eligible_count, created_count | 미리보기·등록 집계 |
+| skipped_*_count | 활성 캠페인·최근 접촉·수신 거부 제외 집계 |
+| executed_at, cancelled_at | 상태 변경 시각 |
+
+실행된 대상에는 `campaign_targets.bulk_targeting_run_id`가 저장되므로 어느
+세그먼트 배치가 만든 대상인지 추적할 수 있습니다. 상세 규칙과 API 흐름은
+[`bulk_targeting.md`](bulk_targeting.md)에 정리했습니다.
 
 ## 5. Alembic migration 동작
 
@@ -346,6 +373,9 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
         │
         ▼
 20260801_0006_campaign_converted_not_null
+        │
+        ▼
+20260801_0007_bulk_targeting
 ~~~
 
 첫 번째 revision은 users 기준선 테이블을 만들고, 두 번째 revision은
@@ -355,7 +385,8 @@ decision policy, 분석 기준일을 연결합니다. 다섯 번째 revision은 
 정보, 대상 계보, 이벤트 이력, 결과 집계 필드를 추가하고 기존
 `campaign_name` 데이터를 캠페인으로 backfill합니다.
 여섯 번째 revision은 기존 NULL 전환 여부를 false로 보정하고 `converted`를
-필수 boolean으로 고정합니다.
+필수 boolean으로 고정합니다. 일곱 번째 revision은 수신 거부·최근 접촉 필드와
+세그먼트 일괄 타기팅 실행 이력, 대상-배치 연결을 추가합니다.
 
 ### 5.2 기존 DB
 
@@ -520,7 +551,7 @@ Persistence 테스트는 다음을 검증합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 구현 검증 결과는 Backend 테스트 26개 통과입니다. Frontend 인증 타입과
+현재 구현 검증 결과는 Backend 테스트 27개 통과입니다. Frontend 인증 타입과
 OpenAPI 생성 타입도 role 필드를 포함하도록 갱신했으며 Frontend lint,
 typecheck, test, build를 통과했습니다.
 
@@ -544,5 +575,7 @@ typecheck, test, build를 통과했습니다.
 3. 추천 캠페인 대상 생성, 담당자 자동 배정, 처리 상태·결과 저장
 4. users.role 기준 캠페인 기획·대상 등록·고객 처리 권한 분리
 5. 최신 model_runs 배치 상태·모델 버전 표시와 CSV 내보내기
+6. 고위험 리텐션·중위험 재활성화·저위험 우량군 업셀링 세그먼트 일괄 타기팅
+7. 미리보기, 활성 캠페인·최근 접촉·수신 거부 제외, 취소·재실행 이력 관리
 
 모델 성능 Streamlit 대시보드 통합은 현재 범위에 포함하지 않습니다.

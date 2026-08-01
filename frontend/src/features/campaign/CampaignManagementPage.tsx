@@ -18,6 +18,7 @@ import {
   type CampaignTargetList,
 } from "../../api/campaigns";
 import { listTeamMembers, type TeamMember } from "../../api/team";
+import { BulkTargetingPanel } from "./BulkTargetingPanel";
 
 const PAGE_SIZE = 8;
 
@@ -486,6 +487,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<CampaignLifecycleStatus | "">("");
   const [campaignNameFilter, setCampaignNameFilter] = useState("");
   const [campaignPage, setCampaignPage] = useState(1);
+  const [campaignRefreshKey, setCampaignRefreshKey] = useState(0);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [campaignLoading, setCampaignLoading] = useState(true);
   const [campaignError, setCampaignError] = useState("");
@@ -570,7 +572,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
     return () => {
       isActive = false;
     };
-  }, [campaignNameFilter, campaignPage, campaignStatusFilter, selectedCampaignId]);
+  }, [campaignNameFilter, campaignPage, campaignRefreshKey, campaignStatusFilter, selectedCampaignId]);
 
   useEffect(() => {
     if (selectedCampaignId === null) {
@@ -801,6 +803,13 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
 
       {logoutError !== "" && <p className="campaign-management-error" role="alert">{logoutError}</p>}
       {campaignError !== "" && <p className="campaign-management-error" role="alert">{campaignError}</p>}
+
+      {canManageCampaigns && (
+        <BulkTargetingPanel
+          assignees={assignees}
+          onExecuted={() => setCampaignRefreshKey((current) => current + 1)}
+        />
+      )}
 
       <section className="campaign-management-grid">
         <aside className="campaign-catalog-panel">

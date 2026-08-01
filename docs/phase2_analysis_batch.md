@@ -280,7 +280,7 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 Backend 테스트는 26개이며 다음을 포함합니다.
+현재 Backend 테스트는 27개이며 다음을 포함합니다.
 
 - 온라인·배치 분류 결과의 양성 확률 일관성
 - 회귀 입력의 파생변수와 누수 컬럼 제거

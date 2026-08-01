@@ -119,6 +119,7 @@ def _to_campaign_target_response(target: CampaignTarget) -> CampaignTargetRespon
         customer_insight_id=target.customer_insight_id,
         campaign_id=target.campaign_id,
         campaign_name=target.campaign_name,
+        bulk_targeting_run_id=target.bulk_targeting_run_id,
         campaign_status=(
             target.campaign.status
             if target.campaign is not None

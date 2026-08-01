@@ -67,3 +67,19 @@ class CampaignResultCode(str, Enum):
     NO_RESPONSE = "no_response"
     DECLINED = "declined"
     INVALID_CONTACT = "invalid_contact"
+
+
+class BulkTargetingSegment(str, Enum):
+    """분석 결과를 캠페인 대상으로 변환하는 표준 세그먼트입니다."""
+
+    HIGH_RISK_RETENTION = "high_risk_retention"
+    MEDIUM_REACTIVATION = "medium_reactivation"
+    LOW_RISK_UPSELL = "low_risk_upsell"
+
+
+class BulkTargetingRunStatus(str, Enum):
+    """일괄 타기팅 배치의 생명주기 상태입니다."""
+
+    PREVIEWED = "previewed"
+    EXECUTED = "executed"
+    CANCELLED = "cancelled"

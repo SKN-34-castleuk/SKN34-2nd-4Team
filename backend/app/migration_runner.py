@@ -31,6 +31,7 @@ MANAGED_TABLES_AFTER_BASELINE = {
     "scoring_batches",
     "campaigns",
     "campaign_events",
+    "bulk_targeting_runs",
 }
 
 

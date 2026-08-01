@@ -19,11 +19,12 @@
 - 분류·회귀·군집 모델을 실행해 `model_runs`와 `customer_insights`에 저장하는 배치
 - Argon2 비밀번호 해시와 HttpOnly JWT 인증 쿠키
 - 회원가입, 로그인, 현재 사용자 조회, 로그아웃 API
+- 분석 세그먼트 기반 캠페인 일괄 타기팅 preview·실행·취소·재실행
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
 현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는
 Prediction API, 팀 계정 인증 API, customer_insights 조회·이력 API, 최신 모델
-배치 상태 API, 캠페인 대상 업무 API를 제공합니다. 별도의 CLI 배치는 전체
+배치 상태 API, 캠페인 대상 업무 API와 세그먼트 일괄 타기팅 API를 제공합니다. 별도의 CLI 배치는 전체
 고객을 분석해 결과를 MySQL에 저장하며, 대시보드는 이 결과를 읽어 고객 분석과
 캠페인 처리 큐를 제공합니다. 모델 성능 Streamlit 화면은 별도 도구로 유지하며
 React 대시보드에 통합하지 않습니다.
@@ -40,7 +41,9 @@ backend/
 │   │   ├── router.py
 │   │   └── routes/
 │   │       ├── auth.py
+│   │       ├── bulk_targeting.py
 │   │       ├── campaigns.py
+│   │       ├── customers.py
 │   │       ├── insights.py
 │   │       ├── model_runs.py
 │   │       ├── predictions.py
@@ -57,6 +60,7 @@ backend/
 │   ├── models.py
 │   ├── schemas.py
 │   └── services/
+│       ├── bulk_targeting_service.py
 │       ├── campaign_service.py
 │       ├── insight_service.py
 │       └── model_run_service.py
@@ -70,6 +74,7 @@ backend/
 ├── alembic.ini
 ├── tests/
 │   ├── test_api.py
+│   ├── test_bulk_targeting.py
 │   └── test_analysis_batch.py
 ├── README.md
 ├── requirements.txt
@@ -83,6 +88,8 @@ backend/
 | `backend/app/api/dependencies.py` | 모델 registry 등 공통 요청 의존성 |
 | `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, 팀 계정 조회·관리, Argon2 해시, JWT 쿠키 검증 |
 | `backend/app/api/routes/campaigns.py` | 캠페인 CRUD·대상 조회·등록·상태 변경·이벤트 이력과 역할 제한 |
+| `backend/app/api/routes/bulk_targeting.py` | 세그먼트 일괄 타기팅 미리보기·실행·취소·재실행 API |
+| `backend/app/api/routes/customers.py` | 관리자 전용 수신 거부 상태 변경 API |
 | `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
 | `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
 | `backend/app/api/routes/insights.py` | customer_insights 최신 결과·분석 이력 API |
@@ -94,6 +101,7 @@ backend/
 | `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
 | `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
 | `backend/app/services/campaign_service.py` | 캠페인 생명주기, 대상 상태 전이, 담당자 역할, 중복 접촉, 서버 집계 규칙 |
+| `backend/app/services/bulk_targeting_service.py` | 최신 인사이트 기반 세그먼트 규칙, 제외 정책, 배치 실행·취소·재실행 |
 | `backend/app/services/insight_service.py` | 최신 스냅샷 선택, 이력, 필터·페이지네이션 조회 규칙 |
 | `backend/app/services/model_run_service.py` | 모델 task별 최신 성공 배치 선택 규칙 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
@@ -105,6 +113,7 @@ backend/
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
 | `backend/tests/test_analysis_batch.py` | 회귀 입력 계약과 위험도·액션 규칙 검증 |
 | `backend/tests/test_api.py` | 임시 가짜 모델로 API와 모델 보안 검증 |
+| `backend/tests/test_bulk_targeting.py` | 세그먼트 제외 규칙과 일괄 타기팅 생명주기 검증 |
 | `backend/requirements.txt` | 서버 실행과 모델 추론에 필요한 운영 의존성 |
 | `backend/requirements-dev.txt` | 운영 의존성과 pytest 등 개발·테스트 의존성 |
 
@@ -300,6 +309,12 @@ await fetch("/api/v1/predictions", {
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
 | `GET` | `/api/v1/customer-insights` | 최신 고객 분석 결과 목록·필터·페이지네이션 |
 | `GET` | `/api/v1/customer-insights/{customer_id}` | 고객별 최신 분석 결과와 특성 상세 |
+| `POST` | `/api/v1/campaign-targeting/preview` | 세그먼트 일괄 타기팅 미리보기 |
+| `POST` | `/api/v1/campaign-targeting/runs/{run_id}/execute` | draft 캠페인·대상 생성 |
+| `POST` | `/api/v1/campaign-targeting/runs/{run_id}/cancel` | 일괄 타기팅 취소 |
+| `POST` | `/api/v1/campaign-targeting/runs/{run_id}/rerun` | 취소 정책 재실행 미리보기 |
+| `GET` | `/api/v1/campaign-targeting/runs` | 일괄 타기팅 실행 이력 조회 |
+| `PATCH` | `/api/v1/customers/{customer_id}/contact-preferences` | 관리자 전용 수신 거부 상태 변경 |
 | `GET` | `/docs` | Swagger UI |
 | `GET` | `/redoc` | ReDoc API 문서 |
 | `GET` | `/openapi.json` | OpenAPI Schema |
@@ -533,7 +548,9 @@ python src/final/clustering_final.py
 `campaigns`는 기본 정보·실행 기간·생명주기를 관리하고,
 `campaign_targets`는 캠페인별 고객 업무를 관리합니다. 대상 생성·상태 전이·결과
 변경은 `campaign_events`에 누적됩니다. 기존 `campaign_name` 요청은 호환되지만
-신규 클라이언트는 `campaign_id`를 사용해야 합니다.
+신규 클라이언트는 `campaign_id`를 사용해야 합니다. 분석 세그먼트는
+`bulk_targeting_runs`에 고정된 정책과 함께 미리보기·실행·취소·재실행되며,
+실행 결과는 draft 캠페인과 `campaign_targets.bulk_targeting_run_id`로 연결됩니다.
 
 ## 현재 범위와 알려진 제약
 
@@ -542,7 +559,8 @@ python src/final/clustering_final.py
 - 분석 결과·이력·최신 배치 상태와 캠페인 목록·이벤트 조회는 모든 활성 로그인
   사용자가 사용할 수 있습니다. 관리자는 전체 권한을 가지며, 캠페인 생성·수정과
   대상 등록은 `admin`, `marketing`, 대상 상태·결과 처리는 `admin`,
-  `operations` 역할로 분리됩니다. 대상 담당자는 활성 `operations` 또는
+  `operations` 역할로 분리됩니다. 세그먼트 일괄 타기팅도 `admin`, `marketing`만
+  실행할 수 있습니다. 대상 담당자는 활성 `operations` 또는
   `marketing` 사용자만 지정할 수 있으며 `analyst`는 읽기 전용입니다.
 - React 대시보드는 CSV 내보내기, 고위험 필터 바로가기, 고객별 분석 이력,
   모델 배치 버전 표시, 캠페인 등록·처리 큐를 제공합니다. 모델 성능 지표를

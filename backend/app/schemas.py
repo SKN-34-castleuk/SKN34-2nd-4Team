@@ -11,6 +11,8 @@ from .enums import (
     CampaignLifecycleStatus,
     CampaignResultCode,
     CampaignStatus,
+    BulkTargetingRunStatus,
+    BulkTargetingSegment,
     ModelRunStatus,
     RiskLevel,
     UserRole,
@@ -147,6 +149,8 @@ class CustomerProfileResponse(BaseModel):
     total_trans_ct: int
     total_ct_chng_q4_q1: float
     avg_utilization_ratio: float
+    marketing_opt_out: bool = False
+    last_contacted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -342,6 +346,7 @@ class CampaignTargetResponse(BaseModel):
     customer_insight_id: int
     campaign_id: int | None = None
     campaign_name: str
+    bulk_targeting_run_id: int | None = None
     campaign_status: CampaignLifecycleStatus | None = None
     assigned_to_user_id: int | None
     assigned_to_display_name: str | None = None
@@ -422,6 +427,110 @@ class CampaignEventListResponse(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class BulkTargetingPreviewRequest(BaseModel):
+    """세그먼트 일괄 타기팅 미리보기·실행에 사용할 정책입니다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    segment: BulkTargetingSegment
+    campaign_name: str | None = Field(default=None, max_length=150)
+    description: str | None = Field(default=None, max_length=4000)
+    channel: str | None = Field(default=None, max_length=30)
+    assigned_to_user_id: int | None = Field(default=None, ge=1)
+    recent_contact_days: int = Field(default=30, ge=0, le=365)
+    activity_gap_quantile: float = Field(default=0.2, gt=0.0, le=0.5)
+    cluster_name: str | None = Field(default=None, max_length=100)
+    max_targets: int = Field(default=1000, ge=1, le=10000)
+    source_as_of_date: date | None = None
+
+    @field_validator("campaign_name", "description", "channel", "cluster_name", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+
+class BulkTargetingRerunRequest(BaseModel):
+    """기존 정책을 재사용하되 캠페인명·최대 대상 수만 조정하는 요청입니다."""
+
+    campaign_name: str | None = Field(default=None, max_length=150)
+    max_targets: int | None = Field(default=None, ge=1, le=10000)
+
+    @field_validator("campaign_name", mode="before")
+    @classmethod
+    def normalize_campaign_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+
+class BulkTargetingPreviewItem(BaseModel):
+    """일괄 타기팅 미리보기의 개별 eligible 고객입니다."""
+
+    customer_id: int
+    customer_insight_id: int
+    risk_level: RiskLevel
+    cluster_name: str
+    churn_probability: float = Field(ge=0.0, le=1.0)
+    expected_transaction_count: float = Field(ge=0.0)
+    activity_gap: float
+    recommended_action: str
+    as_of_date: date | None
+
+
+class BulkTargetingRunResponse(BaseModel):
+    """일괄 타기팅 배치 상태·제외 집계·미리보기 항목입니다."""
+
+    id: int
+    segment: BulkTargetingSegment
+    status: BulkTargetingRunStatus
+    campaign_id: int | None
+    campaign_name: str
+    campaign_status: CampaignLifecycleStatus | None = None
+    requested_by_user_id: int | None
+    rerun_of_id: int | None
+    source_as_of_date: date | None
+    rules: dict[str, Any]
+    preview_count: int
+    eligible_count: int
+    created_count: int
+    skipped_active_campaign_count: int
+    skipped_recent_contact_count: int
+    skipped_opt_out_count: int
+    cancelled_target_count: int
+    items: list[BulkTargetingPreviewItem]
+    created_at: datetime
+    executed_at: datetime | None
+    cancelled_at: datetime | None
+
+
+class BulkTargetingRunListResponse(BaseModel):
+    """일괄 타기팅 배치 목록 응답입니다."""
+
+    items: list[BulkTargetingRunResponse]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class CustomerContactPreferenceRequest(BaseModel):
+    """고객 마케팅 수신 거부 상태 변경 요청입니다."""
+
+    marketing_opt_out: bool
+
+
+class CustomerContactPreferenceResponse(BaseModel):
+    """고객 마케팅 수신 거부 상태와 최근 접촉 시각입니다."""
+
+    customer_id: int
+    marketing_opt_out: bool
+    last_contacted_at: datetime | None
 
 
 class CustomerInsightListResponse(BaseModel):

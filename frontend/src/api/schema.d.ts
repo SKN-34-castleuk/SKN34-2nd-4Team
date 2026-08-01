@@ -384,6 +384,131 @@ export interface paths {
         patch: operations["update_campaign_target_api_api_v1_campaign_targets__target_id__patch"];
         trace?: never;
     };
+    "/api/v1/campaign-targeting/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 세그먼트 일괄 타기팅 미리보기
+         * @description 고객을 생성하지 않고 세그먼트별 eligible·제외 결과를 계산합니다.
+         */
+        post: operations["preview_bulk_targeting_api_api_v1_campaign_targeting_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targeting/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 일괄 타기팅 실행 이력 조회 */
+        get: operations["list_bulk_targeting_runs_api_api_v1_campaign_targeting_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targeting/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 일괄 타기팅 미리보기·실행 결과 조회 */
+        get: operations["get_bulk_targeting_run_api_api_v1_campaign_targeting_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targeting/runs/{run_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 일괄 타기팅 실행 */
+        post: operations["execute_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targeting/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 일괄 타기팅 취소 */
+        post: operations["cancel_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign-targeting/runs/{run_id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 취소된 일괄 타기팅 재실행 미리보기 */
+        post: operations["rerun_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__rerun_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/{customer_id}/contact-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 고객 마케팅 수신 거부 상태 변경
+         * @description 법적 동의 데이터는 관리자만 변경할 수 있도록 제한합니다.
+         */
+        patch: operations["update_customer_contact_preferences_api_v1_customers__customer_id__contact_preferences_patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -395,6 +520,151 @@ export interface components {
         AuthResponse: {
             user: components["schemas"]["UserResponse"];
         };
+        /**
+         * BulkTargetingPreviewItem
+         * @description 일괄 타기팅 미리보기의 개별 eligible 고객입니다.
+         */
+        BulkTargetingPreviewItem: {
+            /** Customer Id */
+            customer_id: number;
+            /** Customer Insight Id */
+            customer_insight_id: number;
+            risk_level: components["schemas"]["RiskLevel"];
+            /** Cluster Name */
+            cluster_name: string;
+            /** Churn Probability */
+            churn_probability: number;
+            /** Expected Transaction Count */
+            expected_transaction_count: number;
+            /** Activity Gap */
+            activity_gap: number;
+            /** Recommended Action */
+            recommended_action: string;
+            /** As Of Date */
+            as_of_date: string | null;
+        };
+        /**
+         * BulkTargetingPreviewRequest
+         * @description 세그먼트 일괄 타기팅 미리보기·실행에 사용할 정책입니다.
+         */
+        BulkTargetingPreviewRequest: {
+            segment: components["schemas"]["BulkTargetingSegment"];
+            /** Campaign Name */
+            campaign_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Channel */
+            channel?: string | null;
+            /** Assigned To User Id */
+            assigned_to_user_id?: number | null;
+            /**
+             * Recent Contact Days
+             * @default 30
+             */
+            recent_contact_days: number;
+            /**
+             * Activity Gap Quantile
+             * @default 0.2
+             */
+            activity_gap_quantile: number;
+            /** Cluster Name */
+            cluster_name?: string | null;
+            /**
+             * Max Targets
+             * @default 1000
+             */
+            max_targets: number;
+            /** Source As Of Date */
+            source_as_of_date?: string | null;
+        };
+        /**
+         * BulkTargetingRerunRequest
+         * @description 기존 정책을 재사용하되 캠페인명·최대 대상 수만 조정하는 요청입니다.
+         */
+        BulkTargetingRerunRequest: {
+            /** Campaign Name */
+            campaign_name?: string | null;
+            /** Max Targets */
+            max_targets?: number | null;
+        };
+        /**
+         * BulkTargetingRunListResponse
+         * @description 일괄 타기팅 배치 목록 응답입니다.
+         */
+        BulkTargetingRunListResponse: {
+            /** Items */
+            items: components["schemas"]["BulkTargetingRunResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Total Pages */
+            total_pages: number;
+        };
+        /**
+         * BulkTargetingRunResponse
+         * @description 일괄 타기팅 배치 상태·제외 집계·미리보기 항목입니다.
+         */
+        BulkTargetingRunResponse: {
+            /** Id */
+            id: number;
+            segment: components["schemas"]["BulkTargetingSegment"];
+            status: components["schemas"]["BulkTargetingRunStatus"];
+            /** Campaign Id */
+            campaign_id: number | null;
+            /** Campaign Name */
+            campaign_name: string;
+            campaign_status?: components["schemas"]["CampaignLifecycleStatus"] | null;
+            /** Requested By User Id */
+            requested_by_user_id: number | null;
+            /** Rerun Of Id */
+            rerun_of_id: number | null;
+            /** Source As Of Date */
+            source_as_of_date: string | null;
+            /** Rules */
+            rules: {
+                [key: string]: unknown;
+            };
+            /** Preview Count */
+            preview_count: number;
+            /** Eligible Count */
+            eligible_count: number;
+            /** Created Count */
+            created_count: number;
+            /** Skipped Active Campaign Count */
+            skipped_active_campaign_count: number;
+            /** Skipped Recent Contact Count */
+            skipped_recent_contact_count: number;
+            /** Skipped Opt Out Count */
+            skipped_opt_out_count: number;
+            /** Cancelled Target Count */
+            cancelled_target_count: number;
+            /** Items */
+            items: components["schemas"]["BulkTargetingPreviewItem"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Executed At */
+            executed_at: string | null;
+            /** Cancelled At */
+            cancelled_at: string | null;
+        };
+        /**
+         * BulkTargetingRunStatus
+         * @description 일괄 타기팅 배치의 생명주기 상태입니다.
+         * @enum {string}
+         */
+        BulkTargetingRunStatus: "previewed" | "executed" | "cancelled";
+        /**
+         * BulkTargetingSegment
+         * @description 분석 결과를 캠페인 대상으로 변환하는 표준 세그먼트입니다.
+         * @enum {string}
+         */
+        BulkTargetingSegment: "high_risk_retention" | "medium_reactivation" | "low_risk_upsell";
         /**
          * CampaignCreateRequest
          * @description 캠페인 기본 정보 생성 요청입니다.
@@ -588,6 +858,8 @@ export interface components {
             campaign_id?: number | null;
             /** Campaign Name */
             campaign_name: string;
+            /** Bulk Targeting Run Id */
+            bulk_targeting_run_id?: number | null;
             campaign_status?: components["schemas"]["CampaignLifecycleStatus"] | null;
             /** Assigned To User Id */
             assigned_to_user_id: number | null;
@@ -649,6 +921,26 @@ export interface components {
             start_at?: string | null;
             /** End At */
             end_at?: string | null;
+        };
+        /**
+         * CustomerContactPreferenceRequest
+         * @description 고객 마케팅 수신 거부 상태 변경 요청입니다.
+         */
+        CustomerContactPreferenceRequest: {
+            /** Marketing Opt Out */
+            marketing_opt_out: boolean;
+        };
+        /**
+         * CustomerContactPreferenceResponse
+         * @description 고객 마케팅 수신 거부 상태와 최근 접촉 시각입니다.
+         */
+        CustomerContactPreferenceResponse: {
+            /** Customer Id */
+            customer_id: number;
+            /** Marketing Opt Out */
+            marketing_opt_out: boolean;
+            /** Last Contacted At */
+            last_contacted_at: string | null;
         };
         /**
          * CustomerFeatureSnapshotResponse
@@ -892,6 +1184,13 @@ export interface components {
             total_ct_chng_q4_q1: number;
             /** Avg Utilization Ratio */
             avg_utilization_ratio: number;
+            /**
+             * Marketing Opt Out
+             * @default false
+             */
+            marketing_opt_out: boolean;
+            /** Last Contacted At */
+            last_contacted_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1877,6 +2176,234 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignTargetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_bulk_targeting_api_api_v1_campaign_targeting_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTargetingPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bulk_targeting_runs_api_api_v1_campaign_targeting_runs_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_bulk_targeting_run_api_api_v1_campaign_targeting_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rerun_bulk_targeting_api_api_v1_campaign_targeting_runs__run_id__rerun_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["BulkTargetingRerunRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTargetingRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_customer_contact_preferences_api_v1_customers__customer_id__contact_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerContactPreferenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerContactPreferenceResponse"];
                 };
             };
             /** @description Validation Error */
