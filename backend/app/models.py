@@ -86,6 +86,10 @@ class User(Base):
         back_populates="created_by",
         foreign_keys="Campaign.created_by_user_id",
     )
+    bulk_targeting_runs: Mapped[list[BulkTargetingRun]] = relationship(
+        back_populates="requested_by",
+        foreign_keys="BulkTargetingRun.requested_by_user_id",
+    )
 
 
 class Customer(Base):
@@ -162,6 +166,16 @@ class Customer(Base):
     total_trans_ct: Mapped[int] = mapped_column(Integer, nullable=False)
     total_ct_chng_q4_q1: Mapped[float] = mapped_column(Float, nullable=False)
     avg_utilization_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    marketing_opt_out: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    last_contacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -575,6 +589,9 @@ class Campaign(Base):
     events: Mapped[list[CampaignEvent]] = relationship(
         back_populates="campaign",
     )
+    bulk_targeting_runs: Mapped[list[BulkTargetingRun]] = relationship(
+        back_populates="campaign",
+    )
 
 
 class CampaignTarget(Base):
@@ -604,6 +621,11 @@ class CampaignTarget(Base):
             "campaign_id",
             "customer_id",
         ),
+        Index(
+            "ix_campaign_targets_bulk_targeting_run",
+            "bulk_targeting_run_id",
+            "status",
+        ),
         CheckConstraint(
             "result_code IS NULL OR result_code IN "
             "('converted', 'not_converted', 'no_response', 'declined', 'invalid_contact')",
@@ -625,6 +647,11 @@ class CampaignTarget(Base):
     campaign_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    bulk_targeting_run_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("bulk_targeting_runs.id", ondelete="SET NULL"),
         nullable=True,
     )
     campaign_name: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -675,6 +702,9 @@ class CampaignTarget(Base):
     )
     events: Mapped[list[CampaignEvent]] = relationship(
         back_populates="campaign_target",
+    )
+    bulk_targeting_run: Mapped[BulkTargetingRun | None] = relationship(
+        back_populates="targets",
     )
 
 
@@ -731,3 +761,123 @@ class CampaignEvent(Base):
         back_populates="events",
     )
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
+
+
+class BulkTargetingRun(Base):
+    """세그먼트 미리보기·실행·취소·재실행을 추적하는 일괄 타기팅 배치입니다."""
+
+    __tablename__ = "bulk_targeting_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "segment_code IN ('high_risk_retention', 'medium_reactivation', "
+            "'low_risk_upsell')",
+            name="ck_bulk_targeting_runs_segment",
+        ),
+        CheckConstraint(
+            "status IN ('previewed', 'executed', 'cancelled')",
+            name="ck_bulk_targeting_runs_status",
+        ),
+        Index("ix_bulk_targeting_runs_status_created", "status", "created_at"),
+        Index("ix_bulk_targeting_runs_campaign", "campaign_id"),
+        Index("ix_bulk_targeting_runs_rerun_of", "rerun_of_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    segment_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="previewed",
+        server_default="previewed",
+    )
+    campaign_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requested_by_user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rerun_of_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("bulk_targeting_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rules_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    preview_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    eligible_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    created_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    skipped_active_campaign_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    skipped_recent_contact_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    skipped_opt_out_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    cancelled_target_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    executed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    campaign: Mapped[Campaign | None] = relationship(
+        back_populates="bulk_targeting_runs",
+    )
+    requested_by: Mapped[User | None] = relationship(
+        back_populates="bulk_targeting_runs",
+        foreign_keys=[requested_by_user_id],
+    )
+    rerun_of: Mapped[BulkTargetingRun | None] = relationship(
+        remote_side=[id],
+        back_populates="reruns",
+    )
+    reruns: Mapped[list[BulkTargetingRun]] = relationship(
+        back_populates="rerun_of",
+        foreign_keys=[rerun_of_id],
+    )
+    targets: Mapped[list[CampaignTarget]] = relationship(
+        back_populates="bulk_targeting_run",
+    )

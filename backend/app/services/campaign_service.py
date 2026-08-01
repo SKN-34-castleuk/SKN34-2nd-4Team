@@ -409,6 +409,7 @@ def create_campaign_target(
     insight: CustomerInsight,
     assignee: User | None,
     actor: User,
+    commit: bool = True,
 ) -> CampaignTarget:
     """캠페인 대상과 생성·배정 이벤트를 저장합니다."""
     if campaign.status not in OPEN_CAMPAIGN_STATUSES:
@@ -450,8 +451,11 @@ def create_campaign_target(
             actor=actor,
             metadata_json={"assigned_to_user_id": assignee.id},
         )
-    db.commit()
-    db.refresh(target)
+    if commit:
+        db.commit()
+        db.refresh(target)
+    else:
+        db.flush()
     target.campaign = campaign
     target.assignee = assignee
     return target
@@ -552,8 +556,14 @@ def update_campaign_target(
         if next_status in {
             CampaignStatus.CONTACTED.value,
             CampaignStatus.COMPLETED.value,
-            CampaignStatus.CANCELLED.value,
         }:
+            target.processed_at = target.processed_at or datetime.now(timezone.utc)
+            customer = db.get(Customer, target.customer_id)
+            if customer is not None:
+                customer.last_contacted_at = customer.last_contacted_at or datetime.now(
+                    timezone.utc
+                )
+        elif next_status == CampaignStatus.CANCELLED.value:
             target.processed_at = target.processed_at or datetime.now(timezone.utc)
         _add_event(
             db,

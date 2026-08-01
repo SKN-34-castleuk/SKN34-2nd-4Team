@@ -36,6 +36,7 @@ EXPECTED_TABLES = {
     "campaign_targets",
     "campaigns",
     "campaign_events",
+    "bulk_targeting_runs",
 }
 
 
@@ -58,7 +59,16 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
             if column["name"] == "converted"
         )
         assert converted_column["nullable"] is False
-        assert revision == "20260801_0006"
+        customer_columns = {
+            column["name"] for column in inspector.get_columns("customers")
+        }
+        assert {"marketing_opt_out", "last_contacted_at"} <= customer_columns
+        target_columns = {
+            column["name"]
+            for column in inspector.get_columns("campaign_targets")
+        }
+        assert "bulk_targeting_run_id" in target_columns
+        assert revision == "20260801_0007"
     finally:
         engine.dispose()
 

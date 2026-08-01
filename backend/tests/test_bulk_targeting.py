@@ -1,0 +1,214 @@
+"""세그먼트 일괄 타기팅의 제외 규칙과 실행 생명주기를 검증합니다."""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+from backend.app.enums import BulkTargetingSegment, UserRole
+from backend.app.migration_runner import upgrade_database
+from backend.app.models import (
+    Campaign,
+    CampaignTarget,
+    Customer,
+    CustomerInsight,
+    DecisionPolicy,
+    ModelRun,
+    ScoringBatch,
+    User,
+)
+from backend.app.schemas import BulkTargetingPreviewRequest
+from backend.app.services.bulk_targeting_service import (
+    cancel_bulk_targeting,
+    execute_bulk_targeting,
+    preview_bulk_targeting,
+    rerun_bulk_targeting,
+)
+
+
+def _customer(customer_id: int, *, opt_out: bool = False) -> Customer:
+    return Customer(
+        customer_id=customer_id,
+        customer_age=40,
+        gender="F",
+        dependent_count=1,
+        education_level="Graduate",
+        marital_status="Married",
+        income_category="$40K - $60K",
+        card_category="Blue",
+        months_on_book=20,
+        total_relationship_count=2,
+        months_inactive_12_mon=1,
+        contacts_count_12_mon=1,
+        credit_limit=1000,
+        total_revolving_bal=100,
+        avg_open_to_buy=900,
+        total_amt_chng_q4_q1=1,
+        total_trans_amt=100,
+        total_trans_ct=10,
+        total_ct_chng_q4_q1=1,
+        avg_utilization_ratio=0.1,
+        marketing_opt_out=opt_out,
+    )
+
+
+def _seed_database(session: Session) -> tuple[User, list[CustomerInsight]]:
+    actor = User(
+        username="bulk_admin",
+        display_name="일괄 타기팅 관리자",
+        password_hash="test-hash",
+        role=UserRole.ADMIN.value,
+        is_active=True,
+    )
+    session.add(actor)
+    customers = [_customer(1), _customer(2, opt_out=True), _customer(3)]
+    session.add_all(customers)
+    policy = DecisionPolicy(
+        version="bulk-test",
+        policy_sha256="a" * 64,
+        medium_threshold=0.5,
+        high_threshold=0.8,
+        activity_gap_quantile=0.2,
+    )
+    session.add(policy)
+    session.flush()
+    batch = ScoringBatch(
+        batch_key_sha256="b" * 64,
+        as_of_date=date(2026, 8, 1),
+        decision_policy_id=policy.id,
+        status="succeeded",
+    )
+    session.add(batch)
+    session.flush()
+    runs = [
+        ModelRun(
+            task=task,
+            model_name=task,
+            model_version="test-v1",
+            artifact_path="test.joblib",
+            artifact_sha256=character * 64,
+            status="succeeded",
+        )
+        for task, character in (
+            ("classification", "c"),
+            ("regression", "d"),
+            ("clustering", "e"),
+        )
+    ]
+    session.add_all(runs)
+    session.flush()
+    insights = [
+        CustomerInsight(
+            customer_id=1,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.95,
+            risk_level="high",
+            expected_transaction_count=20,
+            activity_gap=-10,
+            cluster_name="우선케어(거래 감소)",
+            recommended_action="리텐션 우선 상담",
+        ),
+        CustomerInsight(
+            customer_id=2,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.94,
+            risk_level="high",
+            expected_transaction_count=20,
+            activity_gap=-9,
+            cluster_name="우선케어(거래 감소)",
+            recommended_action="리텐션 우선 상담",
+        ),
+        CustomerInsight(
+            customer_id=3,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
+            classification_run_id=runs[0].id,
+            regression_run_id=runs[1].id,
+            clustering_run_id=runs[2].id,
+            churn_probability=0.93,
+            risk_level="high",
+            expected_transaction_count=20,
+            activity_gap=-8,
+            cluster_name="우선케어(거래 감소)",
+            recommended_action="리텐션 우선 상담",
+        ),
+    ]
+    session.add_all(insights)
+    session.flush()
+    active_campaign = Campaign(
+        name="기존 활성 캠페인",
+        status="active",
+        created_by_user_id=actor.id,
+    )
+    session.add(active_campaign)
+    session.flush()
+    session.add(
+        CampaignTarget(
+            customer_id=3,
+            customer_insight_id=insights[2].id,
+            campaign_id=active_campaign.id,
+            campaign_name=active_campaign.name,
+            status="pending",
+        )
+    )
+    session.commit()
+    return actor, insights
+
+
+def test_bulk_targeting_preview_execute_cancel_and_rerun(tmp_path: Path) -> None:
+    """수신 거부·활성 캠페인을 제외하고 실행·취소·재실행을 추적합니다."""
+    database_url = f"sqlite:///{tmp_path / 'bulk-targeting.sqlite3'}"
+    upgrade_database(database_url)
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            actor, insights = _seed_database(session)
+            run, scan = preview_bulk_targeting(
+                session,
+                payload=BulkTargetingPreviewRequest(
+                    segment=BulkTargetingSegment.HIGH_RISK_RETENTION,
+                    campaign_name="고위험 일괄 리텐션",
+                ),
+                actor=actor,
+            )
+
+            assert run.eligible_count == 1
+            assert run.preview_count == 1
+            assert run.skipped_opt_out_count == 1
+            assert run.skipped_active_campaign_count == 1
+            assert [item.insight.id for item in scan.candidates] == [insights[0].id]
+
+            executed = execute_bulk_targeting(session, run=run, actor=actor)
+            assert executed.created_count == 1
+            target = session.scalar(
+                select(CampaignTarget).where(
+                    CampaignTarget.bulk_targeting_run_id == executed.id
+                )
+            )
+            assert target is not None
+
+            cancelled = cancel_bulk_targeting(session, run=executed, actor=actor)
+            assert cancelled.cancelled_target_count == 1
+            assert target.status == "cancelled"
+
+            rerun, rerun_scan = rerun_bulk_targeting(
+                session,
+                run=cancelled,
+                actor=actor,
+            )
+            assert rerun.rerun_of_id == cancelled.id
+            assert rerun.status == "previewed"
+            assert len(rerun_scan.candidates) == 1
+    finally:
+        engine.dispose()

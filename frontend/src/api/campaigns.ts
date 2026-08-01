@@ -15,6 +15,10 @@ export type CampaignEventList =
   components["schemas"]["CampaignEventListResponse"];
 export type CampaignResultCode =
   components["schemas"]["CampaignResultCode"];
+export type BulkTargetingSegment =
+  components["schemas"]["BulkTargetingSegment"];
+export type BulkTargetingRun =
+  components["schemas"]["BulkTargetingRunResponse"];
 
 function toQueryString(query: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams();
@@ -127,4 +131,37 @@ export function updateCampaignTarget(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export function previewBulkTargeting(
+  payload: components["schemas"]["BulkTargetingPreviewRequest"],
+): Promise<BulkTargetingRun> {
+  return request<BulkTargetingRun>("/api/v1/campaign-targeting/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function executeBulkTargeting(runId: number): Promise<BulkTargetingRun> {
+  return request<BulkTargetingRun>(
+    `/api/v1/campaign-targeting/runs/${runId}/execute`,
+    { method: "POST" },
+  );
+}
+
+export function cancelBulkTargeting(runId: number): Promise<BulkTargetingRun> {
+  return request<BulkTargetingRun>(
+    `/api/v1/campaign-targeting/runs/${runId}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export function rerunBulkTargeting(
+  runId: number,
+  payload: components["schemas"]["BulkTargetingRerunRequest"] = {},
+): Promise<BulkTargetingRun> {
+  return request<BulkTargetingRun>(
+    `/api/v1/campaign-targeting/runs/${runId}/rerun`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
 }

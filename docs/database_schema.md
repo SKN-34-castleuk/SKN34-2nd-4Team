@@ -26,6 +26,9 @@ erDiagram
     CAMPAIGNS ||--o{ CAMPAIGN_TARGETS : contains
     CAMPAIGNS ||--o{ CAMPAIGN_EVENTS : records
     CAMPAIGN_TARGETS ||--o{ CAMPAIGN_EVENTS : changes
+    USERS ||--o{ BULK_TARGETING_RUNS : requests
+    CAMPAIGNS ||--o{ BULK_TARGETING_RUNS : creates
+    BULK_TARGETING_RUNS ||--o{ CAMPAIGN_TARGETS : generates
 ```
 
 ## 테이블
@@ -33,7 +36,7 @@ erDiagram
 | 테이블 | 저장 내용 |
 |---|---|
 | `users` | 팀 계정, Argon2 비밀번호 해시, 활성 여부, 업무 역할 |
-| `customers` | `CLIENTNUM`을 보존한 고객 ID와 모델 입력 특성 19개 |
+| `customers` | `CLIENTNUM`을 보존한 고객 ID와 모델 입력 특성 19개, 수신 거부·최근 접촉 정책 |
 | `customer_feature_snapshots` | 분석 당시 고객 19개 입력 특성과 특성 해시 |
 | `decision_policies` | 위험도 기준·활동성 분위수·정책 버전과 정책 SHA-256 |
 | `scoring_batches` | 분석 기준일, 데이터·정책·artifact를 묶은 배치 실행 단위 |
@@ -42,6 +45,7 @@ erDiagram
 | `campaigns` | 캠페인 이름·설명·채널, 실행 기간과 생명주기 상태 |
 | `campaign_targets` | 대상 고객, 담당자, 캠페인 상태·처리 시각·결과 |
 | `campaign_events` | 캠페인·대상 생성, 담당자 배정, 상태 전이와 결과 변경 이력 |
+| `bulk_targeting_runs` | 세그먼트 일괄 타기팅 정책, 미리보기·실행·취소·재실행과 제외 집계 |
 
 `CLIENTNUM`은 고객 조회와 테이블 연결에만 사용하며 모델 입력에는 포함하지
 않습니다. `customer_insights`는 고객별 최신 값만 덮어쓰지 않고 분석 시점별로
@@ -54,17 +58,19 @@ erDiagram
 
 역할은 다음 네 가지입니다.
 
-- `admin`: 사용자·설정 관리
-- `analyst`: 모델과 분석 결과 관리
-- `operations`: 우선관리 고객과 상담 업무
-- `marketing`: 캠페인 대상과 결과 관리
+- `admin`: 모든 사용자·캠페인·타기팅 권한
+- `analyst`: 모델·분석 결과와 캠페인 조회
+- `operations`: 캠페인 대상 배정·접촉·처리 결과 관리
+- `marketing`: 캠페인 생성·수정과 세그먼트 타기팅 실행
 
 회원가입 API에서 역할을 입력받지 않으며 모든 신규 계정은 `analyst` 역할과
 비활성(`is_active=false`) 상태로 생성됩니다. 관리자가 승인해 활성화한 뒤에만
-로그인할 수 있습니다. 캠페인 생성·대상 등록·수정 API는 `admin`,
-`operations`, `marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만
+로그인할 수 있습니다. 캠페인 생성·수정·대상 등록·세그먼트 일괄 타기팅은
+`admin`, `marketing`만 사용할 수 있습니다. 캠페인 대상 상태·담당자·처리 결과
+변경은 `admin`, `operations`가 담당하며 `analyst`는 분석·캠페인 조회만
 가능합니다. 대상 담당자는 별도로 활성 상태의 `operations` 또는 `marketing`
-역할만 지정할 수 있습니다.
+역할만 지정할 수 있습니다. 수신 거부 상태 변경은 동의 데이터 보호를 위해
+관리자 전용입니다.
 
 신규 스키마에서는 `customer_insights.scoring_batch_id`가 분석 배치를,
 `customer_insights.customer_snapshot_id`가 분석 당시 입력을
@@ -138,5 +144,6 @@ python -m backend.app.migration_runner
 [`phase2_analysis_batch.md`](phase2_analysis_batch.md)에 정리했습니다.
 `customer_insights` 최신 결과·이력, `model_runs` 최신 배치 상태,
 `campaigns`, `campaign_targets`, `campaign_events` 기반의 캠페인 CRUD·상태 전이·
-이벤트 이력·중복 접촉 차단·서버 집계 API까지 구현되어 있습니다. API 상세는
-[`customer_insights_api.md`](customer_insights_api.md)를 참조합니다.
+이벤트 이력·중복 접촉 차단·서버 집계 API와 세그먼트 일괄 타기팅까지 구현되어
+있습니다. API 상세는 [`customer_insights_api.md`](customer_insights_api.md)와
+[`bulk_targeting.md`](bulk_targeting.md)를 참조합니다.
