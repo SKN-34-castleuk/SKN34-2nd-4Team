@@ -23,6 +23,7 @@ SKN34-2nd-4Team/
 │   └── processed/
 │       └── bankchurners_clean.csv
 ├── docs/
+│   ├── README.md
 │   └── guides/
 │       └── git_upstream_push_pr_guide.pdf
 ├── notebooks/
@@ -127,6 +128,36 @@ python src/clustering.py
 백엔드의 파일별 책임, 모델 적재 흐름, 19개 입력 필드, React 연결, 테스트와
 오류 해결 방법은 [`backend/README.md`](backend/README.md)에서 확인할 수
 있습니다.
+
+## Docker Compose 실행
+
+Docker Desktop을 설치한 뒤 프로젝트 루트에서 실행합니다. 모델 파일은 별도
+컨테이너로 띄우지 않고 FastAPI 컨테이너에 읽기 전용으로 마운트합니다.
+
+구성도, 포트 매핑, 다른 노트북에서의 재현 방법과 문제 해결 방법은
+[`docs/README.md`](docs/README.md)에서 확인할 수 있습니다.
+
+```bash
+cp .env.example .env
+python src/classification.py
+docker compose up -d --build
+docker compose ps
+```
+
+실행 주소:
+
+- React: `http://127.0.0.1:5173`
+- FastAPI: `http://127.0.0.1:8000/docs`
+- MySQL: `127.0.0.1:3307` (`.env`의 `MYSQL_PORT`로 변경 가능)
+
+로그 확인과 종료:
+
+```bash
+docker compose logs -f
+docker compose down
+```
+
+MySQL 데이터를 초기화할 때만 `docker compose down -v`를 사용합니다.
 
 ## React 프론트엔드 환경
 
