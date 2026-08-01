@@ -140,6 +140,24 @@ def require_roles(*allowed_roles: UserRole):
     return dependency
 
 
+@auth_router.get(
+    "/users",
+    response_model=list[UserResponse],
+    summary="활성 팀 계정 목록 조회",
+)
+def list_team_members(
+    _current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+) -> list[UserResponse]:
+    """관리자 화면에서 역할별 활성 팀 계정을 조회합니다."""
+    users = db.scalars(
+        select(User)
+        .where(User.is_active.is_(True))
+        .order_by(User.role.asc(), User.display_name.asc(), User.id.asc()),
+    ).all()
+    return [UserResponse.model_validate(user) for user in users]
+
+
 @auth_router.post(
     "/signup",
     response_model=AuthResponse,

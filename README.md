@@ -185,7 +185,7 @@ MySQL 데이터를 초기화할 때만 `docker compose down -v`를 사용합니�
 
 `frontend/`에는 React·TypeScript·Vite 기반의 반응형 팀 계정 로그인 화면이
 구현되어 있습니다. API 클라이언트는 인증과 customer_insights 도메인별로
-분리되어 있으며, 다음 단계에서 insights 기능 화면을 연결합니다. 흰색 배경
+분리되어 있으며, 인증된 역할에 따라 분석·운영·마케팅·관리자 화면으로 분기합니다. 흰색 배경
 중앙에 CardOps 로고와 로그인 폼을 배치했으며,
 필수 입력값 검증, 비밀번호 표시 전환, 회원가입, MySQL 기반 로그인 연동을
 제공합니다.
@@ -204,8 +204,8 @@ Vite 개발 서버는 `/api`, `/live`, `/ready` 요청을
 [`frontend/README.md`](frontend/README.md)에서 확인할 수 있습니다.
 
 로그인·회원가입 요청은 Vite 프록시를 통해 FastAPI 인증 API로 전달됩니다.
-인증 성공 시 Backend가 HttpOnly 쿠키를 발급하며, 역할별 화면 이동은 추후
-추가할 수 있습니다. 자세한 인증 API와 화면 흐름은
+인증 성공 시 Backend가 HttpOnly 쿠키를 발급하며, 역할별 전용 업무 화면으로
+이동합니다. 자세한 인증 API와 화면 흐름은
 [`backend/README.md`](backend/README.md)와 [`frontend/README.md`](frontend/README.md)를
 확인합니다.
 

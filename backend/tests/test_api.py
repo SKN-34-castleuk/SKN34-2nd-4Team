@@ -596,8 +596,24 @@ def test_customer_insight_list_filters_and_detail(
             select(User).where(User.username == "insight_viewer"),
         )
         assert current_user is not None
+        current_user.role = UserRole.ADMIN.value
+        session.commit()
+    team_response = auth_client.get("/api/v1/auth/users")
+    assert team_response.status_code == 200
+    assert any(
+        member["username"] == "insight_viewer"
+        and member["role"] == UserRole.ADMIN.value
+        for member in team_response.json()
+    )
+    with session_factory() as session:
+        current_user = session.scalar(
+            select(User).where(User.username == "insight_viewer"),
+        )
+        assert current_user is not None
         current_user.role = UserRole.ANALYST.value
         session.commit()
+    forbidden_team_response = auth_client.get("/api/v1/auth/users")
+    assert forbidden_team_response.status_code == 403
     forbidden_campaign_response = auth_client.patch(
         f"/api/v1/campaign-targets/{campaign['id']}",
         json={"status": CampaignStatus.CANCELLED.value},
