@@ -8,6 +8,7 @@ const operationsUser = {
   username: "operations_team",
   display_name: "운영팀",
   role: "operations" as const,
+  is_active: true,
   created_at: "2026-08-01T00:00:00Z",
 };
 
@@ -16,6 +17,7 @@ const adminUser = {
   username: "admin_team",
   display_name: "관리자",
   role: "admin" as const,
+  is_active: true,
   created_at: "2026-08-01T00:00:00Z",
 };
 

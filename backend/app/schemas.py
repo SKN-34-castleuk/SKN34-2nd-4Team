@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 
@@ -338,6 +338,32 @@ class UserResponse(BaseModel):
     display_name: str
     role: UserRole
     created_at: datetime
+
+
+class TeamMemberResponse(BaseModel):
+    """관리자와 캠페인 담당자 선택 화면에서 사용하는 팀 계정 정보입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+    role: UserRole
+    is_active: bool
+    created_at: datetime
+
+
+class UserAdminUpdateRequest(BaseModel):
+    """관리자가 팀 계정의 역할과 활성 상태를 변경하는 요청입니다."""
+
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def require_update_value(self) -> "UserAdminUpdateRequest":
+        if self.role is None and self.is_active is None:
+            raise ValueError("At least one user property must be provided.")
+        return self
 
 
 class AuthResponse(BaseModel):

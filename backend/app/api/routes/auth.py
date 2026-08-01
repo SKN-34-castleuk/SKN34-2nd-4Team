@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from jwt import InvalidTokenError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,14 @@ from ...config import AUTH_COOKIE_NAME, get_auth_cookie_secure, get_jwt_secret
 from ...database import get_db
 from ...enums import UserRole
 from ...models import User
-from ...schemas import AuthResponse, LoginRequest, SignupRequest, UserResponse
+from ...schemas import (
+    AuthResponse,
+    LoginRequest,
+    SignupRequest,
+    TeamMemberResponse,
+    UserAdminUpdateRequest,
+    UserResponse,
+)
 
 
 auth_router = APIRouter(
@@ -142,20 +149,89 @@ def require_roles(*allowed_roles: UserRole):
 
 @auth_router.get(
     "/users",
-    response_model=list[UserResponse],
-    summary="활성 팀 계정 목록 조회",
+    response_model=list[TeamMemberResponse],
+    summary="팀 계정 목록 조회",
 )
 def list_team_members(
-    _current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    include_inactive: bool = Query(
+        default=False,
+        description="관리자만 비활성 계정까지 포함할 수 있습니다.",
+    ),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[UserResponse]:
-    """관리자 화면에서 역할별 활성 팀 계정을 조회합니다."""
+) -> list[TeamMemberResponse]:
+    """담당자 선택과 관리자 화면에서 사용할 팀 계정을 조회합니다."""
+    if include_inactive and current_user.role != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can view inactive users.",
+        )
+
+    query = select(User)
+    if not include_inactive:
+        query = query.where(User.is_active.is_(True))
     users = db.scalars(
-        select(User)
-        .where(User.is_active.is_(True))
-        .order_by(User.role.asc(), User.display_name.asc(), User.id.asc()),
+        query.order_by(
+            User.is_active.desc(),
+            User.role.asc(),
+            User.display_name.asc(),
+            User.id.asc(),
+        ),
     ).all()
-    return [UserResponse.model_validate(user) for user in users]
+    return [TeamMemberResponse.model_validate(user) for user in users]
+
+
+@auth_router.patch(
+    "/users/{user_id}",
+    response_model=TeamMemberResponse,
+    summary="팀 계정 역할·활성 상태 변경",
+)
+def update_team_member(
+    user_id: int,
+    payload: UserAdminUpdateRequest,
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+) -> TeamMemberResponse:
+    """관리자가 팀 계정의 역할과 활성 상태를 변경합니다."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The team member was not found.",
+        )
+
+    next_role = payload.role.value if payload.role is not None else user.role
+    next_is_active = payload.is_active if payload.is_active is not None else user.is_active
+    if user.id == current_user.id and not next_is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot deactivate your own account.",
+        )
+
+    is_removing_admin = (
+        user.role == UserRole.ADMIN.value
+        and (next_role != UserRole.ADMIN.value or not next_is_active)
+    )
+    if is_removing_admin:
+        active_admin_count = db.scalar(
+            select(func.count(User.id)).where(
+                User.role == UserRole.ADMIN.value,
+                User.is_active.is_(True),
+            ),
+        ) or 0
+        if active_admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one active administrator must remain.",
+            )
+
+    if payload.role is not None:
+        user.role = next_role
+    if payload.is_active is not None:
+        user.is_active = next_is_active
+    db.commit()
+    db.refresh(user)
+    return TeamMemberResponse.model_validate(user)
 
 
 @auth_router.post(

@@ -520,7 +520,8 @@ FastAPI: http://127.0.0.1:8000/api/v1/predictions
 | `POST` | `/api/v1/auth/signup` | 팀 계정 회원가입 |
 | `POST` | `/api/v1/auth/login` | 로그인 및 HttpOnly 쿠키 발급 |
 | `GET` | `/api/v1/auth/me` | 현재 사용자 조회 |
-| `GET` | `/api/v1/auth/users` | 관리자 전용 활성 팀 계정 조회 |
+| `GET` | `/api/v1/auth/users` | 활성 담당자 조회, 비활성 포함은 관리자 전용 |
+| `PATCH` | `/api/v1/auth/users/{user_id}` | 관리자 전용 역할·활성 상태 변경 |
 | `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 
 ## 13. FastAPI 타입 가져오기
