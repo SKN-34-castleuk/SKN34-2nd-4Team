@@ -62,11 +62,20 @@ class CampaignEventType(str, Enum):
 class CampaignResultCode(str, Enum):
     """캠페인 접촉 결과를 집계 가능한 코드로 표준화합니다."""
 
+    CONTACTED = "contacted"
     CONVERTED = "converted"
     NOT_CONVERTED = "not_converted"
     NO_RESPONSE = "no_response"
     DECLINED = "declined"
+    OPTED_OUT = "opted_out"
     INVALID_CONTACT = "invalid_contact"
+
+
+class ExperimentGroup(str, Enum):
+    """캠페인 A/B 실험에서 고객이 배정된 그룹입니다."""
+
+    TREATMENT = "treatment"
+    CONTROL = "control"
 
 
 class BulkTargetingSegment(str, Enum):

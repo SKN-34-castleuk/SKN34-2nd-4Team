@@ -13,6 +13,7 @@ from .enums import (
     CampaignStatus,
     BulkTargetingRunStatus,
     BulkTargetingSegment,
+    ExperimentGroup,
     ModelRunStatus,
     RiskLevel,
     UserRole,
@@ -282,9 +283,17 @@ class CampaignResponse(BaseModel):
     name: str
     description: str | None
     channel: str | None
+    segment_code: BulkTargetingSegment | None = None
     status: CampaignLifecycleStatus
     start_at: datetime | None
     end_at: datetime | None
+    experiment_enabled: bool = False
+    control_group_ratio: float = Field(ge=0.0, lt=1.0)
+    experiment_seed: str | None = None
+    fixed_cost: float = Field(ge=0.0)
+    cost_per_contact: float = Field(ge=0.0)
+    revenue_per_conversion: float = Field(ge=0.0)
+    retention_window_days: int = Field(ge=1, le=365)
     created_by_user_id: int | None
     created_by_display_name: str | None = None
     created_at: datetime
@@ -298,9 +307,17 @@ class CampaignCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     description: str | None = Field(default=None, max_length=4000)
     channel: str | None = Field(default=None, max_length=30)
+    segment_code: BulkTargetingSegment | None = None
     status: CampaignLifecycleStatus = CampaignLifecycleStatus.DRAFT
     start_at: datetime | None = None
     end_at: datetime | None = None
+    experiment_enabled: bool = False
+    control_group_ratio: float = Field(default=0.2, ge=0.0, lt=1.0)
+    experiment_seed: str | None = Field(default=None, min_length=8, max_length=64)
+    fixed_cost: float = Field(default=0.0, ge=0.0)
+    cost_per_contact: float = Field(default=0.0, ge=0.0)
+    revenue_per_conversion: float = Field(default=0.0, ge=0.0)
+    retention_window_days: int = Field(default=30, ge=1, le=365)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -309,6 +326,12 @@ class CampaignCreateRequest(BaseModel):
             return value.strip()
         return value
 
+    @model_validator(mode="after")
+    def validate_experiment(self) -> "CampaignCreateRequest":
+        if self.experiment_enabled and self.control_group_ratio <= 0:
+            raise ValueError("control_group_ratio must be greater than 0 for A/B tests")
+        return self
+
 
 class CampaignUpdateRequest(BaseModel):
     """캠페인 기본 정보와 생명주기 변경 요청입니다."""
@@ -316,9 +339,17 @@ class CampaignUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=150)
     description: str | None = Field(default=None, max_length=4000)
     channel: str | None = Field(default=None, max_length=30)
+    segment_code: BulkTargetingSegment | None = None
     status: CampaignLifecycleStatus | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    experiment_enabled: bool | None = None
+    control_group_ratio: float | None = Field(default=None, ge=0.0, lt=1.0)
+    experiment_seed: str | None = Field(default=None, min_length=8, max_length=64)
+    fixed_cost: float | None = Field(default=None, ge=0.0)
+    cost_per_contact: float | None = Field(default=None, ge=0.0)
+    revenue_per_conversion: float | None = Field(default=None, ge=0.0)
+    retention_window_days: int | None = Field(default=None, ge=1, le=365)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -346,16 +377,23 @@ class CampaignTargetResponse(BaseModel):
     customer_insight_id: int
     campaign_id: int | None = None
     campaign_name: str
+    experiment_group: ExperimentGroup = ExperimentGroup.TREATMENT
     bulk_targeting_run_id: int | None = None
     campaign_status: CampaignLifecycleStatus | None = None
     assigned_to_user_id: int | None
     assigned_to_display_name: str | None = None
     status: CampaignStatus
     processed_at: datetime | None
+    contacted_at: datetime | None = None
+    completed_at: datetime | None = None
+    converted_at: datetime | None = None
     result: str | None
     result_notes: str | None
     result_code: CampaignResultCode | None = None
     converted: bool = False
+    retained: bool | None = None
+    retention_checked_at: datetime | None = None
+    outcome_revenue: float | None = Field(default=None, ge=0.0)
     created_at: datetime
     updated_at: datetime
 
@@ -391,6 +429,8 @@ class CampaignTargetUpdateRequest(BaseModel):
     result_notes: str | None = Field(default=None, max_length=2000)
     result_code: CampaignResultCode | None = None
     converted: bool | None = None
+    retained: bool | None = None
+    outcome_revenue: float | None = Field(default=None, ge=0.0)
 
 
 class CampaignTargetListResponse(BaseModel):
@@ -429,6 +469,53 @@ class CampaignEventListResponse(BaseModel):
     total: int
 
 
+class CampaignPerformanceMetrics(BaseModel):
+    """캠페인 성과를 치료군·대조군과 재무 지표로 집계합니다."""
+
+    target_count: int
+    treatment_count: int
+    control_count: int
+    contacted_count: int
+    converted_count: int
+    retained_count: int
+    retention_observed_count: int
+    contact_rate: float
+    conversion_rate: float
+    retention_rate: float | None
+    treatment_contact_rate: float | None
+    control_contact_rate: float | None
+    treatment_conversion_rate: float | None
+    control_conversion_rate: float | None
+    treatment_retention_rate: float | None
+    control_retention_rate: float | None
+    incremental_conversion_effect: float | None
+    incremental_retention_effect: float | None
+    total_cost: float
+    total_revenue: float
+    roi: float | None
+
+
+class CampaignPerformanceBreakdown(CampaignPerformanceMetrics):
+    """캠페인·세그먼트·담당자별 성과 비교 항목입니다."""
+
+    key: str
+    label: str
+    campaign_count: int
+
+
+class CampaignPerformanceResponse(BaseModel):
+    """캠페인 성과 요약과 비교 차원별 집계입니다."""
+
+    campaign_id: int | None
+    segment_code: BulkTargetingSegment | None
+    assigned_to_user_id: int | None
+    summary: CampaignPerformanceMetrics
+    by_campaign: list[CampaignPerformanceBreakdown]
+    by_segment: list[CampaignPerformanceBreakdown]
+    by_assignee: list[CampaignPerformanceBreakdown]
+    generated_at: datetime
+
+
 class BulkTargetingPreviewRequest(BaseModel):
     """세그먼트 일괄 타기팅 미리보기·실행에 사용할 정책입니다."""
 
@@ -444,6 +531,12 @@ class BulkTargetingPreviewRequest(BaseModel):
     cluster_name: str | None = Field(default=None, max_length=100)
     max_targets: int = Field(default=1000, ge=1, le=10000)
     source_as_of_date: date | None = None
+    experiment_enabled: bool = False
+    control_group_ratio: float = Field(default=0.2, ge=0.0, lt=1.0)
+    fixed_cost: float = Field(default=0.0, ge=0.0)
+    cost_per_contact: float = Field(default=0.0, ge=0.0)
+    revenue_per_conversion: float = Field(default=0.0, ge=0.0)
+    retention_window_days: int = Field(default=30, ge=1, le=365)
 
     @field_validator("campaign_name", "description", "channel", "cluster_name", mode="before")
     @classmethod
@@ -452,6 +545,12 @@ class BulkTargetingPreviewRequest(BaseModel):
             normalized = value.strip()
             return normalized or None
         return value
+
+    @model_validator(mode="after")
+    def validate_experiment(self) -> "BulkTargetingPreviewRequest":
+        if self.experiment_enabled and self.control_group_ratio <= 0:
+            raise ValueError("control_group_ratio must be greater than 0 for A/B tests")
+        return self
 
 
 class BulkTargetingRerunRequest(BaseModel):

@@ -68,7 +68,30 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
             for column in inspector.get_columns("campaign_targets")
         }
         assert "bulk_targeting_run_id" in target_columns
-        assert revision == "20260801_0007"
+        assert {
+            "experiment_group",
+            "contacted_at",
+            "completed_at",
+            "converted_at",
+            "retained",
+            "retention_checked_at",
+            "outcome_revenue",
+        } <= target_columns
+        campaign_columns = {
+            column["name"]
+            for column in inspector.get_columns("campaigns")
+        }
+        assert {
+            "segment_code",
+            "experiment_enabled",
+            "control_group_ratio",
+            "experiment_seed",
+            "fixed_cost",
+            "cost_per_contact",
+            "revenue_per_conversion",
+            "retention_window_days",
+        } <= campaign_columns
+        assert revision == "20260801_0008"
     finally:
         engine.dispose()
 

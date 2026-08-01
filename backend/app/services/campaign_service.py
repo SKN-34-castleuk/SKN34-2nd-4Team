@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import secrets
 from typing import Any
 
 from sqlalchemy import Select, case, func, select
@@ -14,6 +16,7 @@ from ..enums import (
     CampaignLifecycleStatus,
     CampaignResultCode,
     CampaignStatus,
+    ExperimentGroup,
     UserRole,
 )
 from ..models import Campaign, CampaignEvent, CampaignTarget, Customer, CustomerInsight, User
@@ -30,6 +33,14 @@ OPEN_CAMPAIGN_STATUSES = {
     CampaignLifecycleStatus.SCHEDULED.value,
     CampaignLifecycleStatus.ACTIVE.value,
     CampaignLifecycleStatus.PAUSED.value,
+}
+FINAL_RESULT_CODES = {
+    CampaignResultCode.CONVERTED.value,
+    CampaignResultCode.NOT_CONVERTED.value,
+    CampaignResultCode.NO_RESPONSE.value,
+    CampaignResultCode.DECLINED.value,
+    CampaignResultCode.OPTED_OUT.value,
+    CampaignResultCode.INVALID_CONTACT.value,
 }
 
 CAMPAIGN_STATUS_TRANSITIONS: dict[str, set[str]] = {
@@ -244,6 +255,43 @@ def validate_campaign_period(
         raise CampaignDomainError("Campaign end_at must be after start_at.")
 
 
+def validate_campaign_experiment(
+    *,
+    experiment_enabled: bool,
+    control_group_ratio: float,
+    fixed_cost: float,
+    cost_per_contact: float,
+    revenue_per_conversion: float,
+    retention_window_days: int,
+) -> None:
+    """A/B 배정과 재무 입력의 업무 범위를 검증합니다."""
+    if not 0 <= control_group_ratio < 1:
+        raise CampaignDomainError("control_group_ratio must be between 0 and 1.")
+    if experiment_enabled and control_group_ratio <= 0:
+        raise CampaignDomainError(
+            "An A/B campaign must reserve a positive control group ratio."
+        )
+    if min(fixed_cost, cost_per_contact, revenue_per_conversion) < 0:
+        raise CampaignDomainError("Campaign financial values cannot be negative.")
+    if not 1 <= retention_window_days <= 365:
+        raise CampaignDomainError("retention_window_days must be between 1 and 365.")
+
+
+def assign_experiment_group(
+    campaign: Campaign,
+    customer_id: int,
+) -> str:
+    """캠페인 seed와 고객 ID로 재현 가능한 무작위 A/B 그룹을 배정합니다."""
+    if not campaign.experiment_enabled or campaign.control_group_ratio <= 0:
+        return ExperimentGroup.TREATMENT.value
+    seed = campaign.experiment_seed or str(campaign.id)
+    digest = hashlib.sha256(f"{seed}:{campaign.id}:{customer_id}".encode()).digest()
+    bucket = int.from_bytes(digest[:8], "big") / float(2**64)
+    if bucket < campaign.control_group_ratio:
+        return ExperimentGroup.CONTROL.value
+    return ExperimentGroup.TREATMENT.value
+
+
 def create_campaign(
     db: Session,
     *,
@@ -254,16 +302,40 @@ def create_campaign(
     start_at: datetime | None,
     end_at: datetime | None,
     actor: User,
+    segment_code: str | None = None,
+    experiment_enabled: bool = False,
+    control_group_ratio: float = 0.0,
+    experiment_seed: str | None = None,
+    fixed_cost: float = 0.0,
+    cost_per_contact: float = 0.0,
+    revenue_per_conversion: float = 0.0,
+    retention_window_days: int = 30,
 ) -> Campaign:
     """캠페인 기본 정보와 생성 이벤트를 저장합니다."""
     validate_campaign_period(start_at, end_at)
+    validate_campaign_experiment(
+        experiment_enabled=experiment_enabled,
+        control_group_ratio=control_group_ratio,
+        fixed_cost=fixed_cost,
+        cost_per_contact=cost_per_contact,
+        revenue_per_conversion=revenue_per_conversion,
+        retention_window_days=retention_window_days,
+    )
     campaign = Campaign(
         name=name,
         description=description,
         channel=channel,
+        segment_code=segment_code,
         status=lifecycle_status.value,
         start_at=start_at,
         end_at=end_at,
+        experiment_enabled=experiment_enabled,
+        control_group_ratio=control_group_ratio,
+        experiment_seed=experiment_seed or secrets.token_hex(16),
+        fixed_cost=fixed_cost,
+        cost_per_contact=cost_per_contact,
+        revenue_per_conversion=revenue_per_conversion,
+        retention_window_days=retention_window_days,
         created_by_user_id=actor.id,
     )
     db.add(campaign)
@@ -293,11 +365,53 @@ def update_campaign(
     end_at: datetime | None,
     actor: User,
     update_period: bool,
+    segment_code: str | None = None,
+    experiment_enabled: bool | None = None,
+    control_group_ratio: float | None = None,
+    experiment_seed: str | None = None,
+    fixed_cost: float | None = None,
+    cost_per_contact: float | None = None,
+    revenue_per_conversion: float | None = None,
+    retention_window_days: int | None = None,
 ) -> Campaign:
     """캠페인 정보와 생명주기 상태를 허용된 범위에서 변경합니다."""
     new_start = start_at if update_period else campaign.start_at
     new_end = end_at if update_period else campaign.end_at
     validate_campaign_period(new_start, new_end)
+    next_experiment_enabled = (
+        campaign.experiment_enabled
+        if experiment_enabled is None
+        else experiment_enabled
+    )
+    next_control_group_ratio = (
+        campaign.control_group_ratio
+        if control_group_ratio is None
+        else control_group_ratio
+    )
+    next_fixed_cost = campaign.fixed_cost if fixed_cost is None else fixed_cost
+    next_cost_per_contact = (
+        campaign.cost_per_contact
+        if cost_per_contact is None
+        else cost_per_contact
+    )
+    next_revenue_per_conversion = (
+        campaign.revenue_per_conversion
+        if revenue_per_conversion is None
+        else revenue_per_conversion
+    )
+    next_retention_window_days = (
+        campaign.retention_window_days
+        if retention_window_days is None
+        else retention_window_days
+    )
+    validate_campaign_experiment(
+        experiment_enabled=next_experiment_enabled,
+        control_group_ratio=next_control_group_ratio,
+        fixed_cost=next_fixed_cost,
+        cost_per_contact=next_cost_per_contact,
+        revenue_per_conversion=next_revenue_per_conversion,
+        retention_window_days=next_retention_window_days,
+    )
     if name is not None:
         campaign.name = name
     if update_period:
@@ -307,6 +421,22 @@ def update_campaign(
         campaign.description = description
     if channel is not None:
         campaign.channel = channel
+    if segment_code is not None:
+        campaign.segment_code = segment_code
+    if experiment_enabled is not None:
+        campaign.experiment_enabled = experiment_enabled
+    if control_group_ratio is not None:
+        campaign.control_group_ratio = control_group_ratio
+    if experiment_seed is not None:
+        campaign.experiment_seed = experiment_seed
+    if fixed_cost is not None:
+        campaign.fixed_cost = fixed_cost
+    if cost_per_contact is not None:
+        campaign.cost_per_contact = cost_per_contact
+    if revenue_per_conversion is not None:
+        campaign.revenue_per_conversion = revenue_per_conversion
+    if retention_window_days is not None:
+        campaign.retention_window_days = retention_window_days
 
     if lifecycle_status is not None and lifecycle_status.value != campaign.status:
         allowed = CAMPAIGN_STATUS_TRANSITIONS.get(campaign.status, set())
@@ -417,16 +547,25 @@ def create_campaign_target(
     validate_assignee(assignee)
     _lock_customer(db, insight.customer_id)
     _raise_if_active_duplicate(db, customer_id=insight.customer_id)
+    experiment_group = assign_experiment_group(campaign, insight.customer_id)
+    effective_assignee = (
+        assignee
+        if experiment_group == ExperimentGroup.TREATMENT.value
+        else None
+    )
 
     target = CampaignTarget(
         campaign_id=campaign.id,
         customer_id=insight.customer_id,
         customer_insight_id=insight.id,
         campaign_name=campaign.name,
-        assigned_to_user_id=assignee.id if assignee is not None else None,
+        assigned_to_user_id=(
+            effective_assignee.id if effective_assignee is not None else None
+        ),
+        experiment_group=experiment_group,
         status=(
             CampaignStatus.ASSIGNED.value
-            if assignee is not None
+            if effective_assignee is not None
             else CampaignStatus.PENDING.value
         ),
         converted=False,
@@ -441,7 +580,7 @@ def create_campaign_target(
         to_status=target.status,
         actor=actor,
     )
-    if assignee is not None:
+    if effective_assignee is not None:
         _add_event(
             db,
             campaign=campaign,
@@ -449,7 +588,7 @@ def create_campaign_target(
             event_type=CampaignEventType.ASSIGNED.value,
             to_status=target.status,
             actor=actor,
-            metadata_json={"assigned_to_user_id": assignee.id},
+            metadata_json={"assigned_to_user_id": effective_assignee.id},
         )
     if commit:
         db.commit()
@@ -457,7 +596,7 @@ def create_campaign_target(
     else:
         db.flush()
     target.campaign = campaign
-    target.assignee = assignee
+    target.assignee = effective_assignee
     return target
 
 
@@ -500,15 +639,22 @@ def update_campaign_target(
     result_code: CampaignResultCode | None,
     converted: bool | None,
     actor: User,
+    retained: bool | None = None,
+    outcome_revenue: float | None = None,
 ) -> CampaignTarget:
     """대상 상태·담당자·결과를 규칙에 맞게 갱신하고 이벤트를 남깁니다."""
     campaign = target.campaign or db.get(Campaign, target.campaign_id)
     if campaign is None:
         raise CampaignDomainError("The campaign target is not linked to a campaign.")
-    if campaign.status in {
+    campaign_closed = campaign.status in {
         CampaignLifecycleStatus.COMPLETED.value,
         CampaignLifecycleStatus.CANCELLED.value,
-    }:
+    }
+    has_workflow_update = any(
+        value is not None
+        for value in (status, assignee, result, result_notes, result_code, converted)
+    )
+    if campaign_closed and has_workflow_update:
         raise CampaignConflictError("Targets in a closed campaign cannot be changed.")
 
     validate_assignee(assignee)
@@ -519,6 +665,15 @@ def update_campaign_target(
     next_assignee_id = (
         assignee.id if assignee is not None else target.assigned_to_user_id
     )
+    if target.experiment_group == ExperimentGroup.CONTROL.value:
+        if assignee is not None or next_status in {
+            CampaignStatus.ASSIGNED.value,
+            CampaignStatus.CONTACTED.value,
+            CampaignStatus.COMPLETED.value,
+        }:
+            raise CampaignTransitionError(
+                "Control-group targets cannot be assigned or contacted."
+            )
     if next_status == CampaignStatus.ASSIGNED.value and next_assignee_id is None:
         raise CampaignDomainError(
             "An assigned target must have an operations or marketing assignee."
@@ -553,18 +708,23 @@ def update_campaign_target(
 
     if next_status != previous_status:
         target.status = next_status
+        now = datetime.now(timezone.utc)
         if next_status in {
             CampaignStatus.CONTACTED.value,
             CampaignStatus.COMPLETED.value,
         }:
-            target.processed_at = target.processed_at or datetime.now(timezone.utc)
+            target.processed_at = target.processed_at or now
             customer = db.get(Customer, target.customer_id)
             if customer is not None:
                 customer.last_contacted_at = customer.last_contacted_at or datetime.now(
                     timezone.utc
                 )
+        if next_status == CampaignStatus.CONTACTED.value:
+            target.contacted_at = target.contacted_at or now
+        if next_status == CampaignStatus.COMPLETED.value:
+            target.completed_at = target.completed_at or now
         elif next_status == CampaignStatus.CANCELLED.value:
-            target.processed_at = target.processed_at or datetime.now(timezone.utc)
+            target.processed_at = target.processed_at or now
         _add_event(
             db,
             campaign=campaign,
@@ -575,21 +735,74 @@ def update_campaign_target(
             actor=actor,
         )
 
-    result_changed = result is not None or result_notes is not None or result_code is not None
+    result_changed = (
+        result is not None
+        or result_notes is not None
+        or result_code is not None
+        or retained is not None
+        or outcome_revenue is not None
+    )
     if result is not None:
         target.result = result
     if result_notes is not None:
         target.result_notes = result_notes
+    if next_status == CampaignStatus.CONTACTED.value and result_code is None:
+        result_code = CampaignResultCode.CONTACTED
+        result_changed = True
     if result_code is not None:
+        if result_code == CampaignResultCode.CONTACTED:
+            if target.experiment_group == ExperimentGroup.CONTROL.value:
+                raise CampaignDomainError("Control-group targets cannot be contacted.")
+            if next_status not in {
+                CampaignStatus.CONTACTED.value,
+                CampaignStatus.COMPLETED.value,
+            }:
+                raise CampaignDomainError(
+                    "The contacted result code requires a contacted or completed target."
+                )
+        elif result_code.value in FINAL_RESULT_CODES:
+            if (
+                target.experiment_group == ExperimentGroup.TREATMENT.value
+                and next_status != CampaignStatus.COMPLETED.value
+            ):
+                raise CampaignDomainError(
+                    "A treatment result code requires a completed target."
+                )
         target.result_code = result_code.value
         if result_code == CampaignResultCode.CONVERTED:
             converted = True
+        if result_code == CampaignResultCode.OPTED_OUT:
+            customer = db.get(Customer, target.customer_id)
+            if customer is not None:
+                customer.marketing_opt_out = True
     if converted is not None:
-        if converted and next_status != CampaignStatus.COMPLETED.value:
+        if (
+            converted
+            and target.experiment_group == ExperimentGroup.TREATMENT.value
+            and next_status != CampaignStatus.COMPLETED.value
+        ):
             raise CampaignDomainError(
                 "A target must be completed before it can be marked converted."
             )
         target.converted = converted
+        if converted:
+            target.converted_at = target.converted_at or datetime.now(timezone.utc)
+        result_changed = True
+    if retained is not None:
+        if (
+            target.experiment_group == ExperimentGroup.TREATMENT.value
+            and next_status != CampaignStatus.COMPLETED.value
+        ):
+            raise CampaignDomainError(
+                "A treatment target must be completed before retention is recorded."
+            )
+        target.retained = retained
+        target.retention_checked_at = datetime.now(timezone.utc)
+        result_changed = True
+    if outcome_revenue is not None:
+        if outcome_revenue < 0:
+            raise CampaignDomainError("Outcome revenue cannot be negative.")
+        target.outcome_revenue = outcome_revenue
         result_changed = True
     if result_changed:
         _add_event(
@@ -605,6 +818,9 @@ def update_campaign_target(
             metadata_json={
                 "result_code": target.result_code,
                 "converted": bool(target.converted),
+                "retained": target.retained,
+                "outcome_revenue": target.outcome_revenue,
+                "experiment_group": target.experiment_group,
             },
         )
 

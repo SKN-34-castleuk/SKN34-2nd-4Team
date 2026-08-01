@@ -97,9 +97,17 @@ def _to_campaign_response(campaign: Campaign, stats) -> CampaignResponse:
         name=campaign.name,
         description=campaign.description,
         channel=campaign.channel,
+        segment_code=campaign.segment_code,
         status=campaign.status,
         start_at=campaign.start_at,
         end_at=campaign.end_at,
+        experiment_enabled=bool(campaign.experiment_enabled),
+        control_group_ratio=campaign.control_group_ratio,
+        experiment_seed=campaign.experiment_seed,
+        fixed_cost=campaign.fixed_cost,
+        cost_per_contact=campaign.cost_per_contact,
+        revenue_per_conversion=campaign.revenue_per_conversion,
+        retention_window_days=campaign.retention_window_days,
         created_by_user_id=campaign.created_by_user_id,
         created_by_display_name=(
             campaign.created_by.display_name
@@ -119,6 +127,7 @@ def _to_campaign_target_response(target: CampaignTarget) -> CampaignTargetRespon
         customer_insight_id=target.customer_insight_id,
         campaign_id=target.campaign_id,
         campaign_name=target.campaign_name,
+        experiment_group=target.experiment_group,
         bulk_targeting_run_id=target.bulk_targeting_run_id,
         campaign_status=(
             target.campaign.status
@@ -131,10 +140,16 @@ def _to_campaign_target_response(target: CampaignTarget) -> CampaignTargetRespon
         ),
         status=target.status,
         processed_at=target.processed_at,
+        contacted_at=target.contacted_at,
+        completed_at=target.completed_at,
+        converted_at=target.converted_at,
         result=target.result,
         result_notes=target.result_notes,
         result_code=target.result_code,
         converted=bool(target.converted),
+        retained=target.retained,
+        retention_checked_at=target.retention_checked_at,
+        outcome_revenue=target.outcome_revenue,
         created_at=target.created_at,
         updated_at=target.updated_at,
     )
@@ -223,6 +238,16 @@ def create_campaign_api(
             start_at=payload.start_at,
             end_at=payload.end_at,
             actor=current_user,
+            segment_code=payload.segment_code.value if payload.segment_code else None,
+            experiment_enabled=payload.experiment_enabled,
+            control_group_ratio=(
+                payload.control_group_ratio if payload.experiment_enabled else 0.0
+            ),
+            experiment_seed=payload.experiment_seed,
+            fixed_cost=payload.fixed_cost,
+            cost_per_contact=payload.cost_per_contact,
+            revenue_per_conversion=payload.revenue_per_conversion,
+            retention_window_days=payload.retention_window_days,
         )
     except IntegrityError:
         db.rollback()
@@ -298,6 +323,18 @@ def update_campaign_api(
             end_at=payload.end_at,
             actor=current_user,
             update_period="start_at" in provided or "end_at" in provided,
+            segment_code=(
+                payload.segment_code.value
+                if payload.segment_code is not None
+                else None
+            ),
+            experiment_enabled=payload.experiment_enabled,
+            control_group_ratio=payload.control_group_ratio,
+            experiment_seed=payload.experiment_seed,
+            fixed_cost=payload.fixed_cost,
+            cost_per_contact=payload.cost_per_contact,
+            revenue_per_conversion=payload.revenue_per_conversion,
+            retention_window_days=payload.retention_window_days,
         )
     except IntegrityError:
         db.rollback()
@@ -547,6 +584,8 @@ def update_campaign_target_api(
             result_code=payload.result_code,
             converted=payload.converted,
             actor=current_user,
+            retained=payload.retained,
+            outcome_revenue=payload.outcome_revenue,
         )
     except CampaignDomainError as exc:
         db.rollback()

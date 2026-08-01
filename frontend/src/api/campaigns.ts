@@ -15,6 +15,8 @@ export type CampaignEventList =
   components["schemas"]["CampaignEventListResponse"];
 export type CampaignResultCode =
   components["schemas"]["CampaignResultCode"];
+export type CampaignPerformance =
+  components["schemas"]["CampaignPerformanceResponse"];
 export type BulkTargetingSegment =
   components["schemas"]["BulkTargetingSegment"];
 export type BulkTargetingRun =
@@ -89,6 +91,16 @@ export function listCampaignEvents(
   );
 }
 
+export function getCampaignPerformance(query: {
+  campaign_id?: number;
+  segment?: BulkTargetingSegment;
+  assigned_to_user_id?: number;
+} = {}): Promise<CampaignPerformance> {
+  return request<CampaignPerformance>(
+    `/api/v1/campaign-performance${toQueryString(query)}`,
+  );
+}
+
 export function listCampaignTargets(query: {
   status?: CampaignStatus;
   campaign_id?: number;
@@ -125,6 +137,8 @@ export function updateCampaignTarget(
     result_notes?: string;
     result_code?: CampaignResultCode | null;
     converted?: boolean;
+    retained?: boolean | null;
+    outcome_revenue?: number | null;
   },
 ): Promise<CampaignTarget> {
   return request<CampaignTarget>(`/api/v1/campaign-targets/${targetId}`, {

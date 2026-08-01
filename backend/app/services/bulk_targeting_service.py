@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from math import floor
+import secrets
 from typing import Any
 
 from sqlalchemy import Select, desc, exists, func, or_, select
@@ -150,6 +151,15 @@ def _build_rules(
         "source_as_of_date": (
             source_as_of_date.isoformat() if source_as_of_date is not None else None
         ),
+        "experiment_enabled": payload.experiment_enabled,
+        "control_group_ratio": (
+            payload.control_group_ratio if payload.experiment_enabled else 0.0
+        ),
+        "fixed_cost": payload.fixed_cost,
+        "cost_per_contact": payload.cost_per_contact,
+        "revenue_per_conversion": payload.revenue_per_conversion,
+        "retention_window_days": payload.retention_window_days,
+        "experiment_seed": secrets.token_hex(16),
     }
     if segment == BulkTargetingSegment.MEDIUM_REACTIVATION.value:
         rules["activity_gap_threshold"] = _activity_gap_threshold(
@@ -371,7 +381,15 @@ def execute_bulk_targeting(
         name=str(rules["campaign_name"]),
         description=rules.get("description"),
         channel=rules.get("channel"),
+        segment_code=run.segment_code,
         status=CampaignLifecycleStatus.DRAFT.value,
+        experiment_enabled=bool(rules.get("experiment_enabled", False)),
+        control_group_ratio=float(rules.get("control_group_ratio", 0.0)),
+        experiment_seed=rules.get("experiment_seed") or secrets.token_hex(16),
+        fixed_cost=float(rules.get("fixed_cost", 0.0)),
+        cost_per_contact=float(rules.get("cost_per_contact", 0.0)),
+        revenue_per_conversion=float(rules.get("revenue_per_conversion", 0.0)),
+        retention_window_days=int(rules.get("retention_window_days", 30)),
         created_by_user_id=actor.id,
     )
     db.add(campaign)
@@ -520,6 +538,12 @@ def rerun_bulk_targeting(
         cluster_name=rules.get("cluster_name"),
         max_targets=int(rules["max_targets"]),
         source_as_of_date=_date_from_rules(rules),
+        experiment_enabled=bool(rules.get("experiment_enabled", False)),
+        control_group_ratio=float(rules.get("control_group_ratio", 0.2)),
+        fixed_cost=float(rules.get("fixed_cost", 0.0)),
+        cost_per_contact=float(rules.get("cost_per_contact", 0.0)),
+        revenue_per_conversion=float(rules.get("revenue_per_conversion", 0.0)),
+        retention_window_days=int(rules.get("retention_window_days", 30)),
     )
     return preview_bulk_targeting(
         db,

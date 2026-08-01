@@ -124,7 +124,8 @@ PATCH /api/v1/customers/{customer_id}/contact-preferences
 
 ## 데이터 구조
 
-Alembic `20260801_0007`에서 다음을 추가했습니다.
+Alembic `20260801_0007`에서 다음을 추가했고, 성과 측정 확장은
+`20260801_0008`에서 연결했습니다.
 
 | 변경 | 내용 |
 |---|---|
@@ -134,8 +135,14 @@ Alembic `20260801_0007`에서 다음을 추가했습니다.
 | `campaign_targets.bulk_targeting_run_id` | 대상이 어느 일괄 타기팅에서 생성됐는지 연결 |
 
 `rules_json`에는 세그먼트, 캠페인 정보, 최근 접촉 기간, 분위수,
-activity-gap threshold, 우량군 이름, 최대 대상 수, 기준일이 저장됩니다. 따라서
+activity-gap threshold, 우량군 이름, 최대 대상 수, 기준일, A/B 대조군 비율,
+비용·매출 정책과 유지 관측 기간이 저장됩니다. 따라서
 후속 정책이 변경되어도 과거 실행 배치의 의사결정 근거를 확인할 수 있습니다.
+
+일괄 타기팅 실행 시 캠페인의 A/B 정책이 대상 등록에 적용됩니다. 대조군은
+담당자 배정 없이 `pending`으로 남고, 대상군만 운영·마케팅 담당자에게 배정됩니다.
+성과 지표 계산 기준은 [`campaign_performance.md`](campaign_performance.md)에
+정리되어 있습니다.
 
 ## 프론트엔드 사용 흐름
 

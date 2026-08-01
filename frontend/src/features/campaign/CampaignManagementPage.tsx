@@ -19,6 +19,7 @@ import {
 } from "../../api/campaigns";
 import { listTeamMembers, type TeamMember } from "../../api/team";
 import { BulkTargetingPanel } from "./BulkTargetingPanel";
+import { CampaignPerformancePanel } from "./CampaignPerformancePanel";
 
 const PAGE_SIZE = 8;
 
@@ -57,10 +58,12 @@ const targetStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
 };
 
 const resultCodeLabels: Record<CampaignResultCode, string> = {
+  contacted: "접촉",
   converted: "전환",
   not_converted: "미전환",
   no_response: "응답 없음",
   declined: "거절",
+  opted_out: "수신 거부",
   invalid_contact: "연락처 오류",
 };
 
@@ -92,6 +95,12 @@ type CampaignForm = {
   status: CampaignLifecycleStatus;
   start_at: string;
   end_at: string;
+  experiment_enabled: boolean;
+  control_group_ratio: number;
+  fixed_cost: number;
+  cost_per_contact: number;
+  revenue_per_conversion: number;
+  retention_window_days: number;
 };
 
 type TargetDraft = {
@@ -100,6 +109,8 @@ type TargetDraft = {
   result: string;
   result_code: CampaignResultCode | "";
   converted: boolean;
+  retained: boolean | null;
+  outcome_revenue: string;
 };
 
 function emptyCampaignForm(): CampaignForm {
@@ -110,6 +121,12 @@ function emptyCampaignForm(): CampaignForm {
     status: "draft",
     start_at: "",
     end_at: "",
+    experiment_enabled: false,
+    control_group_ratio: 0.2,
+    fixed_cost: 0,
+    cost_per_contact: 0,
+    revenue_per_conversion: 0,
+    retention_window_days: 30,
   };
 }
 
@@ -121,6 +138,12 @@ function campaignToForm(campaign: Campaign): CampaignForm {
     status: campaign.status,
     start_at: toDateTimeInput(campaign.start_at),
     end_at: toDateTimeInput(campaign.end_at),
+    experiment_enabled: campaign.experiment_enabled,
+    control_group_ratio: campaign.control_group_ratio,
+    fixed_cost: campaign.fixed_cost,
+    cost_per_contact: campaign.cost_per_contact,
+    revenue_per_conversion: campaign.revenue_per_conversion,
+    retention_window_days: campaign.retention_window_days,
   };
 }
 
@@ -166,6 +189,8 @@ function getTargetDraft(target: CampaignTarget): TargetDraft {
     result: target.result ?? "",
     result_code: target.result_code ?? "",
     converted: target.converted,
+    retained: target.retained ?? null,
+    outcome_revenue: target.outcome_revenue === null ? "" : String(target.outcome_revenue),
   };
 }
 
@@ -292,6 +317,52 @@ function CampaignEditor({
           />
         </label>
       </div>
+      <div className="campaign-editor__row campaign-editor__row--metrics">
+        <label className="campaign-editor__checkbox">
+          <input
+            type="checkbox"
+            checked={form.experiment_enabled}
+            onChange={(event) => onChange({ ...form, experiment_enabled: event.target.checked })}
+          />
+          <span>A/B 테스트 활성화</span>
+        </label>
+        <label>
+          <span>대조군 비율</span>
+          <input
+            type="number"
+            min={0.01}
+            max={0.99}
+            step={0.01}
+            disabled={!form.experiment_enabled}
+            value={form.control_group_ratio}
+            onChange={(event) => onChange({ ...form, control_group_ratio: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          <span>유지 관측(일)</span>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={form.retention_window_days}
+            onChange={(event) => onChange({ ...form, retention_window_days: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <div className="campaign-editor__row">
+        <label>
+          <span>고정 비용</span>
+          <input type="number" min={0} step={1000} value={form.fixed_cost} onChange={(event) => onChange({ ...form, fixed_cost: Number(event.target.value) })} />
+        </label>
+        <label>
+          <span>접촉당 비용</span>
+          <input type="number" min={0} step={100} value={form.cost_per_contact} onChange={(event) => onChange({ ...form, cost_per_contact: Number(event.target.value) })} />
+        </label>
+        <label>
+          <span>전환당 매출</span>
+          <input type="number" min={0} step={1000} value={form.revenue_per_conversion} onChange={(event) => onChange({ ...form, revenue_per_conversion: Number(event.target.value) })} />
+        </label>
+      </div>
       <label>
         <span>설명</span>
         <textarea
@@ -341,15 +412,22 @@ function TargetTable({
           <span>담당자</span>
           <span>결과</span>
           <span>전환</span>
+          {canProcessTargets && <span>성과</span>}
           {canProcessTargets && <span>작업</span>}
         </div>
         {data.items.map((target) => {
           const draft = drafts[target.id] ?? getTargetDraft(target);
+          const availableStatuses: CampaignStatus[] = target.experiment_group === "control"
+            ? target.status === "pending" ? ["pending", "cancelled"] : [target.status]
+            : targetStatusTransitions[target.status];
           return (
             <div className="campaign-target-table__row" role="row" key={target.id}>
               <div className="campaign-target-customer">
                 <strong>고객 {target.customer_id}</strong>
                 <small>대상 #{target.id} · {formatDate(target.updated_at)}</small>
+                <span className={`campaign-experiment-badge campaign-experiment-badge--${target.experiment_group}`}>
+                  {target.experiment_group === "control" ? "대조군" : "대상군"}
+                </span>
               </div>
               {canProcessTargets ? (
                 <select
@@ -357,7 +435,7 @@ function TargetTable({
                   aria-label={`고객 ${target.customer_id} 처리 상태`}
                   onChange={(event) => onDraftChange(target.id, { ...draft, status: event.target.value as CampaignStatus })}
                 >
-                  {targetStatusTransitions[target.status].map((status) => (
+                  {availableStatuses.map((status) => (
                     <option value={status} key={status}>{targetStatusLabels[status]}</option>
                   ))}
                 </select>
@@ -367,6 +445,7 @@ function TargetTable({
               {canProcessTargets ? (
                 <select
                   value={draft.assigned_to_user_id ?? ""}
+                  disabled={target.experiment_group === "control"}
                   aria-label={`고객 ${target.customer_id} 담당자`}
                   onChange={(event) => onDraftChange(target.id, {
                     ...draft,
@@ -398,9 +477,11 @@ function TargetTable({
                     })}
                   >
                     <option value="">코드 없음</option>
-                    {Object.entries(resultCodeLabels).map(([code, label]) => (
+                    {Object.entries(resultCodeLabels)
+                      .filter(([code]) => target.experiment_group !== "control" || code !== "contacted")
+                      .map(([code, label]) => (
                       <option value={code} key={code}>{label}</option>
-                    ))}
+                      ))}
                   </select>
                 </div>
               ) : (
@@ -411,7 +492,7 @@ function TargetTable({
                   <input
                     type="checkbox"
                     checked={draft.converted}
-                    disabled={draft.status !== "completed"}
+                    disabled={target.experiment_group === "treatment" && draft.status !== "completed"}
                     onChange={(event) => onDraftChange(target.id, { ...draft, converted: event.target.checked })}
                   />
                   전환
@@ -420,6 +501,30 @@ function TargetTable({
                 <span className={target.converted ? "campaign-converted" : "campaign-target-muted"}>
                   {target.converted ? "전환" : "-"}
                 </span>
+              )}
+              {canProcessTargets && (
+                <div className="campaign-target-retention">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draft.retained === true}
+                      onChange={(event) => onDraftChange(target.id, {
+                        ...draft,
+                        retained: event.target.checked ? true : null,
+                      })}
+                    />
+                    유지
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    value={draft.outcome_revenue}
+                    placeholder="매출"
+                    aria-label={`고객 ${target.customer_id} 성과 매출`}
+                    onChange={(event) => onDraftChange(target.id, { ...draft, outcome_revenue: event.target.value })}
+                  />
+                </div>
               )}
               {canProcessTargets && (
                 <button
@@ -675,6 +780,12 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
         status: createForm.status,
         start_at: toIsoDate(createForm.start_at),
         end_at: toIsoDate(createForm.end_at),
+        experiment_enabled: createForm.experiment_enabled,
+        control_group_ratio: createForm.experiment_enabled ? createForm.control_group_ratio : 0,
+        fixed_cost: createForm.fixed_cost,
+        cost_per_contact: createForm.cost_per_contact,
+        revenue_per_conversion: createForm.revenue_per_conversion,
+        retention_window_days: createForm.retention_window_days,
       });
       setCampaignData((current) => current === null ? {
         items: [created],
@@ -715,6 +826,12 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
         status: editForm.status,
         start_at: toIsoDate(editForm.start_at),
         end_at: toIsoDate(editForm.end_at),
+        experiment_enabled: editForm.experiment_enabled,
+        control_group_ratio: editForm.experiment_enabled ? editForm.control_group_ratio : 0,
+        fixed_cost: editForm.fixed_cost,
+        cost_per_contact: editForm.cost_per_contact,
+        revenue_per_conversion: editForm.revenue_per_conversion,
+        retention_window_days: editForm.retention_window_days,
       });
       updateCampaignInList(updated);
       setEditingCampaign(false);
@@ -746,6 +863,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
         result: draft.result.trim() || null,
         result_code: draft.result_code || null,
         converted: draft.converted,
+        retained: draft.retained,
+        outcome_revenue: draft.outcome_revenue === "" ? null : Number(draft.outcome_revenue),
       });
       setTargetDrafts((current) => {
         const next = { ...current };
@@ -942,6 +1061,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
               ) : (
                 <>
                   {targetStats && <CampaignStats campaign={{ ...selectedCampaign, stats: targetStats }} />}
+                  <CampaignPerformancePanel campaignId={selectedCampaign.id} refreshKey={targetRefreshKey} />
                   {campaignMessage !== "" && <p className="campaign-management-message" role="status">{campaignMessage}</p>}
 
                   <section className="campaign-target-panel">

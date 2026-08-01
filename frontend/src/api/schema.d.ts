@@ -509,6 +509,43 @@ export interface paths {
         patch: operations["update_customer_contact_preferences_api_v1_customers__customer_id__contact_preferences_patch"];
         trace?: never;
     };
+    "/api/v1/campaign-performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 캠페인 성과 요약·비교 조회
+         * @description 인증된 모든 역할이 캠페인 성과를 조회할 수 있습니다.
+         */
+        get: operations["get_campaign_performance_api_api_v1_campaign_performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 특정 캠페인 성과 조회 */
+        get: operations["get_single_campaign_performance_api_api_v1_campaigns__campaign_id__performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -576,6 +613,36 @@ export interface components {
             max_targets: number;
             /** Source As Of Date */
             source_as_of_date?: string | null;
+            /**
+             * Experiment Enabled
+             * @default false
+             */
+            experiment_enabled: boolean;
+            /**
+             * Control Group Ratio
+             * @default 0.2
+             */
+            control_group_ratio: number;
+            /**
+             * Fixed Cost
+             * @default 0
+             */
+            fixed_cost: number;
+            /**
+             * Cost Per Contact
+             * @default 0
+             */
+            cost_per_contact: number;
+            /**
+             * Revenue Per Conversion
+             * @default 0
+             */
+            revenue_per_conversion: number;
+            /**
+             * Retention Window Days
+             * @default 30
+             */
+            retention_window_days: number;
         };
         /**
          * BulkTargetingRerunRequest
@@ -676,12 +743,45 @@ export interface components {
             description?: string | null;
             /** Channel */
             channel?: string | null;
+            segment_code?: components["schemas"]["BulkTargetingSegment"] | null;
             /** @default draft */
             status: components["schemas"]["CampaignLifecycleStatus"];
             /** Start At */
             start_at?: string | null;
             /** End At */
             end_at?: string | null;
+            /**
+             * Experiment Enabled
+             * @default false
+             */
+            experiment_enabled: boolean;
+            /**
+             * Control Group Ratio
+             * @default 0.2
+             */
+            control_group_ratio: number;
+            /** Experiment Seed */
+            experiment_seed?: string | null;
+            /**
+             * Fixed Cost
+             * @default 0
+             */
+            fixed_cost: number;
+            /**
+             * Cost Per Contact
+             * @default 0
+             */
+            cost_per_contact: number;
+            /**
+             * Revenue Per Conversion
+             * @default 0
+             */
+            revenue_per_conversion: number;
+            /**
+             * Retention Window Days
+             * @default 30
+             */
+            retention_window_days: number;
         };
         /**
          * CampaignEventListResponse
@@ -753,6 +853,131 @@ export interface components {
             total_pages: number;
         };
         /**
+         * CampaignPerformanceBreakdown
+         * @description 캠페인·세그먼트·담당자별 성과 비교 항목입니다.
+         */
+        CampaignPerformanceBreakdown: {
+            /** Target Count */
+            target_count: number;
+            /** Treatment Count */
+            treatment_count: number;
+            /** Control Count */
+            control_count: number;
+            /** Contacted Count */
+            contacted_count: number;
+            /** Converted Count */
+            converted_count: number;
+            /** Retained Count */
+            retained_count: number;
+            /** Retention Observed Count */
+            retention_observed_count: number;
+            /** Contact Rate */
+            contact_rate: number;
+            /** Conversion Rate */
+            conversion_rate: number;
+            /** Retention Rate */
+            retention_rate: number | null;
+            /** Treatment Contact Rate */
+            treatment_contact_rate: number | null;
+            /** Control Contact Rate */
+            control_contact_rate: number | null;
+            /** Treatment Conversion Rate */
+            treatment_conversion_rate: number | null;
+            /** Control Conversion Rate */
+            control_conversion_rate: number | null;
+            /** Treatment Retention Rate */
+            treatment_retention_rate: number | null;
+            /** Control Retention Rate */
+            control_retention_rate: number | null;
+            /** Incremental Conversion Effect */
+            incremental_conversion_effect: number | null;
+            /** Incremental Retention Effect */
+            incremental_retention_effect: number | null;
+            /** Total Cost */
+            total_cost: number;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Roi */
+            roi: number | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Campaign Count */
+            campaign_count: number;
+        };
+        /**
+         * CampaignPerformanceMetrics
+         * @description 캠페인 성과를 치료군·대조군과 재무 지표로 집계합니다.
+         */
+        CampaignPerformanceMetrics: {
+            /** Target Count */
+            target_count: number;
+            /** Treatment Count */
+            treatment_count: number;
+            /** Control Count */
+            control_count: number;
+            /** Contacted Count */
+            contacted_count: number;
+            /** Converted Count */
+            converted_count: number;
+            /** Retained Count */
+            retained_count: number;
+            /** Retention Observed Count */
+            retention_observed_count: number;
+            /** Contact Rate */
+            contact_rate: number;
+            /** Conversion Rate */
+            conversion_rate: number;
+            /** Retention Rate */
+            retention_rate: number | null;
+            /** Treatment Contact Rate */
+            treatment_contact_rate: number | null;
+            /** Control Contact Rate */
+            control_contact_rate: number | null;
+            /** Treatment Conversion Rate */
+            treatment_conversion_rate: number | null;
+            /** Control Conversion Rate */
+            control_conversion_rate: number | null;
+            /** Treatment Retention Rate */
+            treatment_retention_rate: number | null;
+            /** Control Retention Rate */
+            control_retention_rate: number | null;
+            /** Incremental Conversion Effect */
+            incremental_conversion_effect: number | null;
+            /** Incremental Retention Effect */
+            incremental_retention_effect: number | null;
+            /** Total Cost */
+            total_cost: number;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Roi */
+            roi: number | null;
+        };
+        /**
+         * CampaignPerformanceResponse
+         * @description 캠페인 성과 요약과 비교 차원별 집계입니다.
+         */
+        CampaignPerformanceResponse: {
+            /** Campaign Id */
+            campaign_id: number | null;
+            segment_code: components["schemas"]["BulkTargetingSegment"] | null;
+            /** Assigned To User Id */
+            assigned_to_user_id: number | null;
+            summary: components["schemas"]["CampaignPerformanceMetrics"];
+            /** By Campaign */
+            by_campaign: components["schemas"]["CampaignPerformanceBreakdown"][];
+            /** By Segment */
+            by_segment: components["schemas"]["CampaignPerformanceBreakdown"][];
+            /** By Assignee */
+            by_assignee: components["schemas"]["CampaignPerformanceBreakdown"][];
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+        };
+        /**
          * CampaignResponse
          * @description 캠페인 기본 정보와 대상 집계입니다.
          */
@@ -765,11 +990,29 @@ export interface components {
             description: string | null;
             /** Channel */
             channel: string | null;
+            segment_code?: components["schemas"]["BulkTargetingSegment"] | null;
             status: components["schemas"]["CampaignLifecycleStatus"];
             /** Start At */
             start_at: string | null;
             /** End At */
             end_at: string | null;
+            /**
+             * Experiment Enabled
+             * @default false
+             */
+            experiment_enabled: boolean;
+            /** Control Group Ratio */
+            control_group_ratio: number;
+            /** Experiment Seed */
+            experiment_seed?: string | null;
+            /** Fixed Cost */
+            fixed_cost: number;
+            /** Cost Per Contact */
+            cost_per_contact: number;
+            /** Revenue Per Conversion */
+            revenue_per_conversion: number;
+            /** Retention Window Days */
+            retention_window_days: number;
             /** Created By User Id */
             created_by_user_id: number | null;
             /** Created By Display Name */
@@ -791,7 +1034,7 @@ export interface components {
          * @description 캠페인 접촉 결과를 집계 가능한 코드로 표준화합니다.
          * @enum {string}
          */
-        CampaignResultCode: "converted" | "not_converted" | "no_response" | "declined" | "invalid_contact";
+        CampaignResultCode: "contacted" | "converted" | "not_converted" | "no_response" | "declined" | "opted_out" | "invalid_contact";
         /**
          * CampaignStatsResponse
          * @description 캠페인 대상의 서버 집계 결과입니다.
@@ -858,6 +1101,8 @@ export interface components {
             campaign_id?: number | null;
             /** Campaign Name */
             campaign_name: string;
+            /** @default treatment */
+            experiment_group: components["schemas"]["ExperimentGroup"];
             /** Bulk Targeting Run Id */
             bulk_targeting_run_id?: number | null;
             campaign_status?: components["schemas"]["CampaignLifecycleStatus"] | null;
@@ -868,6 +1113,12 @@ export interface components {
             status: components["schemas"]["CampaignStatus"];
             /** Processed At */
             processed_at: string | null;
+            /** Contacted At */
+            contacted_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Converted At */
+            converted_at?: string | null;
             /** Result */
             result: string | null;
             /** Result Notes */
@@ -878,6 +1129,12 @@ export interface components {
              * @default false
              */
             converted: boolean;
+            /** Retained */
+            retained?: boolean | null;
+            /** Retention Checked At */
+            retention_checked_at?: string | null;
+            /** Outcome Revenue */
+            outcome_revenue?: number | null;
             /**
              * Created At
              * Format: date-time
@@ -904,6 +1161,10 @@ export interface components {
             result_code?: components["schemas"]["CampaignResultCode"] | null;
             /** Converted */
             converted?: boolean | null;
+            /** Retained */
+            retained?: boolean | null;
+            /** Outcome Revenue */
+            outcome_revenue?: number | null;
         };
         /**
          * CampaignUpdateRequest
@@ -916,11 +1177,26 @@ export interface components {
             description?: string | null;
             /** Channel */
             channel?: string | null;
+            segment_code?: components["schemas"]["BulkTargetingSegment"] | null;
             status?: components["schemas"]["CampaignLifecycleStatus"] | null;
             /** Start At */
             start_at?: string | null;
             /** End At */
             end_at?: string | null;
+            /** Experiment Enabled */
+            experiment_enabled?: boolean | null;
+            /** Control Group Ratio */
+            control_group_ratio?: number | null;
+            /** Experiment Seed */
+            experiment_seed?: string | null;
+            /** Fixed Cost */
+            fixed_cost?: number | null;
+            /** Cost Per Contact */
+            cost_per_contact?: number | null;
+            /** Revenue Per Conversion */
+            revenue_per_conversion?: number | null;
+            /** Retention Window Days */
+            retention_window_days?: number | null;
         };
         /**
          * CustomerContactPreferenceRequest
@@ -1202,6 +1478,12 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * ExperimentGroup
+         * @description 캠페인 A/B 실험에서 고객이 배정된 그룹입니다.
+         * @enum {string}
+         */
+        ExperimentGroup: "treatment" | "control";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2404,6 +2686,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerContactPreferenceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_performance_api_api_v1_campaign_performance_get: {
+        parameters: {
+            query?: {
+                campaign_id?: number | null;
+                segment?: components["schemas"]["BulkTargetingSegment"] | null;
+                assigned_to_user_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignPerformanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_single_campaign_performance_api_api_v1_campaigns__campaign_id__performance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignPerformanceResponse"];
                 };
             };
             /** @description Validation Error */

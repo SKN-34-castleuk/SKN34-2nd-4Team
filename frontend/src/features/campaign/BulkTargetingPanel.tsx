@@ -52,6 +52,12 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
   const [assignedToUserId, setAssignedToUserId] = useState("");
   const [recentContactDays, setRecentContactDays] = useState(30);
   const [maxTargets, setMaxTargets] = useState(1000);
+  const [experimentEnabled, setExperimentEnabled] = useState(true);
+  const [controlGroupRatio, setControlGroupRatio] = useState(0.2);
+  const [fixedCost, setFixedCost] = useState(0);
+  const [costPerContact, setCostPerContact] = useState(0);
+  const [revenuePerConversion, setRevenuePerConversion] = useState(0);
+  const [retentionWindowDays, setRetentionWindowDays] = useState(30);
   const [run, setRun] = useState<BulkTargetingRun | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -81,6 +87,12 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
         cluster_name: segment === "low_risk_upsell" ? "우량(예상이상)" : null,
         max_targets: maxTargets,
         source_as_of_date: null,
+        experiment_enabled: experimentEnabled,
+        control_group_ratio: experimentEnabled ? controlGroupRatio : 0,
+        fixed_cost: fixedCost,
+        cost_per_contact: costPerContact,
+        revenue_per_conversion: revenuePerConversion,
+        retention_window_days: retentionWindowDays,
       });
       setRun(response);
       setMessage("미리보기를 생성했습니다. 대상과 제외 집계를 확인한 뒤 실행하세요.");
@@ -194,6 +206,34 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
                   <option value={assignee.id} key={assignee.id}>{assignee.display_name}</option>
                 ))}
               </select>
+            </label>
+          </div>
+          <div className="bulk-targeting-form-row bulk-targeting-form-row--experiment">
+            <label className="bulk-targeting-checkbox">
+              <input type="checkbox" checked={experimentEnabled} onChange={(event) => setExperimentEnabled(event.target.checked)} />
+              <span>A/B 테스트·대조군 사용</span>
+            </label>
+            <label>
+              <span>대조군 비율</span>
+              <input type="number" min={0.01} max={0.99} step={0.01} disabled={!experimentEnabled} value={controlGroupRatio} onChange={(event) => setControlGroupRatio(Number(event.target.value))} />
+            </label>
+            <label>
+              <span>유지 관측(일)</span>
+              <input type="number" min={1} max={365} value={retentionWindowDays} onChange={(event) => setRetentionWindowDays(Number(event.target.value))} />
+            </label>
+          </div>
+          <div className="bulk-targeting-form-row">
+            <label>
+              <span>고정 비용</span>
+              <input type="number" min={0} step={1000} value={fixedCost} onChange={(event) => setFixedCost(Number(event.target.value))} />
+            </label>
+            <label>
+              <span>접촉당 비용</span>
+              <input type="number" min={0} step={100} value={costPerContact} onChange={(event) => setCostPerContact(Number(event.target.value))} />
+            </label>
+            <label>
+              <span>전환당 매출</span>
+              <input type="number" min={0} step={1000} value={revenuePerConversion} onChange={(event) => setRevenuePerConversion(Number(event.target.value))} />
             </label>
           </div>
           <div className="bulk-targeting-form-row">
