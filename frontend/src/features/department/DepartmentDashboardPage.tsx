@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { listTeamMembers } from "../../api/team";
+import { listTeamMembers, updateTeamMember, type TeamMember } from "../../api/team";
 import { logout, type AuthUser } from "../../api/auth";
 import {
   createCampaignTarget,
@@ -42,6 +42,7 @@ type DepartmentDashboardPageProps = {
 type CampaignDraft = {
   status: CampaignStatus;
   result: string;
+  assigned_to_user_id: number | null;
 };
 
 function formatNumber(value: number): string {
@@ -217,10 +218,12 @@ function InsightPriorityTable({
 function CampaignQueue({
   targets,
   canManage,
+  assignees,
   onUpdated,
 }: {
   targets: CampaignTarget[];
   canManage: boolean;
+  assignees: TeamMember[];
   onUpdated: (target: CampaignTarget) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
@@ -231,12 +234,14 @@ function CampaignQueue({
     const draft = drafts[target.id] ?? {
       status: target.status,
       result: target.result ?? "",
+      assigned_to_user_id: target.assigned_to_user_id,
     };
     setSavingId(target.id);
     setError("");
     try {
       const updated = await updateCampaignTarget(target.id, {
         status: draft.status,
+        assigned_to_user_id: draft.assigned_to_user_id ?? undefined,
         result: draft.result || undefined,
       });
       onUpdated(updated);
@@ -265,6 +270,7 @@ function CampaignQueue({
             const draft = drafts[target.id] ?? {
               status: target.status,
               result: target.result ?? "",
+              assigned_to_user_id: target.assigned_to_user_id,
             };
             return (
               <div className="department-campaign-row" key={target.id}>
@@ -287,6 +293,24 @@ function CampaignQueue({
                     >
                       {Object.entries(campaignStatusLabels).map(([value, label]) => (
                         <option value={value} key={value}>{label}</option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={`${target.customer_id} 담당자`}
+                      value={draft.assigned_to_user_id === null ? "" : String(draft.assigned_to_user_id)}
+                      onChange={(event) => setDrafts((current) => ({
+                        ...current,
+                        [target.id]: {
+                          ...draft,
+                          assigned_to_user_id: event.target.value === "" ? null : Number(event.target.value),
+                        },
+                      }))}
+                    >
+                      <option value="">담당자 선택</option>
+                      {assignees.map((assignee) => (
+                        <option value={assignee.id} key={assignee.id}>
+                          {assignee.display_name} · {roleLabels[assignee.role]}
+                        </option>
                       ))}
                     </select>
                     <input
@@ -325,7 +349,31 @@ function RoleSummary({ user }: { user: AuthUser }) {
   );
 }
 
-function TeamRoster({ members }: { members: AuthUser[] }) {
+function TeamRoster({
+  members,
+  onUpdated,
+}: {
+  members: TeamMember[];
+  onUpdated: (member: TeamMember) => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<number, { role: TeamMember["role"]; is_active: boolean }>>({});
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const save = async (member: TeamMember) => {
+    const draft = drafts[member.id] ?? { role: member.role, is_active: member.is_active };
+    setSavingId(member.id);
+    setError("");
+    try {
+      const updated = await updateTeamMember(member.id, draft);
+      onUpdated(updated);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "팀 계정 변경에 실패했습니다.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <section className="department-panel department-panel--wide">
       <div className="department-panel__heading">
@@ -335,16 +383,46 @@ function TeamRoster({ members }: { members: AuthUser[] }) {
         </div>
         <span className="table-count">{formatNumber(members.length)}명</span>
       </div>
+      {error !== "" && <p className="department-inline-error" role="alert">{error}</p>}
       <div className="department-team-list">
-        {members.map((member) => (
-          <div className="department-team-row" key={member.id}>
-            <div>
-              <strong>{member.display_name}</strong>
-              <small>{member.username}</small>
+        {members.map((member) => {
+          const draft = drafts[member.id] ?? { role: member.role, is_active: member.is_active };
+          return (
+            <div className="department-team-row" key={member.id}>
+              <div>
+                <strong>{member.display_name}</strong>
+                <small>{member.username} · {member.is_active ? "활성" : "비활성"}</small>
+              </div>
+              <select
+                aria-label={`${member.display_name} 역할`}
+                value={draft.role}
+                onChange={(event) => setDrafts((current) => ({
+                  ...current,
+                  [member.id]: { ...draft, role: event.target.value as TeamMember["role"] },
+                }))}
+              >
+                <option value="admin">관리자</option>
+                <option value="analyst">분석 담당자</option>
+                <option value="operations">운영 담당자</option>
+                <option value="marketing">마케팅 담당자</option>
+              </select>
+              <select
+                aria-label={`${member.display_name} 계정 상태`}
+                value={draft.is_active ? "active" : "inactive"}
+                onChange={(event) => setDrafts((current) => ({
+                  ...current,
+                  [member.id]: { ...draft, is_active: event.target.value === "active" },
+                }))}
+              >
+                <option value="active">활성</option>
+                <option value="inactive">비활성</option>
+              </select>
+              <button type="button" disabled={savingId === member.id} onClick={() => void save(member)}>
+                {savingId === member.id ? "저장 중..." : "저장"}
+              </button>
             </div>
-            <span>{roleLabels[member.role]}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -354,7 +432,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
   const [insights, setInsights] = useState<CustomerInsightList | null>(null);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
-  const [members, setMembers] = useState<AuthUser[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState<number | null>(null);
@@ -398,11 +476,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
   }, [insightQuery]);
 
   useEffect(() => {
-    if (user.role !== "admin") {
-      return;
-    }
     let isActive = true;
-    void listTeamMembers()
+    void listTeamMembers(user.role === "admin")
       .then((response) => {
         if (isActive) {
           setMembers(response);
@@ -468,7 +543,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
         <BatchCard batch={batch} />
       </section>
       <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="리텐션 등록" onCreate={(item) => void createCampaign(item)} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canManage} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <CampaignQueue targets={targets} canManage={canManage} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : user.role === "marketing" ? (
     <>
@@ -496,7 +571,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
         </div>
       </section>
       <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="캠페인 등록" onCreate={(item) => void createCampaign(item)} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canManage} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <CampaignQueue targets={targets} canManage={canManage} assignees={members} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
     </>
   ) : (
     <>
@@ -522,7 +597,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut }: DepartmentDashboa
           ))}
         </div>
       </section>
-      <TeamRoster members={members} />
+      <TeamRoster members={members} onUpdated={(updated) => setMembers((current) => current.map((member) => member.id === updated.id ? updated : member))} />
     </>
   );
 

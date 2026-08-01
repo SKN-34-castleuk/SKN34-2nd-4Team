@@ -2055,7 +2055,7 @@ button {
 
 .department-campaign-controls {
   display: grid;
-  grid-template-columns: 120px minmax(100px, 1fr) auto;
+  grid-template-columns: 120px 180px minmax(100px, 1fr) auto;
   gap: 7px;
 }
 
@@ -2145,7 +2145,7 @@ button {
 }
 
 .department-team-row {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(180px, 1fr) 150px 100px auto;
 }
 
 .department-team-row > span {
@@ -2370,6 +2370,24 @@ button {
 
   .department-campaign-controls button {
     grid-column: 1 / -1;
+  }
+
+  .department-team-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .department-team-row > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .department-team-row button {
+    min-height: 34px;
+    color: #ffffff;
+    border-radius: 8px;
+    background: var(--primary);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
   }
 
   .department-funnel,

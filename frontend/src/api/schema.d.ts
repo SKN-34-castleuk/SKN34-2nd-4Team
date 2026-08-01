@@ -72,8 +72,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 활성 팀 계정 목록 조회
-         * @description 관리자 화면에서 역할별 활성 팀 계정을 조회합니다.
+         * 팀 계정 목록 조회
+         * @description 담당자 선택과 관리자 화면에서 사용할 팀 계정을 조회합니다.
          */
         get: operations["list_team_members_api_v1_auth_users_get"];
         put?: never;
@@ -82,6 +82,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 팀 계정 역할·활성 상태 변경
+         * @description 관리자가 팀 계정의 역할과 활성 상태를 변경합니다.
+         */
+        patch: operations["update_team_member_api_v1_auth_users__user_id__patch"];
         trace?: never;
     };
     "/api/v1/auth/signup": {
@@ -767,6 +787,35 @@ export interface components {
             password: string;
         };
         /**
+         * TeamMemberResponse
+         * @description 관리자와 캠페인 담당자 선택 화면에서 사용하는 팀 계정 정보입니다.
+         */
+        TeamMemberResponse: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            role: components["schemas"]["UserRole"];
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * UserAdminUpdateRequest
+         * @description 관리자가 팀 계정의 역할과 활성 상태를 변경하는 요청입니다.
+         */
+        UserAdminUpdateRequest: {
+            role?: components["schemas"]["UserRole"] | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /**
          * UserResponse
          * @description 외부에 공개할 수 있는 사용자 정보입니다.
          */
@@ -887,7 +936,10 @@ export interface operations {
     };
     list_team_members_api_v1_auth_users_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 관리자만 비활성 계정까지 포함할 수 있습니다. */
+                include_inactive?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -900,7 +952,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserResponse"][];
+                    "application/json": components["schemas"]["TeamMemberResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_team_member_api_v1_auth_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserAdminUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

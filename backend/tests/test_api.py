@@ -600,11 +600,46 @@ def test_customer_insight_list_filters_and_detail(
         session.commit()
     team_response = auth_client.get("/api/v1/auth/users")
     assert team_response.status_code == 200
-    assert any(
-        member["username"] == "insight_viewer"
-        and member["role"] == UserRole.ADMIN.value
-        for member in team_response.json()
+    team_members = team_response.json()
+    current_member = next(
+        member for member in team_members if member["username"] == "insight_viewer"
     )
+    assert current_member["role"] == UserRole.ADMIN.value
+    assert current_member["is_active"] is True
+    analysis_member = next(
+        member for member in team_members if member["username"] == "analysis_team"
+    )
+    role_update_response = auth_client.patch(
+        f"/api/v1/auth/users/{analysis_member['id']}",
+        json={"role": UserRole.ANALYST.value},
+    )
+    assert role_update_response.status_code == 200
+    assert role_update_response.json()["role"] == UserRole.ANALYST.value
+    deactivate_response = auth_client.patch(
+        f"/api/v1/auth/users/{analysis_member['id']}",
+        json={"is_active": False},
+    )
+    assert deactivate_response.status_code == 200
+    assert deactivate_response.json()["is_active"] is False
+    inactive_view_response = auth_client.get(
+        "/api/v1/auth/users",
+        params={"include_inactive": True},
+    )
+    assert inactive_view_response.status_code == 200
+    assert any(
+        member["id"] == analysis_member["id"] and not member["is_active"]
+        for member in inactive_view_response.json()
+    )
+    reactivate_response = auth_client.patch(
+        f"/api/v1/auth/users/{analysis_member['id']}",
+        json={"is_active": True},
+    )
+    assert reactivate_response.status_code == 200
+    self_deactivate_response = auth_client.patch(
+        f"/api/v1/auth/users/{current_member['id']}",
+        json={"is_active": False},
+    )
+    assert self_deactivate_response.status_code == 400
     with session_factory() as session:
         current_user = session.scalar(
             select(User).where(User.username == "insight_viewer"),
@@ -612,8 +647,18 @@ def test_customer_insight_list_filters_and_detail(
         assert current_user is not None
         current_user.role = UserRole.ANALYST.value
         session.commit()
-    forbidden_team_response = auth_client.get("/api/v1/auth/users")
-    assert forbidden_team_response.status_code == 403
+    team_response_for_analyst = auth_client.get("/api/v1/auth/users")
+    assert team_response_for_analyst.status_code == 200
+    forbidden_inactive_view_response = auth_client.get(
+        "/api/v1/auth/users",
+        params={"include_inactive": True},
+    )
+    assert forbidden_inactive_view_response.status_code == 403
+    forbidden_role_update_response = auth_client.patch(
+        f"/api/v1/auth/users/{analysis_member['id']}",
+        json={"role": UserRole.OPERATIONS.value},
+    )
+    assert forbidden_role_update_response.status_code == 403
     forbidden_campaign_response = auth_client.patch(
         f"/api/v1/campaign-targets/{campaign['id']}",
         json={"status": CampaignStatus.CANCELLED.value},

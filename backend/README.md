@@ -81,7 +81,7 @@ backend/
 | `backend/app/main.py` | FastAPI 앱 생성과 lifespan, DB·모델 초기화 |
 | `backend/app/api/router.py` | 기능별 API router 조합 |
 | `backend/app/api/dependencies.py` | 모델 registry 등 공통 요청 의존성 |
-| `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
+| `backend/app/api/routes/auth.py` | 회원가입·로그인·로그아웃, 팀 계정 조회·관리, Argon2 해시, JWT 쿠키 검증 |
 | `backend/app/api/routes/campaigns.py` | 캠페인 대상 조회·등록·처리 결과 변경과 역할 제한 |
 | `backend/app/api/routes/system.py` | liveness·readiness 상태 API |
 | `backend/app/api/routes/predictions.py` | 온라인 고객 이탈 예측 API |
@@ -294,7 +294,8 @@ await fetch("/api/v1/predictions", {
 | `POST` | `/api/v1/auth/signup` | 팀 계정 회원가입 |
 | `POST` | `/api/v1/auth/login` | 로그인 및 HttpOnly 인증 쿠키 발급 |
 | `GET` | `/api/v1/auth/me` | 현재 로그인 사용자 조회 |
-| `GET` | `/api/v1/auth/users` | 관리자 전용 활성 팀 계정 조회 |
+| `GET` | `/api/v1/auth/users` | 활성 팀 계정 조회, 비활성 포함은 관리자 전용 |
+| `PATCH` | `/api/v1/auth/users/{user_id}` | 관리자 전용 역할·활성 상태 변경 |
 | `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
 | `GET` | `/api/v1/customer-insights` | 최신 고객 분석 결과 목록·필터·페이지네이션 |
@@ -308,7 +309,8 @@ await fetch("/api/v1/predictions", {
 처리하므로 프론트엔드용 모델 목록 API는 필요하지 않습니다.
 
 인증 API는 `users` 테이블에 계정 아이디, 표시 이름, Argon2 비밀번호 해시를
-역할과 함께 저장합니다. 신규 계정 역할은 `operations`입니다. 로그인 성공 시
+역할과 함께 저장합니다. 신규 계정 역할은 `operations`입니다. 관리자는 팀 계정의
+역할·활성 상태를 변경할 수 있으며, 최소 한 명의 활성 관리자는 유지됩니다. 로그인 성공 시
 발급되는 JWT는 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키에 저장되며, `/api/v1/auth/me`가 현재 사용자를 확인할 때 사용합니다.
 DB 테이블은 `create_all()`로 변경하지 않으며 Alembic migration으로 관리합니다.
