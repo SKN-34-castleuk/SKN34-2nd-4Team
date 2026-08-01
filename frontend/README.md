@@ -3,8 +3,8 @@
 카드 통합 운영 플랫폼의 웹 화면입니다. React를 처음 사용하는 사람도 프로젝트를
 실행하고 로그인 화면을 수정할 수 있도록 설치 방법부터 코드 흐름까지 설명합니다.
 
-현재 구현된 화면은 흰색 배경 중앙에 CardOps 로고와 로그인 폼을 배치한
-반응형 로그인 페이지입니다.
+현재 구현된 화면은 로그인 상태에 따라 반응형 로그인 페이지 또는 인증된 사용자용
+대시보드 앱 셸을 표시합니다.
 
 ## 1. 현재 구현 상태
 
@@ -20,19 +20,23 @@
 - 회원가입·로그인 API 호출
 - customer_insights 조회 API 클라이언트와 OpenAPI 타입 연결
 - HttpOnly 인증 쿠키 기반 로그인 상태 확인
+- 로그인 성공 후 인증된 앱 화면으로 전환
+- 새로고침 시 `/api/v1/auth/me`를 통한 세션 복원
+- 로그아웃 후 로그인 화면 복귀
+- 인증 확인 중·오류·재시도 상태 표시
 
 아직 구현되지 않은 기능:
 
 - 로그인 후 부서별 페이지 이동
-- customer_insights 대시보드 화면
+- customer_insights 대시보드의 실제 KPI·목록·상세 화면
 - 역할·권한별 화면 제어
-- 로그아웃 이후 이동할 별도 화면
 
 로그인과 회원가입은 `/api/v1/auth` 아래의 FastAPI API를 호출합니다. 분석 결과는
 `/api/v1/customer-insights` API 클라이언트로 조회할 수 있습니다. Backend는
 비밀번호를 Argon2로 해시하고 로그인 성공 시 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키를 발급합니다. Frontend는 쿠키를 직접 저장하지 않고
-`credentials: "include"`로 요청합니다.
+`credentials: "include"`로 요청합니다. 앱 시작 시 `/api/v1/auth/me`를 호출해
+쿠키 세션을 확인하며, 인증이 완료된 경우 현재 사용자를 대시보드 앱 셸에 전달합니다.
 
 ## 2. 사용 기술
 
@@ -130,12 +134,20 @@ http://127.0.0.1:5173
 ```text
 frontend/
 ├── src/
+│   ├── app/
+│   │   ├── App.test.tsx
+│   │   └── App.tsx
 │   ├── api/
+│   │   ├── auth.ts
+│   │   ├── client.ts
+│   │   ├── insights.ts
 │   │   └── schema.d.ts
 │   ├── features/
 │   │   └── auth/
 │   │       ├── LoginPage.test.tsx
 │   │       └── LoginPage.tsx
+│   │   └── dashboard/
+│   │       └── DashboardPage.tsx
 │   ├── styles/
 │   │   └── global.css
 │   ├── test/
@@ -161,9 +173,11 @@ frontend/
 | 파일 | 역할 | 주로 수정하는 시점 |
 |---|---|---|
 | `index.html` | 브라우저가 처음 읽는 HTML과 React가 들어갈 `#root` 제공 | 문서 제목이나 meta 태그 변경 |
-| `src/main.tsx` | React 앱의 시작점 | 최상위 Provider나 Router 연결 |
+| `src/main.tsx` | React 앱의 시작점 | 최상위 앱 컴포넌트 연결 |
+| `src/app/App.tsx` | 세션 확인과 인증 상태에 따른 화면 전환 | 인증 흐름 변경 |
 | `src/features/auth/LoginPage.tsx` | 로그인 화면 구조와 사용자 동작 | 로그인 필드와 버튼, 검증 로직 변경 |
 | `src/features/auth/LoginPage.test.tsx` | 로그인 화면 자동 테스트 | 로그인 동작을 변경하거나 기능 추가 |
+| `src/features/dashboard/DashboardPage.tsx` | 인증된 사용자용 앱 셸과 로그아웃 | 대시보드 화면 구현 |
 | `src/styles/global.css` | 색상, 크기, 간격과 반응형 디자인 | 로그인 화면 디자인 변경 |
 | `src/api/schema.d.ts` | FastAPI에서 생성한 API 요청·응답 타입 | 직접 수정하지 않고 명령으로 재생성 |
 | `src/test/setup.ts` | 모든 테스트에 공통 적용되는 준비 코드 | 테스트 라이브러리 설정 변경 |
@@ -182,7 +196,7 @@ src/main.tsx가 #root를 찾음
         ↓
 React의 createRoot(...) 실행
         ↓
-<LoginPage /> 렌더링
+<App /> 렌더링
         ↓
 global.css가 화면 디자인 적용
 ```
@@ -199,14 +213,15 @@ const rootElement = document.getElementById("root");
 ```tsx
 createRoot(rootElement).render(
   <StrictMode>
-    <LoginPage />
+    <App />
   </StrictMode>,
 );
 ```
 
-`<LoginPage />`는 로그인 화면 컴포넌트입니다. HTML처럼 보이는 문법은 JSX라고
-부르며, 이 프로젝트에서는 TypeScript와 JSX를 함께 사용하므로 파일 확장자가
-`.tsx`입니다.
+`<App />`는 먼저 HttpOnly 인증 쿠키로 `/api/v1/auth/me`를 호출합니다. 인증되지
+않았으면 `<LoginPage />`를 표시하고, 인증되었으면 `<DashboardPage />`를
+표시합니다. HTML처럼 보이는 문법은 JSX라고 부르며, 이 프로젝트에서는
+TypeScript와 JSX를 함께 사용하므로 파일 확장자가 `.tsx`입니다.
 
 `StrictMode`는 개발 중 위험한 코드 패턴을 더 쉽게 발견하도록 돕습니다.
 개발 환경에서 일부 로직이 두 번 실행되는 것처럼 보일 수 있지만 프로덕션
