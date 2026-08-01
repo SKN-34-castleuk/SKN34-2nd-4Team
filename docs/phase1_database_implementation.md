@@ -47,6 +47,8 @@ import_customers 명령
         ├─ model_runs
         ├─ customer_feature_snapshots
         ├─ customer_insights
+        ├─ campaigns
+        ├─ campaign_events
         └─ campaign_targets
 ~~~
 
@@ -54,7 +56,7 @@ import_customers 명령
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0004 |
+| Alembic revision | 20260801_0006 |
 | 기존 사용자 | 1명 보존 |
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
@@ -63,11 +65,14 @@ import_customers 명령
 | 최신 model_runs | 성공 3건 (ID 7, 8, 9) |
 | customer_feature_snapshots | 10,127건 |
 | customer_insights | 10,127건 |
-| campaign_targets | 0건 |
+| campaign_targets | 5건 |
+| campaigns | 1건 (기존 campaign_name backfill) |
+| campaign_events | 5건 (기존 대상 생성 이력 backfill) |
 
-`campaign_targets`가 0건인 것은 오류가 아닙니다. 분석 결과를 캠페인 대상으로
-전환하는 후속 운영 기능이 아직 자동 실행되지 않기 때문입니다. 모델 배치의
-재실행은 동일 artifact·데이터 조합이면 기존 스냅샷을 재사용합니다.
+기존 `campaign_name` 기반 대상 5건은 migration 0005에서 캠페인 1건과 생성
+이벤트 5건으로 backfill되었습니다. 신규 대상은 명시적인 캠페인 계보와 상태
+전이 이벤트를 함께 저장합니다. 모델 배치의 재실행은 동일 artifact·데이터
+조합이면 기존 스냅샷을 재사용합니다.
 
 ## 3. 관련 파일
 
@@ -79,6 +84,8 @@ import_customers 명령
 | backend/migrations/versions/20260801_0002_customer_operations.py | 역할·고객·분석·캠페인 테이블 생성 |
 | backend/migrations/versions/20260801_0003_p0_data_governance.py | 승인 기본값·입력 스냅샷·정책 hash 추가 |
 | backend/migrations/versions/20260801_0004_scoring_lineage.py | scoring batch·decision policy·기준일 연결 |
+| backend/migrations/versions/20260801_0005_campaign_domain.py | campaigns·campaign_events·대상 결과 집계 필드와 기존 데이터 backfill |
+| backend/migrations/versions/20260801_0006_campaign_converted_not_null.py | 전환 여부 컬럼을 필수 boolean으로 고정 |
 | backend/app/database.py | DB 엔진·세션 생성 및 migration 여부 검증 |
 | backend/app/models.py | SQLAlchemy 모델 전체 정의 |
 | backend/app/enums.py | 역할·상태·위험등급 상수 정의 |
@@ -124,7 +131,8 @@ Argon2 해시만 저장합니다.
 비활성(`is_active=false`) 상태로 생성되며, 관리자가 승인하기 전에는 로그인할 수
 없습니다. 사용자가 직접 회원가입하면서 운영·관리 권한을 얻는 상황을 방지하기
 위한 정책입니다.
-캠페인 등록·수정 API는 `admin`, `operations`, `marketing` 역할로 제한되며,
+캠페인 생성·등록·수정 API는 `admin`, `operations`, `marketing` 역할로 제한되며,
+대상 담당자는 활성 `operations` 또는 `marketing` 사용자만 지정할 수 있습니다.
 `analyst`는 분석 결과와 캠페인 큐를 조회만 할 수 있습니다.
 
 ### 4.2 customers
@@ -263,7 +271,36 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 세 개의 model_run_id를 각각 보존하는 이유는 분류 모델만 교체되거나 회귀
 모델만 다시 계산된 경우에도 어떤 산출물을 조합했는지 확인하기 위해서입니다.
 
-### 4.5 campaign_targets
+### 4.8 campaigns
+
+캠페인 자체의 기본 정보와 실행 기간, 생명주기 상태를 저장합니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| id | 캠페인 기본키 |
+| name | 캠페인 이름, unique |
+| description | 캠페인 목적·운영 메모 |
+| channel | 실행 채널 |
+| status | draft, scheduled, active, paused, completed, cancelled |
+| start_at, end_at | 캠페인 실행 기간 |
+| created_by_user_id | 생성자 외래키 |
+| created_at, updated_at | 생성·수정 시각 |
+
+### 4.9 campaign_events
+
+캠페인과 캠페인 대상의 상태·담당자·결과 변경을 이벤트 이력으로 남깁니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| campaign_id | 캠페인 외래키 |
+| campaign_target_id | 대상 외래키, 캠페인 자체 이벤트는 NULL 가능 |
+| event_type | created, status_changed, assigned, result_updated, conversion_updated |
+| from_status, to_status | 변경 전·후 상태 |
+| actor_user_id | 변경 수행 사용자 |
+| metadata_json | 담당자·전환 등 구조화된 부가 정보 |
+| created_at | 이벤트 발생 시각 |
+
+### 4.10 campaign_targets
 
 분석 결과에서 추천된 캠페인 대상과 실제 업무 처리 결과를 저장합니다.
 
@@ -272,12 +309,15 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 | id | 캠페인 대상 기본키 |
 | customer_id | 대상 고객 외래키 |
 | customer_insight_id | 추천 근거가 된 분석 스냅샷 외래키 |
+| campaign_id | campaigns 외래키 |
 | campaign_name | 예: 이탈 위험 리텐션 |
 | assigned_to_user_id | 담당자, users.id 외래키 |
 | status | pending, assigned, contacted, completed, cancelled |
 | processed_at | 처리 완료 또는 마지막 처리 시각 |
 | result | 상담·캠페인 결과 |
 | result_notes | 상세 메모 |
+| result_code | converted, not_converted, no_response 등 표준 결과 코드 |
+| converted | 전환 여부, 캠페인 집계 기준 |
 | created_at, updated_at | 생성·수정 시각 |
 
 같은 분석 스냅샷에 같은 캠페인을 중복 생성하지 않도록
@@ -300,12 +340,22 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
         │
         ▼
 20260801_0004_scoring_lineage
+        │
+        ▼
+20260801_0005_campaign_domain
+        │
+        ▼
+20260801_0006_campaign_converted_not_null
 ~~~
 
 첫 번째 revision은 users 기준선 테이블을 만들고, 두 번째 revision은
 users.role과 나머지 업무 테이블을 추가합니다. 세 번째 revision은 승인 기본값과
 고객 입력 스냅샷을 추가하고, 네 번째 revision은 scoring batch,
-decision policy, 분석 기준일을 연결합니다.
+decision policy, 분석 기준일을 연결합니다. 다섯 번째 revision은 캠페인 기본
+정보, 대상 계보, 이벤트 이력, 결과 집계 필드를 추가하고 기존
+`campaign_name` 데이터를 캠페인으로 backfill합니다.
+여섯 번째 revision은 기존 NULL 전환 여부를 false로 보정하고 `converted`를
+필수 boolean으로 고정합니다.
 
 ### 5.2 기존 DB
 
@@ -492,7 +542,7 @@ typecheck, test, build를 통과했습니다.
 1. customers와 최신·과거 customer_insights 조회 API
 2. 우선관리 고객 목록·상세 화면과 고위험 필터 바로가기
 3. 추천 캠페인 대상 생성, 담당자 자동 배정, 처리 상태·결과 저장
-4. users.role 기준 캠페인 등록·수정 권한 제어
+4. users.role 기준 캠페인 기획·대상 등록·고객 처리 권한 분리
 5. 최신 model_runs 배치 상태·모델 버전 표시와 CSV 내보내기
 
 모델 성능 Streamlit 대시보드 통합은 현재 범위에 포함하지 않습니다.

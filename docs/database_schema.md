@@ -12,6 +12,8 @@ MySQL에는 로그인 계정뿐 아니라 고객 원본 특성, 모델 실행 �
 ```mermaid
 erDiagram
     USERS ||--o{ CAMPAIGN_TARGETS : assigned_to
+    USERS ||--o{ CAMPAIGNS : creates
+    USERS ||--o{ CAMPAIGN_EVENTS : acts
     CUSTOMERS ||--o{ CUSTOMER_INSIGHTS : has
     CUSTOMERS ||--o{ CUSTOMER_FEATURE_SNAPSHOTS : snapshots
     CUSTOMER_FEATURE_SNAPSHOTS ||--o{ CUSTOMER_INSIGHTS : input_for
@@ -21,6 +23,9 @@ erDiagram
     SCORING_BATCHES ||--o{ CUSTOMER_INSIGHTS : produces
     MODEL_RUNS ||--o{ CUSTOMER_INSIGHTS : produces
     CUSTOMER_INSIGHTS ||--o{ CAMPAIGN_TARGETS : recommends
+    CAMPAIGNS ||--o{ CAMPAIGN_TARGETS : contains
+    CAMPAIGNS ||--o{ CAMPAIGN_EVENTS : records
+    CAMPAIGN_TARGETS ||--o{ CAMPAIGN_EVENTS : changes
 ```
 
 ## 테이블
@@ -34,7 +39,9 @@ erDiagram
 | `scoring_batches` | 분석 기준일, 데이터·정책·artifact를 묶은 배치 실행 단위 |
 | `model_runs` | 모델 종류·버전, artifact·데이터·정책 SHA-256, 배치·실행 시각·상태 |
 | `customer_insights` | 이탈 확률·위험 등급, 예상 거래건수·활동성 갭, 군집·추천 액션, 배치·입력 스냅샷 |
+| `campaigns` | 캠페인 이름·설명·채널, 실행 기간과 생명주기 상태 |
 | `campaign_targets` | 대상 고객, 담당자, 캠페인 상태·처리 시각·결과 |
+| `campaign_events` | 캠페인·대상 생성, 담당자 배정, 상태 전이와 결과 변경 이력 |
 
 `CLIENTNUM`은 고객 조회와 테이블 연결에만 사용하며 모델 입력에는 포함하지
 않습니다. `customer_insights`는 고객별 최신 값만 덮어쓰지 않고 분석 시점별로
@@ -54,8 +61,10 @@ erDiagram
 
 회원가입 API에서 역할을 입력받지 않으며 모든 신규 계정은 `analyst` 역할과
 비활성(`is_active=false`) 상태로 생성됩니다. 관리자가 승인해 활성화한 뒤에만
-로그인할 수 있습니다. 캠페인 대상 등록·수정 API는 `admin`, `operations`,
-`marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만 가능합니다.
+로그인할 수 있습니다. 캠페인 생성·대상 등록·수정 API는 `admin`,
+`operations`, `marketing`만 사용할 수 있고 `analyst`는 분석·캠페인 조회만
+가능합니다. 대상 담당자는 별도로 활성 상태의 `operations` 또는 `marketing`
+역할만 지정할 수 있습니다.
 
 신규 스키마에서는 `customer_insights.scoring_batch_id`가 분석 배치를,
 `customer_insights.customer_snapshot_id`가 분석 당시 입력을
@@ -128,6 +137,6 @@ python -m backend.app.migration_runner
 `customer_insights` 저장까지 구현되어 있습니다. 배치 실행 방법과 재실행 정책은
 [`phase2_analysis_batch.md`](phase2_analysis_batch.md)에 정리했습니다.
 `customer_insights` 최신 결과·이력, `model_runs` 최신 배치 상태,
-`campaign_targets` 조회·등록·수정 업무 API와 역할별 권한 제어까지 구현되어
-있습니다. API 상세는 [`customer_insights_api.md`](customer_insights_api.md)를
-참조합니다.
+`campaigns`, `campaign_targets`, `campaign_events` 기반의 캠페인 CRUD·상태 전이·
+이벤트 이력·중복 접촉 차단·서버 집계 API까지 구현되어 있습니다. API 상세는
+[`customer_insights_api.md`](customer_insights_api.md)를 참조합니다.

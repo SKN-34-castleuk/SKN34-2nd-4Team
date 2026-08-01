@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getCurrentUser, type AuthUser } from "../api/auth";
 import type { ApiError } from "../api/client";
 import { LoginPage } from "../features/auth/LoginPage";
+import { CampaignManagementPage } from "../features/campaign/CampaignManagementPage";
 import { DepartmentDashboardPage } from "../features/department/DepartmentDashboardPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 
@@ -52,6 +53,7 @@ export function App() {
   const [authState, setAuthState] = useState<AuthState>({
     status: "checking",
   });
+  const [activeWorkspace, setActiveWorkspace] = useState<"dashboard" | "campaigns">("dashboard");
 
   useEffect(() => {
     let isActive = true;
@@ -60,6 +62,7 @@ export function App() {
       try {
         const user = await getCurrentUser();
         if (isActive) {
+          setActiveWorkspace("dashboard");
           setAuthState({ status: "authenticated", user });
         }
       } catch (error) {
@@ -114,10 +117,34 @@ export function App() {
     );
   }
 
-  const onLoggedOut = () => setAuthState({ status: "unauthenticated" });
+  const onLogout = () => {
+    setActiveWorkspace("dashboard");
+    setAuthState({ status: "unauthenticated" });
+  };
+  if (activeWorkspace === "campaigns") {
+    return (
+      <CampaignManagementPage
+        user={authState.user}
+        onBack={() => setActiveWorkspace("dashboard")}
+        onLoggedOut={onLogout}
+      />
+    );
+  }
   if (authState.user.role === "analyst") {
-    return <DashboardPage user={authState.user} onLoggedOut={onLoggedOut} />;
+    return (
+      <DashboardPage
+        user={authState.user}
+        onLoggedOut={onLogout}
+        onOpenCampaigns={() => setActiveWorkspace("campaigns")}
+      />
+    );
   }
 
-  return <DepartmentDashboardPage user={authState.user} onLoggedOut={onLoggedOut} />;
+  return (
+    <DepartmentDashboardPage
+      user={authState.user}
+      onLoggedOut={onLogout}
+      onOpenCampaigns={() => setActiveWorkspace("campaigns")}
+    />
+  );
 }

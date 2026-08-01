@@ -6,9 +6,19 @@
 Backend API입니다. 같은 고객의 과거 분석 결과가 여러 건 있어도 가장 최근
 `scored_at` 결과 하나만 반환합니다.
 
-모든 경로는 HttpOnly JWT 인증 쿠키가 필요합니다. 분석 결과·이력·배치 상태는
-모든 활성 사용자가 조회할 수 있습니다. 캠페인 대상 등록·수정은 `admin`,
-`operations`, `marketing` 역할만 수행할 수 있고 `analyst`는 읽기 전용입니다.
+모든 경로는 HttpOnly JWT 인증 쿠키가 필요합니다. 분석 결과·이력·배치 상태와
+캠페인 목록·이벤트는 모든 활성 사용자가 조회할 수 있습니다. 업무 변경 권한은
+역할별 책임에 따라 분리합니다.
+
+| 역할 | 캠페인 생성·수정 | 대상 등록 | 대상 상태·결과 처리 | 조회 |
+|---|---:|---:|---:|---:|
+| `admin` | 가능 | 가능 | 가능 | 가능 |
+| `marketing` | 가능 | 가능 | 불가 | 가능 |
+| `operations` | 불가 | 불가 | 가능 | 가능 |
+| `analyst` | 불가 | 불가 | 불가 | 가능 |
+
+관리자는 예외 처리를 포함한 전체 권한을 갖습니다. 마케팅팀은 캠페인 기획과
+타깃 등록을 담당하고, 운영팀은 실제 고객 접촉과 처리 결과를 담당합니다.
 
 활성 팀 계정 목록은 다음 경로에서 조회합니다. 운영·마케팅 화면은 이 목록을
 캠페인 담당자 선택에 사용하며, 관리자만 비활성 계정까지 포함할 수 있습니다.
@@ -154,18 +164,53 @@ GET /api/v1/model-runs/latest
 대시보드는 데이터 갱신 시각, 기준일, 처리 행 수, 모델 버전을 표시할 수
 있습니다. 성공한 실행 이력이 없으면 `404 Not Found`를 반환합니다.
 
-## 캠페인 대상 업무 API
+## 캠페인 도메인 API
 
-### 목록 조회
+### 캠페인 생성·목록·상세
 
 ~~~http
-GET /api/v1/campaign-targets?status=pending&page=1&page_size=20
+POST /api/v1/campaigns
+Content-Type: application/json
+
+{
+  "name": "고위험 고객 리텐션",
+  "description": "고위험 고객 대상 상담 및 혜택 안내",
+  "channel": "phone",
+  "status": "draft",
+  "start_at": "2026-08-05T00:00:00Z",
+  "end_at": "2026-08-31T23:59:59Z"
+}
 ~~~
 
-캠페인 대상, 담당자, 처리 상태, 처리 일시와 결과를 반환합니다. `status`는
-`pending`, `assigned`, `contacted`, `completed`, `cancelled` 중 하나입니다.
+캠페인 상태는 `draft`, `scheduled`, `active`, `paused`, `completed`,
+`cancelled`입니다. 허용된 상태 전이는 다음과 같습니다.
 
-### 대상 등록
+| 현재 상태 | 허용되는 다음 상태 |
+|---|---|
+| `draft` | `scheduled`, `active`, `cancelled` |
+| `scheduled` | `active`, `paused`, `cancelled` |
+| `active` | `paused`, `completed`, `cancelled` |
+| `paused` | `active`, `completed`, `cancelled` |
+| `completed`, `cancelled` | 없음 |
+
+~~~http
+GET /api/v1/campaigns?status=active&page=1&page_size=20
+GET /api/v1/campaigns/{campaign_id}
+PATCH /api/v1/campaigns/{campaign_id}
+~~~
+
+캠페인 목록과 상세 응답에는 서버가 계산한 다음 집계가 포함됩니다.
+
+```json
+{
+  "total_targets": 120,
+  "unprocessed_targets": 42,
+  "contacted_targets": 78,
+  "converted_targets": 16
+}
+```
+
+### 캠페인 대상 등록
 
 ~~~http
 POST /api/v1/campaign-targets
@@ -173,15 +218,27 @@ Content-Type: application/json
 
 {
   "customer_insight_id": 42,
-  "campaign_name": "이탈 위험 리텐션",
+  "campaign_id": 3,
   "assigned_to_user_id": 7
 }
 ~~~
 
-같은 분석 스냅샷과 캠페인 이름 조합은 중복 등록할 수 없습니다. 담당자를
-지정하면 초기 상태는 `assigned`, 지정하지 않으면 `pending`입니다.
+기존 클라이언트 호환을 위해 `campaign_name`만 전달하는 요청도 지원합니다.
+이 경우 같은 이름의 캠페인을 재사용하거나 `active` 캠페인을 자동 생성합니다.
+새 클라이언트는 `campaign_id` 사용을 권장합니다.
 
-### 처리 결과 수정
+담당자는 반드시 활성 상태의 `operations` 또는 `marketing` 역할이어야 합니다.
+`admin`과 `analyst`, 비활성 계정은 담당자로 지정할 수 없습니다.
+
+`POST /api/v1/campaign-targets`는 `admin`, `marketing`만 호출할 수 있습니다.
+`PATCH /api/v1/campaign-targets/{target_id}`는 `admin`, `operations`만 호출할
+수 있습니다. 권한이 없는 역할의 직접 API 요청도 `403 Forbidden`으로 차단합니다.
+
+동일 고객이 `pending`, `assigned`, `contacted` 상태로 다른 활성 캠페인에 이미
+등록되어 있으면 등록을 거부합니다. 고객 행 잠금과 서버 검사를 함께 사용해
+동시 요청에서도 중복 접촉을 줄입니다.
+
+### 대상 상태 변경·결과 기록
 
 ~~~http
 PATCH /api/v1/campaign-targets/{target_id}
@@ -190,13 +247,36 @@ Content-Type: application/json
 {
   "status": "completed",
   "result": "혜택 안내 완료",
+  "result_code": "converted",
+  "converted": true,
   "result_notes": "앱 푸시 발송 후 상담 완료"
 }
 ~~~
 
-`contacted`, `completed`, `cancelled`로 상태를 변경하면 `processed_at`이
-자동으로 기록됩니다. `pending` 또는 `assigned`로 되돌리면 처리 시각이
-초기화됩니다.
+대상 상태 전이는 `pending → assigned → contacted → completed` 순서를 따릅니다.
+각 단계에서 `cancelled`로 종료할 수 있으며, 완료·취소 후에는 변경할 수 없습니다.
+`converted`는 `completed` 상태에서만 true로 설정할 수 있습니다.
+
+### 캠페인별 대상 조회
+
+~~~http
+GET /api/v1/campaigns/{campaign_id}/targets?status=contacted&page=1&page_size=50
+GET /api/v1/campaign-targets?campaign_id=3&assigned_to_user_id=7&converted=true
+~~~
+
+캠페인, 담당자, 고객, 대상 상태, 전환 여부 기준의 서버 필터와 페이지네이션을
+지원합니다. 응답에는 필터 결과 기준의 전체 대상·미처리·접촉 완료·전환 집계가
+포함됩니다.
+
+### 캠페인 이벤트 이력
+
+~~~http
+GET /api/v1/campaigns/{campaign_id}/events?page=1&page_size=50
+GET /api/v1/campaigns/{campaign_id}/events?campaign_target_id=42
+~~~
+
+캠페인 생성, 대상 생성, 담당자 배정, 상태 전이, 결과·전환 변경 이력을 수행자와
+함께 반환합니다. 이벤트는 삭제·수정하지 않고 누적해 업무 감사 이력으로 사용합니다.
 
 ## 인증과 오류
 
@@ -205,7 +285,7 @@ Content-Type: application/json
 | `200` | 조회 성공 |
 | `401` | 인증 쿠키 없음·만료·비활성 사용자 |
 | `404` | 해당 고객의 최신 분석 결과 없음 |
-| `403` | 캠페인 등록·수정 권한 없음 |
+| `403` | 역할별 캠페인·대상 변경 권한 없음 |
 | `409` | 같은 캠페인 대상이 이미 등록됨 |
 | `422` | 잘못된 필터·페이지·정렬 파라미터 |
 | `503` | DB가 설정되지 않음 |

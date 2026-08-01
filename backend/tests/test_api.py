@@ -575,6 +575,7 @@ def test_customer_insight_list_filters_and_detail(
         session.add_all([old_insight, latest_insight, second_customer_insight])
         session.commit()
         latest_insight_id = latest_insight.id
+        second_insight_id = second_customer_insight.id
 
     response = auth_client.get(
         "/api/v1/customer-insights",
@@ -632,6 +633,45 @@ def test_customer_insight_list_filters_and_detail(
         "clustering",
     }
 
+    operations_campaign_create_response = auth_client.post(
+        "/api/v1/campaigns",
+        json={"name": "운영팀이 만들 수 없는 캠페인", "status": "draft"},
+    )
+    assert operations_campaign_create_response.status_code == 403
+    operations_target_create_response = auth_client.post(
+        "/api/v1/campaign-targets",
+        json={
+            "customer_insight_id": latest_insight_id,
+            "campaign_name": "운영팀이 만들 수 없는 대상",
+        },
+    )
+    assert operations_target_create_response.status_code == 403
+
+    marketing_signup = auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "marketing_member",
+            "display_name": "마케팅 담당자",
+            "password": "strong-password-123",
+        },
+    )
+    assert marketing_signup.status_code == 201
+    with session_factory() as session:
+        marketing_user = session.scalar(
+            select(User).where(User.username == "marketing_member")
+        )
+        assert marketing_user is not None
+        marketing_user.is_active = True
+        marketing_user.role = UserRole.MARKETING.value
+        session.commit()
+    assert auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "marketing_member",
+            "password": "strong-password-123",
+        },
+    ).status_code == 200
+
     campaign_response = auth_client.post(
         "/api/v1/campaign-targets",
         json={
@@ -643,6 +683,45 @@ def test_customer_insight_list_filters_and_detail(
     campaign = campaign_response.json()
     assert campaign["status"] == CampaignStatus.PENDING.value
     assert campaign["customer_id"] == customer_id
+    assert campaign["campaign_id"] is not None
+    campaign_id = campaign["campaign_id"]
+    assert campaign["campaign_status"] == "active"
+    assert campaign["converted"] is False
+
+    campaigns_response = auth_client.get("/api/v1/campaigns")
+    assert campaigns_response.status_code == 200
+    campaigns_payload = campaigns_response.json()
+    assert campaigns_payload["total"] == 1
+    assert campaigns_payload["items"][0]["stats"]["total_targets"] == 1
+    assert campaigns_payload["items"][0]["stats"]["unprocessed_targets"] == 1
+
+    second_campaign_response = auth_client.post(
+        "/api/v1/campaigns",
+        json={"name": "재활성화 캠페인", "status": "active"},
+    )
+    assert second_campaign_response.status_code == 201
+    with session_factory() as session:
+        analyst = session.scalar(
+            select(User).where(User.username == "analysis_team")
+        )
+        assert analyst is not None
+    duplicate_customer_response = auth_client.post(
+        "/api/v1/campaign-targets",
+        json={
+            "customer_insight_id": latest_insight_id,
+            "campaign_id": second_campaign_response.json()["id"],
+        },
+    )
+    assert duplicate_customer_response.status_code == 409
+    invalid_assignee_response = auth_client.post(
+        "/api/v1/campaign-targets",
+        json={
+            "customer_insight_id": second_insight_id,
+            "campaign_id": second_campaign_response.json()["id"],
+            "assigned_to_user_id": analyst.id,
+        },
+    )
+    assert invalid_assignee_response.status_code == 422
 
     duplicate_campaign_response = auth_client.post(
         "/api/v1/campaign-targets",
@@ -657,6 +736,38 @@ def test_customer_insight_list_filters_and_detail(
     assert campaign_list_response.status_code == 200
     assert campaign_list_response.json()["total"] == 1
 
+    marketing_target_update_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={"status": CampaignStatus.ASSIGNED.value},
+    )
+    assert marketing_target_update_response.status_code == 403
+
+    assert auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "insight_viewer",
+            "password": "strong-password-123",
+        },
+    ).status_code == 200
+    invalid_transition_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={"status": CampaignStatus.COMPLETED.value},
+    )
+    assert invalid_transition_response.status_code == 409
+
+    assigned_campaign_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={
+            "status": CampaignStatus.ASSIGNED.value,
+            "assigned_to_user_id": viewer.id,
+        },
+    )
+    assert assigned_campaign_response.status_code == 200
+    contacted_campaign_response = auth_client.patch(
+        f"/api/v1/campaign-targets/{campaign['id']}",
+        json={"status": CampaignStatus.CONTACTED.value},
+    )
+    assert contacted_campaign_response.status_code == 200
     completed_campaign_response = auth_client.patch(
         f"/api/v1/campaign-targets/{campaign['id']}",
         json={
@@ -669,6 +780,16 @@ def test_customer_insight_list_filters_and_detail(
     assert completed_campaign["status"] == CampaignStatus.COMPLETED.value
     assert completed_campaign["processed_at"] is not None
     assert completed_campaign["result"] == "혜택 안내 완료"
+
+    events_response = auth_client.get(f"/api/v1/campaigns/{campaign_id}/events")
+    assert events_response.status_code == 200
+    events_payload = events_response.json()
+    assert events_payload["total"] >= 6
+    assert any(
+        event["event_type"] == "status_changed"
+        and event["to_status"] == CampaignStatus.COMPLETED.value
+        for event in events_payload["items"]
+    )
 
     with session_factory() as session:
         current_user = session.scalar(

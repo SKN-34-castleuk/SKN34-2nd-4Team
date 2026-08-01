@@ -34,6 +34,8 @@ EXPECTED_TABLES = {
     "model_runs",
     "customer_insights",
     "campaign_targets",
+    "campaigns",
+    "campaign_events",
 }
 
 
@@ -50,7 +52,13 @@ def test_migrations_create_complete_schema(tmp_path: Path) -> None:
         assert "role" in {
             column["name"] for column in inspector.get_columns("users")
         }
-        assert revision == "20260801_0004"
+        converted_column = next(
+            column
+            for column in inspector.get_columns("campaign_targets")
+            if column["name"] == "converted"
+        )
+        assert converted_column["nullable"] is False
+        assert revision == "20260801_0006"
     finally:
         engine.dispose()
 

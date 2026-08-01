@@ -49,6 +49,14 @@ const campaignStatusLabels: Record<CampaignStatus, string> = {
   cancelled: "취소",
 };
 
+const campaignStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
+  pending: ["pending", "assigned", "cancelled"],
+  assigned: ["assigned", "contacted", "cancelled"],
+  contacted: ["contacted", "completed", "cancelled"],
+  completed: ["completed"],
+  cancelled: ["cancelled"],
+};
+
 type RiskFilter = "" | NonNullable<InsightQuery["risk_level"]>;
 type SortBy = NonNullable<InsightQuery["sort_by"]>;
 type SortOrder = NonNullable<InsightQuery["sort_order"]>;
@@ -56,6 +64,7 @@ type SortOrder = NonNullable<InsightQuery["sort_order"]>;
 type DashboardPageProps = {
   user: AuthUser;
   onLoggedOut: () => void;
+  onOpenCampaigns?: () => void;
 };
 
 function formatPercent(value: number): string {
@@ -256,6 +265,7 @@ type CampaignDraft = {
   status: CampaignStatus;
   result: string;
   result_notes: string;
+  converted: boolean;
 };
 
 function CampaignQueue({
@@ -293,6 +303,7 @@ function CampaignQueue({
               status: target.status,
               result: target.result ?? "",
               result_notes: target.result_notes ?? "",
+              converted: target.converted,
             };
             return (
               <div className="campaign-row" key={target.id}>
@@ -318,8 +329,10 @@ function CampaignQueue({
                         })
                       }
                     >
-                      {Object.entries(campaignStatusLabels).map(([value, label]) => (
-                        <option value={value} key={value}>{label}</option>
+                      {campaignStatusTransitions[target.status].map((value) => (
+                        <option value={value} key={value}>
+                          {campaignStatusLabels[value]}
+                        </option>
                       ))}
                     </select>
                     <input
@@ -330,6 +343,20 @@ function CampaignQueue({
                         onDraftChange(target.id, { ...draft, result: event.target.value })
                       }
                     />
+                    <label className="campaign-conversion">
+                      <input
+                        type="checkbox"
+                        checked={draft.converted}
+                        disabled={draft.status !== "completed"}
+                        onChange={(event) =>
+                          onDraftChange(target.id, {
+                            ...draft,
+                            converted: event.target.checked,
+                          })
+                        }
+                      />
+                      전환
+                    </label>
                     <button type="button" onClick={() => onSave(target.id)}>저장</button>
                   </div>
                 ) : (
@@ -483,7 +510,7 @@ function CustomerDetailPanel({
   );
 }
 
-export function DashboardPage({ user, onLoggedOut }: DashboardPageProps) {
+export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardPageProps) {
   const [data, setData] = useState<CustomerInsightList | null>(null);
   const [error, setError] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("");
@@ -659,12 +686,14 @@ export function DashboardPage({ user, onLoggedOut }: DashboardPageProps) {
       status: target.status,
       result: target.result ?? "",
       result_notes: target.result_notes ?? "",
+      converted: target.converted,
     };
     try {
       const updated = await updateCampaignTarget(targetId, {
         status: draft.status,
         result: draft.result || undefined,
         result_notes: draft.result_notes || undefined,
+        converted: draft.converted,
       });
       setCampaignTargets((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
@@ -749,6 +778,11 @@ export function DashboardPage({ user, onLoggedOut }: DashboardPageProps) {
             <strong>{user.display_name}</strong>
             <span>{roleLabels[user.role]}</span>
           </div>
+          {onOpenCampaigns && (
+            <button className="dashboard-nav-button" type="button" onClick={onOpenCampaigns}>
+              캠페인 조회
+            </button>
+          )}
           <button
             className="dashboard-logout"
             type="button"
