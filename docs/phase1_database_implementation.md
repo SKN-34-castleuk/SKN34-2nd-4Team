@@ -12,9 +12,10 @@
 - Docker Compose 시작 시 자동 migration
 - Backend와 Frontend 인증 응답의 사용자 역할(role) 반영
 
-이번 단계에서는 **저장 구조와 고객 원본 데이터 적재까지** 구현했습니다. 모델을
-실행해 model_runs, customer_insights, campaign_targets를 채우는 배치 작업과
-해당 데이터를 화면에 보여주는 API는 다음 단계의 범위입니다.
+이번 문서는 저장 기반을 처음 도입한 1단계 구현을 설명합니다. 이후 2단계에서
+분류·회귀·군집 모델을 실행해 `model_runs`와 `customer_insights`를 채우는 배치도
+구현했습니다. 배치의 상세 사용법과 실제 검증 결과는
+[`phase2_analysis_batch.md`](phase2_analysis_batch.md)를 참고하세요.
 
 ## 2. 구현 범위와 현재 상태
 
@@ -34,12 +35,13 @@ Backend entrypoint
         ▼
 import_customers 명령
         │
-        └─ CLIENTNUM 기준 upsert
+        ├─ CLIENTNUM 기준 upsert
                    │
                    ▼
                customers
 
-향후 모델 배치
+모델 배치
+        │
         ├─ model_runs
         ├─ customer_insights
         └─ campaign_targets
@@ -54,12 +56,13 @@ import_customers 명령
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
 | customers.customer_id 중복 | 없음 |
-| model_runs | 0건 |
-| customer_insights | 0건 |
+| model_runs | 성공 3건 |
+| customer_insights | 10,127건 |
 | campaign_targets | 0건 |
 
-분석 관련 세 테이블이 0건인 것은 오류가 아닙니다. 아직 분류·회귀·군집 모델을
-실행해 DB에 저장하는 배치 파이프라인을 연결하지 않았기 때문입니다.
+`campaign_targets`가 0건인 것은 오류가 아닙니다. 분석 결과를 캠페인 대상으로
+전환하는 후속 운영 기능이 아직 자동 실행되지 않기 때문입니다. 모델 배치의
+재실행은 동일 artifact·데이터 조합이면 기존 스냅샷을 재사용합니다.
 
 ## 3. 관련 파일
 
@@ -75,6 +78,8 @@ import_customers 명령
 | backend/app/migration_runner.py | 기존 DB 호환 처리와 upgrade head 실행 |
 | backend/app/customer_import.py | CSV 검증, 변환, MySQL/SQLite upsert |
 | backend/scripts/import_customers.py | 고객 적재 CLI 진입점 |
+| backend/app/analysis_batch.py | 세 모델 실행과 customer_insights 저장 |
+| backend/scripts/run_analysis_batch.py | 모델 분석 배치 CLI 진입점 |
 | backend/docker-entrypoint.sh | 컨테이너 시작 시 migration 후 API 실행 |
 | compose.yaml | MySQL·Backend·Frontend 연결과 data 읽기 전용 mount |
 | backend/tests/test_persistence.py | migration·기존 회원·적재·관계 검증 |
@@ -397,7 +402,7 @@ Persistence 테스트는 다음을 검증합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 구현 검증 결과는 Backend 테스트 20개 통과입니다. Frontend 인증 타입과
+현재 구현 검증 결과는 Backend 테스트 23개 통과입니다. Frontend 인증 타입과
 OpenAPI 생성 타입도 role 필드를 포함하도록 갱신했으며 Frontend lint,
 typecheck, test, build를 통과했습니다.
 
@@ -416,10 +421,7 @@ typecheck, test, build를 통과했습니다.
 
 현재 저장 기반 위에 다음 순서로 기능을 추가합니다.
 
-1. 분류·회귀·군집 모델을 실행하고 model_runs를 생성합니다.
-2. 고객별 이탈 확률·활동성 갭·군집·추천 액션을 customer_insights에 저장합니다.
-3. customers와 최신 customer_insights 조회 API를 추가합니다.
-4. 우선관리 고객 목록·상세 화면을 Frontend에 추가합니다.
-5. 추천 캠페인을 campaign_targets에 생성하고 담당자·처리 결과를 저장합니다.
-6. users.role을 기준으로 관리자·분석·운영·마케팅 API 권한을 적용합니다.
-
+1. customers와 최신 customer_insights 조회 API를 추가합니다.
+2. 우선관리 고객 목록·상세 화면을 Frontend에 추가합니다.
+3. 추천 캠페인을 campaign_targets에 생성하고 담당자·처리 결과를 저장합니다.
+4. users.role을 기준으로 관리자·분석·운영·마케팅 API 권한을 적용합니다.

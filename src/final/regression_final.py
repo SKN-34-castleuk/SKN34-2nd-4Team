@@ -158,7 +158,16 @@ def main() -> dict[str, Any]:
     # 진단용: Voting은 feature_importances_가 없어 permutation importance로 대체한다.
     # 노트북의 "예측 근거 Top8"과 직접 비교할 수 있도록 원본(raw) 컬럼 단위로 계산한다
     # (Pipeline이 내부에서 인코딩을 처리하므로 Xva를 원본 그대로 넘겨도 된다).
-    perm = permutation_importance(pipeline, Xva, yva, n_repeats=5, random_state=config.RANDOM_STATE, n_jobs=-1)
+    # Docker/CI의 제한된 실행 환경에서도 재현 가능하게 동작하도록
+    # 프로세스 기반 병렬화를 사용하지 않는다.
+    perm = permutation_importance(
+        pipeline,
+        Xva,
+        yva,
+        n_repeats=5,
+        random_state=config.RANDOM_STATE,
+        n_jobs=1,
+    )
     importance = pd.Series(perm.importances_mean, index=Xva.columns).sort_values(ascending=False)
     print("\n예측 근거 Top10 (Permutation Importance, Validation 기준):")
     print(importance.head(10).round(4).to_string())

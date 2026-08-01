@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -274,6 +275,22 @@ def test_prediction_returns_attrited_customer(client: TestClient) -> None:
     assert response.json()["prediction"] == 1
     assert response.json()["status"] == "Attrited Customer"
     assert response.json()["churn_probability"] == pytest.approx(0.9)
+
+
+def test_model_registry_predicts_a_batch(model_dir: Path) -> None:
+    """배치 경로도 온라인 경로와 같은 양성 확률·임계값을 사용하는지 확인합니다."""
+    registry = ModelRegistry(model_dir)
+    registry.load()
+    first = {
+        model_field: VALID_PREDICTION_PAYLOAD[request_field]
+        for request_field, model_field in PREDICTION_FIELD_MAP.items()
+    }
+    second = {**first, "Customer_Age": 65}
+
+    result = registry.predict_batch(pd.DataFrame([first, second]))
+
+    assert list(result["prediction"]) == [0, 1]
+    assert list(result["churn_probability"]) == [pytest.approx(0.1), pytest.approx(0.9)]
 
 
 @pytest.mark.parametrize(

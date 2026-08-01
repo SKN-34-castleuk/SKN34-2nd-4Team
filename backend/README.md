@@ -16,13 +16,14 @@
 - SQLAlchemy와 MySQL을 이용한 사용자 계정 저장
 - Alembic 기반 DB 스키마 버전 관리와 기존 회원 데이터 보존 migration
 - 고객 ID·19개 특성과 분석·캠페인 이력을 저장할 업무 테이블
+- 분류·회귀·군집 모델을 실행해 `model_runs`와 `customer_insights`에 저장하는 배치
 - Argon2 비밀번호 해시와 HttpOnly JWT 인증 쿠키
 - 회원가입, 로그인, 현재 사용자 조회, 로그아웃 API
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
-현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는 단일
-Prediction API와 팀 계정 인증 API를 제공합니다. 고객·분석·캠페인 저장 스키마와
-고객 CSV 적재 명령은 준비됐지만, 조회 API와 모델 배치 계산은 아직 포함하지 않습니다.
+현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는
+Prediction API와 팀 계정 인증 API를 제공합니다. 별도의 CLI 배치는 전체 고객을
+분석해 결과를 MySQL에 저장합니다. 고객·분석·캠페인 조회·처리 API는 다음 단계입니다.
 
 ## 백엔드 파일 구조
 
@@ -31,6 +32,7 @@ backend/
 ├── __init__.py
 ├── app/
 │   ├── __init__.py
+│   ├── analysis_batch.py
 │   ├── auth.py
 │   ├── config.py
 │   ├── customer_import.py
@@ -46,10 +48,12 @@ backend/
 │   ├── env.py
 │   └── versions/
 ├── scripts/
-│   └── import_customers.py
+│   ├── import_customers.py
+│   └── run_analysis_batch.py
 ├── alembic.ini
 ├── tests/
-│   └── test_api.py
+│   ├── test_api.py
+│   └── test_analysis_batch.py
 ├── README.md
 ├── requirements.txt
 └── requirements-dev.txt
@@ -64,11 +68,14 @@ backend/
 | `backend/app/models.py` | 사용자·고객·분석·캠페인 SQLAlchemy 모델 |
 | `backend/app/migration_runner.py` | 기존 users 기준선 처리와 Alembic upgrade 실행 |
 | `backend/app/customer_import.py` | `CLIENTNUM`과 고객 특성 19개의 검증·upsert |
+| `backend/app/analysis_batch.py` | 세 모델 실행, 위험도·액션 생성, 분석 결과 저장 |
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
 | `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
+| `backend/scripts/run_analysis_batch.py` | 전체 고객 모델 분석 배치 명령 |
 | `backend/app/schemas.py` | 요청·응답 Pydantic Schema와 API 필드명 변환 |
 | `backend/app/model_manifest.py` | 모델 manifest 구조와 데이터 일관성 검증 |
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
+| `backend/tests/test_analysis_batch.py` | 회귀 입력 계약과 위험도·액션 규칙 검증 |
 | `backend/tests/test_api.py` | 임시 가짜 모델로 API와 모델 보안 검증 |
 | `backend/requirements.txt` | 서버 실행과 모델 추론에 필요한 운영 의존성 |
 | `backend/requirements-dev.txt` | 운영 의존성과 pytest 등 개발·테스트 의존성 |
@@ -283,6 +290,23 @@ python -m backend.app.migration_runner
 python -m backend.scripts.import_customers
 ```
 
+모델 artifact가 준비된 뒤 전체 고객 분석 결과를 저장합니다.
+
+```bash
+python -m backend.scripts.run_analysis_batch
+```
+
+Docker에서는 다음처럼 실행합니다.
+
+```bash
+docker compose exec backend python -m backend.scripts.run_analysis_batch
+```
+
+동일한 데이터와 artifact로 다시 실행하면 기존 스냅샷을 재사용하며, 새 이력을
+강제로 만들 때만 `--force`를 추가합니다. 배치의 모델 입력 계약, 위험도 기준,
+재실행 정책과 실제 저장 결과는
+[`../docs/phase2_analysis_batch.md`](../docs/phase2_analysis_batch.md)에 있습니다.
+
 Docker Compose는 첫 번째 명령을 Backend 시작 전에 자동으로 실행합니다. 자세한
 스키마와 운영 방법은 `docs/database_schema.md`를 확인합니다.
 
@@ -423,13 +447,32 @@ classification_xgboost.joblib
 - 불완전한 매니페스트 거부
 - `MODEL_DIR` 밖으로 향하는 경로 거부
 - 모델 SHA-256 불일치 거부
+- 온라인·배치 분류 결과의 확률 일관성
+- 회귀 입력 파생변수와 누수 컬럼 제거
+- 위험도 구간과 추천 액션 규칙
+
+## 모델 분석 배치
+
+배치는 `classification_manifest.json`, `regression_model.joblib`,
+`clustering_activity_gap.joblib`을 읽습니다. 회귀·군집 artifact가 없으면
+먼저 다음 순서로 생성합니다.
+
+```bash
+python src/final/regression_final.py
+python src/final/clustering_final.py
+```
+
+배치는 `customers`에서 고객을 읽고 `model_runs` 3건과 고객별
+`customer_insights`를 저장합니다. `Target`은 운영 입력으로 사용하지 않습니다.
+`campaign_targets`는 자동 생성하지 않으며, 후속 캠페인 API에서 분석 결과를
+선별해 만듭니다.
 
 ## 현재 범위와 알려진 제약
 
-- 현재 API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를 저장하지
-  않습니다.
-- 고객 ID와 역할은 저장하지만 고객 조회 API, 역할별 권한 검사, 모델 배치 계산은
-  아직 구현하지 않았습니다.
+- 현재 Prediction API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를
+  저장하지 않습니다. 전체 결과 저장은 별도 배치 CLI가 담당합니다.
+- 고객 ID와 역할은 저장하지만 고객 조회 API, 역할별 권한 검사,
+  `campaign_targets` 생성·처리 API는 아직 구현하지 않았습니다.
 - 입력 수치의 최솟값과 최댓값은 현재 학습 데이터 범위를 기준으로 합니다.
   실제 운영 데이터에서는 업무상 유효 범위와 학습 범위를 분리해야 합니다.
 - 현재 lifespan에서 모델 적재가 실패하면 FastAPI 시작도 실패합니다. 따라서
