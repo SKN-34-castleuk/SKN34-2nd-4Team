@@ -154,32 +154,128 @@ Alembic migration, 고객 데이터 적재와 테이블별 상세 명세는
 [`docs/phase1_database_implementation.md`](docs/phase1_database_implementation.md)를
 확인합니다.
 
+### 처음 실행하는 방법
+
+다음 프로그램이 필요합니다.
+
+- Git
+- Docker Desktop
+- Python 3.13 권장
+
+1. 저장소를 받고 루트 디렉터리로 이동합니다.
+
 ```bash
-cp .env.example .env
-python src/classification.py
-docker compose up -d --build
-docker compose ps
-docker compose exec backend python -m backend.scripts.import_customers
+git clone <저장소 주소>
+cd SKN34-2nd-4Team
 ```
 
-Backend는 시작 전에 Alembic migration을 자동 적용합니다. 데이터베이스 테이블,
-기존 회원 보존 방식과 고객 적재에 대한 자세한 설명은
-[`docs/database_schema.md`](docs/database_schema.md)를 확인합니다.
-
-실행 주소:
-
-- React: `http://127.0.0.1:5173`
-- FastAPI: `http://127.0.0.1:8000/docs`
-- MySQL: `127.0.0.1:3307` (`.env`의 `MYSQL_PORT`로 변경 가능)
-
-로그 확인과 종료:
+2. 환경변수를 준비합니다.
 
 ```bash
-docker compose logs -f
+cp .env.example .env
+openssl rand -hex 32
+```
+
+생성된 값을 `.env`의 `JWT_SECRET`에 입력합니다. 기존 Mac MySQL과의 포트
+충돌을 피하려면 `MYSQL_PORT=3307`을 유지합니다.
+
+3. 모델을 생성할 Python 환경을 준비하고 세 모델을 실행합니다.
+
+```bash
+python3 -m venv project_venv
+source project_venv/bin/activate
+python -m pip install -r requirements.txt
+
+python src/classification.py
+python src/regression.py
+python src/clustering.py
+```
+
+모델 산출물은 `outputs/models/`에 생성되며, Docker Backend가 이를 읽기 전용으로
+사용합니다.
+
+4. Frontend·Backend·MySQL을 시작합니다.
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+`mysql`은 `healthy`, `backend`와 `frontend`는 `Up` 상태여야 합니다.
+Backend는 시작 시 Alembic migration을 자동 적용합니다.
+
+5. 고객 원본과 최신 분석 결과를 적재합니다.
+
+```bash
+docker compose exec backend python -m backend.scripts.import_customers
+docker compose exec backend python -m backend.scripts.run_analysis_batch
+```
+
+`import_customers`는 `CLIENTNUM` 기준 upsert 방식이므로 다시 실행해도 고객이
+중복되지 않습니다. 분석 배치는 `customers`를 읽어 `customer_feature_snapshots`,
+`scoring_batches`, `model_runs`, `customer_insights`에 결과를 저장합니다.
+
+6. 역할별 화면을 확인하려면 로컬 테스트 계정을 생성합니다. 먼저 `.env`에
+다음 값을 입력한 뒤 Backend를 재생성합니다.
+
+```env
+ALLOW_TEST_USER_SEEDING=true
+TEST_ADMIN_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_ANALYST_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_OPERATIONS_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+TEST_MARKETING_PASSWORD=<12자 이상의 로컬 전용 비밀번호>
+```
+
+```bash
+docker compose up -d --force-recreate backend
+docker compose exec backend python -m backend.scripts.seed_test_users
+```
+
+시드가 끝나면 `.env`의 `ALLOW_TEST_USER_SEEDING=false`로 되돌리고 Backend를
+다시 생성합니다. 테스트 계정 비밀번호는 저장소에 포함하지 않습니다.
+
+7. 대상군·대조군 성과를 시연하려면 선택적으로 합성 Demo 데이터를 생성합니다.
+
+```bash
+docker compose exec backend python -m backend.scripts.seed_demo_campaign \
+  --limit-per-campaign 60
+```
+
+`[DEMO]` 캠페인 3개와 대상군·대조군, 전환·유지·매출 결과가 생성됩니다.
+시연 데이터는 로컬 개발 DB에서만 사용하며, 실제 비즈니스 성과 판단에 사용하지
+않습니다. 자세한 내용은 [`docs/demo_data.md`](docs/demo_data.md)를 확인합니다.
+
+### 접속 주소
+
+| 서비스 | 주소 | 용도 |
+| --- | --- | --- |
+| React Frontend | `http://127.0.0.1:5173` | 로그인·대시보드·캠페인 관리 |
+| FastAPI Swagger | `http://127.0.0.1:8000/docs` | API 확인 |
+| Backend 준비 상태 | `http://127.0.0.1:8000/ready` | 모델·DB 상태 확인 |
+| MySQL | `127.0.0.1:3307` | Mac 호스트에서 직접 접속 |
+
+Docker 내부 Backend의 DB 주소는 `mysql:3306`이며, Mac 호스트에서 직접 접속할
+때만 `127.0.0.1:3307`을 사용합니다.
+
+### 로그와 종료
+
+```bash
+docker compose logs -f backend
 docker compose down
 ```
 
-MySQL 데이터를 초기화할 때만 `docker compose down -v`를 사용합니다.
+MySQL 데이터 볼륨까지 삭제하는 `docker compose down -v`는 로컬 DB를 초기화할
+때만 사용합니다.
+
+### 테스트
+
+```bash
+python -m pip install -r backend/requirements-dev.txt
+project_venv/bin/python -m pytest backend/tests -q
+```
+
+Frontend 품질 검사는 Node.js 24와 pnpm 11이 필요하며, 자세한 명령은
+[`frontend/README.md`](frontend/README.md)에서 확인할 수 있습니다.
 
 ## React 프론트엔드 환경
 
