@@ -1,7 +1,6 @@
 """회귀 최종 파이프라인 — Voting 최종 모델 학습 + Test 1회 평가 + 활동성 갭 + OOF 저장.
 
-`04_regression_final.ipynb` 8번 섹션(거래금액 변수의 함정)에서 확인된 대로, 거래금액
-(Total_Trans_Amt)을 포함하면 Test R²는 오르지만 활동성 갭의 이탈 판별력(AUC)이 떨어진다.
+거래금액(Total_Trans_Amt)을 포함하면 Test R²는 오르지만 활동성 갭의 이탈 판별력(AUC)이 떨어진다.
 그래서 이 py 파이프라인은 "금액 포함(A) vs 금액 제외(B)" 비교 자체를 만들지 않고,
 처음부터 금액 제외 구성(`feature_engine.regression_features.CT_GAP_TASK`) 하나만 쓴다.
 
@@ -88,8 +87,7 @@ def _make_ensemble_members(xgb_params: dict[str, Any]):
 def build_voting_pipeline(Xtr: pd.DataFrame, ytr: pd.Series, xgb_params: dict[str, Any]) -> Pipeline:
     """전처리(Train에 fit) + Voting 앙상블(XGB+RF+GBR+LightGBM)을 하나의 Pipeline으로 학습한다.
 
-    04번 노트북 5·6번 섹션에서 최종 채택한 앙상블 구성 그대로다. Stacking은 내부 CV가
-    바깥쪽 OOF와 중첩되면 예측이 무너질 수 있어(12절 참고) 애초에 후보에 넣지 않는다.
+    Stacking은 내부 CV가 바깥쪽 OOF와 중첩되면 예측이 무너질 수 있어(12절 참고) 애초에 후보에 넣지 않는다.
     """
     preprocessor = build_preprocessor(Xtr)
     Xtr_enc = preprocessor.fit_transform(Xtr)

@@ -1,8 +1,5 @@
 """회귀 태스크의 "무엇을 넣고 뺄지"만 정의한다. 학습 로직은 여기 없다.
 
-`04_regression_final.ipynb`의 `make_features(drop_amount, fe)` 함수를
-스펙(dataclass) 기반으로 재구성했다.
-
 전처리(수치형 표준화 + 범주형 원-핫)는 이 파일에서 새로 만들지 않고
 `common/data.py`의 `build_standard_preprocessor`를 `build_preprocessor`라는
 이름으로 그대로 재노출해서 쓴다 — "어떤 피처를 남길지"는 태스크마다 다르지만
@@ -54,7 +51,6 @@ class RegressionTaskSpec:
     def add_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """파생변수 추가 (원본 df는 변경하지 않고 복사본을 반환).
 
-        `04_regression_final.ipynb`의 파생변수 4종과 동일하다:
         - 리볼빙_한도_비율  = Total_Revolving_Bal / Credit_Limit
         - 상품당_관계밀도    = Total_Relationship_Count / Months_on_book
         - 문의_대비_보유기간 = Contacts_Count_12_mon / Months_on_book
@@ -89,8 +85,7 @@ class RegressionTaskSpec:
 
 
 # ── 사전 정의된 태스크 ────────────────────────────────────────────────────
-# 04_regression_final.ipynb 8번 섹션(거래금액 변수의 함정)에서 확인된 대로, 거래금액을
-# 포함하면 Test R²는 높아지지만 활동성 갭의 이탈 판별력(AUC)이 떨어진다. 그래서 A(금액 포함)
+# 거래금액을 포함하면 Test R²는 높아지지만 활동성 갭의 이탈 판별력(AUC)이 떨어진다. 그래서 A(금액 포함)
 # 비교는 py 파이프라인에 두지 않고, 처음부터 금액 제외 구성 하나만 쓴다.
 
 # RAW_TASK: 베이스라인용. 파생변수 없음, 금액 제외 (거래금액은 애초에 쓰지 않는다).
