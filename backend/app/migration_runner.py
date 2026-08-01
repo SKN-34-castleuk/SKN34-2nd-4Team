@@ -27,6 +27,8 @@ MANAGED_TABLES_AFTER_BASELINE = {
     "customer_insights",
     "campaign_targets",
     "customer_feature_snapshots",
+    "decision_policies",
+    "scoring_batches",
 }
 
 

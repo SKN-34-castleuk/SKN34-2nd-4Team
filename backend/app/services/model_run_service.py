@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..enums import ModelRunStatus
-from ..models import ModelRun
+from ..models import ModelRun, ScoringBatch
+
+
+def fetch_latest_scoring_batch(db: Session) -> ScoringBatch | None:
+    """새 계보 구조에서 가장 최근 성공한 scoring batch를 반환합니다."""
+    return db.scalar(
+        select(ScoringBatch)
+        .options(
+            selectinload(ScoringBatch.model_runs),
+            selectinload(ScoringBatch.decision_policy),
+        )
+        .where(ScoringBatch.status == ModelRunStatus.SUCCEEDED.value)
+        .order_by(ScoringBatch.completed_at.desc(), ScoringBatch.id.desc())
+        .limit(1)
+    )
 
 
 def fetch_latest_successful_batch(db: Session) -> list[ModelRun]:

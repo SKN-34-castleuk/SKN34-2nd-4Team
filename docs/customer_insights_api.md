@@ -108,12 +108,19 @@ curl -b cookies.txt \
 GET /api/v1/customer-insights/{customer_id}
 ~~~
 
-상세 응답은 목록 항목에 다음 `customer` 객체를 추가합니다.
+상세 응답은 목록 항목에 다음 `customer` 객체와 `customer_snapshot` 객체를
+추가합니다.
 
 - 고객 ID
 - 19개 모델 입력 특성
 - 고객 생성·수정 시각
 - 최신 분석 결과와 세 모델 실행 ID
+- `customer_snapshot`: 해당 분석이 실제로 사용한 19개 입력 특성
+- `customer_snapshot.as_of_date`: 분석 기준일
+- `customer_snapshot.feature_sha256`: 입력 특성 무결성 hash
+
+신규 배치로 생성된 결과에는 `scoring_batch_id`와 `as_of_date`도 포함됩니다.
+`customer_snapshot`이 없는 과거 레거시 결과는 해당 필드가 `null`일 수 있습니다.
 
 분석 결과가 없는 고객은 `404 Not Found`를 반환합니다.
 
@@ -134,8 +141,18 @@ GET /api/v1/model-runs/latest
 ~~~
 
 분류·회귀·군집별 가장 최근 성공 실행을 하나의 배치로 묶어 반환합니다.
-대시보드는 데이터 갱신 시각, 처리 행 수, 모델 버전을 표시합니다. 성공한
-실행 이력이 없으면 `404 Not Found`를 반환합니다.
+신규 분석 배치는 다음 계보 메타데이터를 함께 제공합니다.
+
+| 필드 | 설명 |
+|---|---|
+| `scoring_batch_id` | 세 모델 실행과 고객 인사이트를 묶는 배치 ID |
+| `as_of_date` | 분석에 사용한 업무 기준일 |
+| `decision_policy_id` | 위험 등급·활동성 갭 정책 ID |
+| `decision_policy_sha256` | 정책 버전과 기준값을 식별하는 hash |
+
+각 `runs[]` 항목에도 `scoring_batch_id`와 정책 hash·기준값이 포함됩니다.
+대시보드는 데이터 갱신 시각, 기준일, 처리 행 수, 모델 버전을 표시할 수
+있습니다. 성공한 실행 이력이 없으면 `404 Not Found`를 반환합니다.
 
 ## 캠페인 대상 업무 API
 

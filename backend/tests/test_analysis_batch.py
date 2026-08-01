@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
 from backend.app.analysis_batch import (
+    BatchSummary,
     DECISION_POLICY_VERSION,
+    _batch_key_sha256,
     _decision_policy_sha256,
     _recommended_action,
     _risk_level,
@@ -91,3 +95,40 @@ def test_decision_policy_hash_is_stable_and_changes_with_policy() -> None:
         high_threshold=0.85,
         activity_gap_quantile=0.2,
     )
+
+
+def test_batch_key_and_summary_preserve_as_of_date() -> None:
+    """분석 기준일이 달라지면 다른 배치가 생성되고 CLI JSON은 ISO 날짜를 사용합니다."""
+    specs = [
+        {"task": "classification", "artifact_sha256": "a" * 64},
+        {"task": "regression", "artifact_sha256": "b" * 64},
+        {"task": "clustering", "artifact_sha256": "c" * 64},
+    ]
+    first_key = _batch_key_sha256(
+        as_of_date=date(2026, 8, 1),
+        dataset_sha256="d" * 64,
+        decision_policy_sha256="e" * 64,
+        run_specs=specs,
+    )
+    next_day_key = _batch_key_sha256(
+        as_of_date=date(2026, 8, 2),
+        dataset_sha256="d" * 64,
+        decision_policy_sha256="e" * 64,
+        run_specs=specs,
+    )
+    summary = BatchSummary(
+        processed_rows=1,
+        classification_run_id=1,
+        regression_run_id=2,
+        clustering_run_id=3,
+        scoring_batch_id=4,
+        decision_policy_id=5,
+        as_of_date=date(2026, 8, 1),
+        reused_existing_snapshot=False,
+        decision_policy_sha256="e" * 64,
+        risk_counts={"low": 1},
+        cluster_counts={"일반관리(유지)": 1},
+    )
+
+    assert first_key != next_day_key
+    assert summary.to_dict()["as_of_date"] == "2026-08-01"

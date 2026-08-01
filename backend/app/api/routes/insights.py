@@ -12,6 +12,7 @@ from ...database import get_db
 from ...enums import RiskLevel
 from ...models import CustomerInsight, User
 from ...schemas import (
+    CustomerFeatureSnapshotResponse,
     CustomerInsightDetailResponse,
     CustomerInsightHistoryResponse,
     CustomerInsightListResponse,
@@ -151,4 +152,9 @@ def get_customer_insight(
     return CustomerInsightDetailResponse(
         **_to_insight_response(insight).model_dump(),
         customer=insight.customer,
+        customer_snapshot=(
+            CustomerFeatureSnapshotResponse.model_validate(insight.customer_snapshot)
+            if insight.customer_snapshot is not None
+            else None
+        ),
     )

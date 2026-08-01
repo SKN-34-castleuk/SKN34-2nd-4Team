@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -188,6 +189,7 @@ class CustomerFeatureSnapshot(Base):
         UniqueConstraint(
             "customer_id",
             "feature_sha256",
+            "as_of_date",
             name="uq_customer_feature_snapshots_customer_feature",
         ),
         Index(
@@ -227,6 +229,7 @@ class CustomerFeatureSnapshot(Base):
     total_trans_ct: Mapped[int] = mapped_column(Integer, nullable=False)
     total_ct_chng_q4_q1: Mapped[float] = mapped_column(Float, nullable=False)
     avg_utilization_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     as_of_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -236,6 +239,99 @@ class CustomerFeatureSnapshot(Base):
     customer: Mapped[Customer] = relationship(back_populates="feature_snapshots")
     insights: Mapped[list[CustomerInsight]] = relationship(
         back_populates="customer_snapshot",
+    )
+
+
+class DecisionPolicy(Base):
+    """분석 결과를 해석하는 위험도·활동성 정책의 immutable registry입니다."""
+
+    __tablename__ = "decision_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "policy_sha256",
+            name="uq_decision_policies_policy_sha256",
+        ),
+        Index("ix_decision_policies_version_created_at", "version", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    medium_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    high_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    activity_gap_quantile: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    scoring_batches: Mapped[list[ScoringBatch]] = relationship(
+        back_populates="decision_policy",
+    )
+
+
+class ScoringBatch(Base):
+    """세 모델 실행과 결과를 하나로 묶는 분석 배치 실행 단위입니다."""
+
+    __tablename__ = "scoring_batches"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed')",
+            name="ck_scoring_batches_status",
+        ),
+        UniqueConstraint(
+            "batch_key_sha256",
+            name="uq_scoring_batches_batch_key_sha256",
+        ),
+        Index("ix_scoring_batches_as_of_date", "as_of_date"),
+        Index("ix_scoring_batches_status_started_at", "status", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_key_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_dataset_sha256: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_policy_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("decision_policies.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=ModelRunStatus.RUNNING.value,
+        server_default=ModelRunStatus.RUNNING.value,
+    )
+    processed_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    decision_policy: Mapped[DecisionPolicy] = relationship(
+        back_populates="scoring_batches",
+    )
+    model_runs: Mapped[list[ModelRun]] = relationship(
+        back_populates="scoring_batch",
+    )
+    insights: Mapped[list[CustomerInsight]] = relationship(
+        back_populates="scoring_batch",
     )
 
 
@@ -258,6 +354,11 @@ class ModelRun(Base):
     artifact_path: Mapped[str] = mapped_column(String(500), nullable=False)
     artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    scoring_batch_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("scoring_batches.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     decision_policy_sha256: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
@@ -289,6 +390,10 @@ class ModelRun(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    scoring_batch: Mapped[ScoringBatch | None] = relationship(
+        back_populates="model_runs",
     )
 
 
@@ -334,6 +439,11 @@ class CustomerInsight(Base):
         ForeignKey("customer_feature_snapshots.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    scoring_batch_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("scoring_batches.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     classification_run_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("model_runs.id", ondelete="RESTRICT"),
@@ -350,6 +460,7 @@ class CustomerInsight(Base):
         nullable=False,
     )
     churn_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
     expected_transaction_count: Mapped[float] = mapped_column(Float, nullable=False)
     activity_gap: Mapped[float] = mapped_column(Float, nullable=False)
@@ -373,6 +484,9 @@ class CustomerInsight(Base):
 
     customer: Mapped[Customer] = relationship(back_populates="insights")
     customer_snapshot: Mapped[CustomerFeatureSnapshot | None] = relationship(
+        back_populates="insights",
+    )
+    scoring_batch: Mapped[ScoringBatch | None] = relationship(
         back_populates="insights",
     )
     classification_run: Mapped[ModelRun] = relationship(

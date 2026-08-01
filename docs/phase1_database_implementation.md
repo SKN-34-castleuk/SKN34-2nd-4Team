@@ -42,7 +42,10 @@ import_customers 명령
 
 모델 배치
         │
+        ├─ decision_policies
+        ├─ scoring_batches
         ├─ model_runs
+        ├─ customer_feature_snapshots
         ├─ customer_insights
         └─ campaign_targets
 ~~~
@@ -51,12 +54,13 @@ import_customers 명령
 
 | 항목 | 상태 |
 |---|---|
-| Alembic revision | 20260801_0003 |
+| Alembic revision | 20260801_0004 |
 | 기존 사용자 | 1명 보존 |
 | 기존 사용자 역할 | operations |
 | customers 행 수 | 10,127 |
 | customers.customer_id 중복 | 없음 |
-| 최신 model_runs | 성공 3건 (ID 4, 5, 6) |
+| 최신 scoring batch | 성공 1건 (ID 1, 기준일 2026-08-01) |
+| 최신 model_runs | 성공 3건 (ID 7, 8, 9) |
 | customer_feature_snapshots | 10,127건 |
 | customer_insights | 10,127건 |
 | campaign_targets | 0건 |
@@ -73,6 +77,8 @@ import_customers 명령
 | backend/migrations/env.py | SQLAlchemy metadata와 DB 연결을 Alembic에 연결 |
 | backend/migrations/versions/20260801_0001_users_baseline.py | 기존 users 구조의 기준선 revision |
 | backend/migrations/versions/20260801_0002_customer_operations.py | 역할·고객·분석·캠페인 테이블 생성 |
+| backend/migrations/versions/20260801_0003_p0_data_governance.py | 승인 기본값·입력 스냅샷·정책 hash 추가 |
+| backend/migrations/versions/20260801_0004_scoring_lineage.py | scoring batch·decision policy·기준일 연결 |
 | backend/app/database.py | DB 엔진·세션 생성 및 migration 여부 검증 |
 | backend/app/models.py | SQLAlchemy 모델 전체 정의 |
 | backend/app/enums.py | 역할·상태·위험등급 상수 정의 |
@@ -172,6 +178,11 @@ Argon2 해시만 저장합니다.
 | artifact_path | 사용한 모델 파일 경로 |
 | artifact_sha256 | 모델 파일 무결성 해시 |
 | dataset_sha256 | 사용 데이터셋 해시, 선택값 |
+| scoring_batch_id | 분석 배치 외래키, 기존 레거시 행은 NULL 가능 |
+| decision_policy_sha256 | 적용한 의사결정 정책 hash |
+| medium_threshold | 중위험 기준값 |
+| high_threshold | 고위험 기준값 |
+| activity_gap_quantile | 활동성 갭 우선순위 분위수 |
 | status | running, succeeded, failed |
 | processed_rows | 처리한 고객 수 |
 | error_message | 실패 시 오류 내용 |
@@ -182,7 +193,47 @@ Argon2 해시만 저장합니다.
 artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 연결됩니다.
 향후 모델 배치가 실패해도 failed 상태와 오류를 남길 수 있습니다.
 
-### 4.4 customer_insights
+### 4.4 decision_policies
+
+분석 결과를 해석하는 정책을 immutable registry로 관리합니다. 동일한
+`policy_sha256`은 하나만 저장하며, 위험도 기준이나 활동성 분위수가 바뀌면
+새 정책 행이 생성됩니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| id | 정책 기본키 |
+| version | 정책 버전, 예: `activity-gap-v2` |
+| policy_sha256 | 정책 파라미터 전체의 SHA-256 |
+| medium_threshold | 중위험 기준값 |
+| high_threshold | 고위험 기준값 |
+| activity_gap_quantile | 활동성 갭 우선순위 분위수 |
+| created_at | 정책 등록 시각 |
+
+### 4.5 scoring_batches
+
+분류·회귀·군집 세 실행과 고객 인사이트를 하나로 묶는 배치 단위입니다.
+분석 기준일과 입력 데이터, 정책을 직접 보존하므로 단순히 최신
+`model_runs` 3개를 조합하는 방식보다 재현성과 재사용 판정이 명확합니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| id | 배치 기본키 |
+| batch_key_sha256 | 기준일·데이터·artifact·정책을 묶은 재사용 key |
+| as_of_date | 업무 분석 기준일 |
+| source_dataset_sha256 | 원천 데이터 hash |
+| dataset_sha256 | 실제 DB 고객 입력 전체 hash |
+| decision_policy_id | 적용 정책 외래키 |
+| status | running, succeeded, failed |
+| processed_rows | 처리 고객 수 |
+| error_message | 실패 시 오류 내용 |
+| started_at, completed_at | 배치 실행 시각 |
+
+### 4.6 customer_feature_snapshots
+
+고객 특성 19개와 `as_of_date`를 함께 보존합니다. 동일 고객·동일 특성이라도
+분석 기준일이 다르면 별도 시점 스냅샷으로 저장할 수 있습니다.
+
+### 4.7 customer_insights
 
 고객별 분류·회귀·군집 결과를 하나의 분석 스냅샷으로 저장합니다. 고객 한 명의
 결과를 매번 덮어쓰지 않고 scored_at을 기준으로 분석 이력을 누적할 수 있도록
@@ -192,6 +243,9 @@ artifact_sha256는 현재 모델 manifest의 파일 무결성 검증 방식과 �
 |---|---|
 | id | 분석 스냅샷 기본키 |
 | customer_id | customers.customer_id 외래키 |
+| customer_snapshot_id | 분석 당시 입력 스냅샷 외래키 |
+| scoring_batch_id | 분석 배치 외래키 |
+| as_of_date | 분석 기준일 |
 | classification_run_id | 이탈 분류 모델 실행 외래키 |
 | regression_run_id | 거래건수 회귀 모델 실행 외래키 |
 | clustering_run_id | 활동성 군집 모델 실행 외래키 |
@@ -240,10 +294,18 @@ customer_insight_id + campaign_name 조합에 unique 제약을 둡니다.
         │
         ▼
 20260801_0002_customer_operations
+        │
+        ▼
+20260801_0003_p0_data_governance
+        │
+        ▼
+20260801_0004_scoring_lineage
 ~~~
 
 첫 번째 revision은 users 기준선 테이블을 만들고, 두 번째 revision은
-users.role과 나머지 업무 테이블을 추가합니다.
+users.role과 나머지 업무 테이블을 추가합니다. 세 번째 revision은 승인 기본값과
+고객 입력 스냅샷을 추가하고, 네 번째 revision은 scoring batch,
+decision policy, 분석 기준일을 연결합니다.
 
 ### 5.2 기존 DB
 
@@ -256,7 +318,8 @@ backend.app.migration_runner는 다음 방식으로 이를 처리합니다.
 1. alembic_version의 현재 revision을 확인합니다.
 2. revision이 없고 users가 있으면 기존 필수 컬럼을 확인합니다.
 3. 기존 users 데이터가 정상인 경우 20260801_0001을 기준선으로 stamp합니다.
-4. 20260801_0002를 upgrade해 role과 신규 테이블을 추가합니다.
+4. 최신 revision까지 upgrade해 role, 분석 테이블, 입력 스냅샷, scoring lineage를
+   추가합니다.
 5. 기존 회원 데이터는 삭제하거나 재생성하지 않습니다.
 
 이미 신규 관리 테이블이 일부만 존재하는 비정상 상태라면 자동으로 진행하지 않고
@@ -407,7 +470,7 @@ Persistence 테스트는 다음을 검증합니다.
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 구현 검증 결과는 Backend 테스트 25개 통과입니다. Frontend 인증 타입과
+현재 구현 검증 결과는 Backend 테스트 26개 통과입니다. Frontend 인증 타입과
 OpenAPI 생성 타입도 role 필드를 포함하도록 갱신했으며 Frontend lint,
 typecheck, test, build를 통과했습니다.
 

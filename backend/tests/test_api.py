@@ -6,7 +6,7 @@ import hashlib
 import json
 import shutil
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,15 @@ from backend.app.migration_runner import upgrade_database
 from backend.app.customer_import import load_customer_rows
 from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRole
 from backend.app.model_registry import ModelLoadError, ModelRegistry
-from backend.app.models import Customer, CustomerInsight, ModelRun, User
+from backend.app.models import (
+    Customer,
+    CustomerFeatureSnapshot,
+    CustomerInsight,
+    DecisionPolicy,
+    ModelRun,
+    ScoringBatch,
+    User,
+)
 from backend.app.schemas import PREDICTION_FIELD_MAP
 
 
@@ -460,6 +468,25 @@ def test_customer_insight_list_filters_and_detail(
     )[:2]
     with session_factory() as session:
         customers = [Customer(**row) for row in raw_rows]
+        policy = DecisionPolicy(
+            version="activity-gap-v2",
+            policy_sha256="e" * 64,
+            medium_threshold=0.5,
+            high_threshold=0.85,
+            activity_gap_quantile=0.2,
+        )
+        session.add(policy)
+        session.flush()
+        batch = ScoringBatch(
+            batch_key_sha256="f" * 64,
+            as_of_date=date(2026, 8, 1),
+            dataset_sha256="c" * 64,
+            decision_policy_id=policy.id,
+            status=ModelRunStatus.SUCCEEDED.value,
+            processed_rows=2,
+        )
+        session.add(batch)
+        session.flush()
         runs = [
             ModelRun(
                 task=task,
@@ -467,6 +494,8 @@ def test_customer_insight_list_filters_and_detail(
                 model_version="test-v1",
                 artifact_path=f"outputs/models/{name}.joblib",
                 artifact_sha256=character * 64,
+                scoring_batch_id=batch.id,
+                decision_policy_sha256=policy.policy_sha256,
                 status=ModelRunStatus.SUCCEEDED.value,
                 processed_rows=2,
             )
@@ -478,8 +507,23 @@ def test_customer_insight_list_filters_and_detail(
         ]
         session.add_all([*customers, *runs])
         session.flush()
+        customer_snapshot = CustomerFeatureSnapshot(
+            customer_id=customers[0].customer_id,
+            feature_sha256="d" * 64,
+            source_dataset_sha256="c" * 64,
+            as_of_date=batch.as_of_date,
+            **{
+                key: value
+                for key, value in raw_rows[0].items()
+                if key != "customer_id"
+            },
+        )
+        session.add(customer_snapshot)
+        session.flush()
         old_insight = CustomerInsight(
             customer_id=customers[0].customer_id,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
             classification_run_id=runs[0].id,
             regression_run_id=runs[1].id,
             clustering_run_id=runs[2].id,
@@ -495,6 +539,9 @@ def test_customer_insight_list_filters_and_detail(
         )
         latest_insight = CustomerInsight(
             customer_id=customers[0].customer_id,
+            customer_snapshot_id=customer_snapshot.id,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
             classification_run_id=runs[0].id,
             regression_run_id=runs[1].id,
             clustering_run_id=runs[2].id,
@@ -510,6 +557,8 @@ def test_customer_insight_list_filters_and_detail(
         )
         second_customer_insight = CustomerInsight(
             customer_id=customers[1].customer_id,
+            scoring_batch_id=batch.id,
+            as_of_date=batch.as_of_date,
             classification_run_id=runs[0].id,
             regression_run_id=runs[1].id,
             clustering_run_id=runs[2].id,
@@ -554,6 +603,8 @@ def test_customer_insight_list_filters_and_detail(
     assert detail["risk_level"] == "low"
     assert detail["recommended_action"] == "일반 유지 관리"
     assert detail["customer"]["customer_id"] == customer_id
+    assert detail["customer_snapshot"]["as_of_date"] == "2026-08-01"
+    assert detail["customer_snapshot"]["feature_sha256"] == "d" * 64
 
     missing_response = auth_client.get("/api/v1/customer-insights/999999999")
     assert missing_response.status_code == 404
@@ -571,6 +622,9 @@ def test_customer_insight_list_filters_and_detail(
     assert latest_batch_response.status_code == 200
     latest_batch = latest_batch_response.json()
     assert latest_batch["status"] == "succeeded"
+    assert latest_batch["scoring_batch_id"] == batch.id
+    assert latest_batch["as_of_date"] == "2026-08-01"
+    assert latest_batch["decision_policy_id"] == policy.id
     assert latest_batch["processed_rows"] == 2
     assert {run["task"] for run in latest_batch["runs"]} == {
         "classification",

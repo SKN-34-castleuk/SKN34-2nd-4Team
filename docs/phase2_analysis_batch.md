@@ -12,6 +12,7 @@
 - 운영: 설명용 사유 코드와 추천 액션
 - 추적성: 사용한 모델 artifact·데이터·의사결정 정책 해시와 실행 상태
 - 재현성: 분석 당시 고객 특성을 `customer_feature_snapshots`에 보존
+- 배치 계보: `scoring_batches`, `decision_policies`, `as_of_date`로 하나의 분석 실행을 식별
 
 모델의 학습 정답인 `Target` 또는 `Attrition_Flag`는 운영 배치 입력에 사용하지
 않습니다. `customers`에 저장된 고객 특성과 모델 artifact만으로 결과를
@@ -28,14 +29,19 @@ flowchart LR
     RE --> GAP[실제 거래건수 - 예상 거래건수]
     GAP --> G[활동성 갭 GMM k=3]
     G --> I
-    CL --> R[model_runs]
+    P[decision_policies] --> B[scoring_batches]
+    B --> R[model_runs]
+    B --> I
+    CL --> R
     RE --> R
     G --> R
 ~~~
 
-배치는 세 모델을 먼저 메모리에서 실행한 뒤 `model_runs` 3건을 만들고,
-`customer_insights`에 세 실행 ID를 함께 기록합니다. 따라서 고객 결과 한 행이
-어떤 분류·회귀·군집 artifact에서 나온 것인지 추적할 수 있습니다.
+배치는 먼저 정책 registry에서 `decision_policies`를 확보하고, 기준일·고객 입력
+hash·세 artifact·정책 hash를 묶은 `scoring_batches` 1건을 생성합니다. 이후
+세 모델의 `model_runs` 3건과 고객별 `customer_insights`를 같은 batch ID로
+연결합니다. 따라서 고객 결과 한 행이 어떤 기준일·정책·분류·회귀·군집
+artifact에서 나온 것인지 추적할 수 있습니다.
 
 ## 3. 구현 파일
 
@@ -159,17 +165,22 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch
 docker compose exec backend python -m backend.scripts.run_analysis_batch \
   --medium-threshold 0.5 \
   --high-threshold 0.85 \
-  --activity-gap-quantile 0.2
+  --activity-gap-quantile 0.2 \
+  --as-of-date 2026-08-01
 ~~~
+
+`--as-of-date`를 생략하면 UTC 기준 오늘 날짜를 사용합니다. 미래 날짜는 허용하지
+않으며, 같은 고객 입력이라도 기준일이 다르면 별도 scoring batch와 시점
+스냅샷으로 관리됩니다.
 
 ## 7. 재실행과 이력 정책
 
-기본 실행은 마지막 성공 실행의 세 artifact SHA-256, 현재 DB 고객 입력 전체의
-정규화된 SHA-256, 그리고 위험도 기준·활동성 갭 분위수·정책 버전으로 계산한
-의사결정 정책 SHA-256을 비교합니다. 동일한 조합이고 고객별 결과 수가 현재
-고객 수와 같으면 기존 스냅샷을 재사용해 중복 결과를 만들지 않습니다. 기준값이나
-정책 버전이 바뀌면 자동으로 새 배치를 만들므로 이전 액션을 잘못 재사용하지
-않습니다.
+기본 실행은 기준일·세 artifact SHA-256·현재 DB 고객 입력 전체의 정규화된
+SHA-256·의사결정 정책 SHA-256을 묶은 `batch_key_sha256`를 계산합니다. 동일한
+key의 성공 `scoring_batches`가 있고 세 `model_runs`와 고객별 결과 수가 현재
+고객 수와 같을 때만 기존 배치를 재사용합니다. 기준일, 입력 데이터, artifact,
+기준값 또는 정책 버전이 바뀌면 자동으로 새 배치를 만들므로 이전 결과를 잘못
+재사용하지 않습니다.
 
 새로운 분석 스냅샷을 강제로 만들려면 `--force`를 사용합니다.
 
@@ -177,13 +188,27 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch \
 docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 ~~~
 
-`--force` 실행은 `model_runs` 3건과 `customer_insights` 전체 고객 행을 새로
-추가합니다. 기존 결과를 삭제하거나 덮어쓰지 않으므로 모델 버전별 분석 이력을
-비교할 수 있습니다.
+`--force` 실행은 새로운 `scoring_batches` 1건, `model_runs` 3건과
+`customer_insights` 전체 고객 행을 새로 추가합니다. 기존 결과를 삭제하거나
+덮어쓰지 않으므로 모델 버전·정책·기준일별 분석 이력을 비교할 수 있습니다.
 
 ## 8. 저장 결과
 
 성공한 배치는 다음을 저장합니다.
+
+### `decision_policies` 1건
+
+동일한 정책 hash를 중복 저장하지 않고, 위험도 기준과 활동성 갭 분위수를 정책
+버전과 함께 보존합니다.
+
+### `scoring_batches` 1건
+
+- `batch_key_sha256`
+- `as_of_date`
+- `source_dataset_sha256`
+- `dataset_sha256`
+- `decision_policy_id`
+- `status`, `processed_rows`, `started_at`, `completed_at`
 
 ### `model_runs` 3건
 
@@ -202,6 +227,8 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 
 - `customer_id`
 - `customer_snapshot_id` (분석 당시 19개 입력 특성 참조)
+- `scoring_batch_id`
+- `as_of_date`
 - 세 `model_runs` 참조 ID
 - `churn_probability`, `risk_level`
 - `expected_transaction_count`, `activity_gap`
@@ -211,9 +238,10 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 
 ### `customer_feature_snapshots`
 
-고객 특성이 수정돼도 분석 결과의 입력을 재현할 수 있도록 고객별 특성 조합을
-SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성은 중복 저장하지 않으며,
-특성이 바뀐 뒤 다음 배치를 실행하면 새 스냅샷이 생성됩니다.
+고객 특성이 수정돼도 분석 결과의 입력을 재현할 수 있도록 고객별 특성 조합과
+`as_of_date`를 SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성·동일 기준일은
+중복 저장하지 않으며, 특성이 바뀌거나 기준일이 달라진 뒤 다음 배치를 실행하면
+새 스냅샷이 생성됩니다.
 
 `campaign_targets`는 배치가 자동으로 생성하지 않습니다. 분석 결과를 확인한 뒤
 후속 캠페인 기능에서 필요한 고객만 캠페인 대상으로 전환하는 구조입니다.
@@ -226,7 +254,9 @@ SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성은 중복 
 | 항목 | 결과 |
 |---|---:|
 | 처리 고객 수 | 10,127 |
-| 이번 배치 성공 `model_runs` | 3 (ID 4, 5, 6) |
+| 최신 scoring batch | 1 (ID 1, 기준일 2026-08-01) |
+| 이번 배치 성공 `model_runs` | 3 (ID 7, 8, 9) |
+| `decision_policies` | 1 |
 | `customer_insights` | 10,127 |
 | `customer_feature_snapshots` | 10,127 |
 | 스냅샷 연결 인사이트 | 10,127 |
@@ -240,8 +270,9 @@ SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성은 중복 
 
 정책 해시는 `a93df6843d0d2f558b96a32f65c8ee5120272dbf90ab30b167359c3076de3dfe`이며,
 중위험 0.5·고위험 0.85·활동성 갭 하위 분위수 0.2가 기록됐습니다. 동일 명령을
-다시 실행했을 때 ID 4·5·6을 그대로 반환하고 `reused_existing_snapshot: true`가
-되는 것도 확인했습니다. Backend `/ready`는 `model_loaded: true`로 응답했습니다.
+다시 실행했을 때 scoring batch ID 1과 model run ID 7·8·9를 그대로 반환하고
+`reused_existing_snapshot: true`가 되는 것도 확인했습니다. Backend `/ready`는
+`model_loaded: true`로 응답했습니다.
 
 ## 10. 테스트
 
@@ -249,7 +280,7 @@ SHA-256으로 식별해 보존합니다. 동일 고객·동일 특성은 중복 
 project_venv/bin/python -m pytest backend/tests -q
 ~~~
 
-현재 Backend 테스트는 25개이며 다음을 포함합니다.
+현재 Backend 테스트는 26개이며 다음을 포함합니다.
 
 - 온라인·배치 분류 결과의 양성 확률 일관성
 - 회귀 입력의 파생변수와 누수 컬럼 제거

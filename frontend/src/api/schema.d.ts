@@ -402,6 +402,68 @@ export interface components {
             result_notes?: string | null;
         };
         /**
+         * CustomerFeatureSnapshotResponse
+         * @description 분석 결과가 실제로 사용한 고객 입력 특성의 시점별 스냅샷입니다.
+         */
+        CustomerFeatureSnapshotResponse: {
+            /** Id */
+            id: number;
+            /** Customer Id */
+            customer_id: number;
+            /** Feature Sha256 */
+            feature_sha256: string;
+            /** Source Dataset Sha256 */
+            source_dataset_sha256: string | null;
+            /**
+             * As Of Date
+             * Format: date
+             */
+            as_of_date: string;
+            /**
+             * As Of At
+             * Format: date-time
+             */
+            as_of_at: string;
+            /** Customer Age */
+            customer_age: number;
+            /** Gender */
+            gender: string;
+            /** Dependent Count */
+            dependent_count: number;
+            /** Education Level */
+            education_level: string;
+            /** Marital Status */
+            marital_status: string;
+            /** Income Category */
+            income_category: string;
+            /** Card Category */
+            card_category: string;
+            /** Months On Book */
+            months_on_book: number;
+            /** Total Relationship Count */
+            total_relationship_count: number;
+            /** Months Inactive 12 Mon */
+            months_inactive_12_mon: number;
+            /** Contacts Count 12 Mon */
+            contacts_count_12_mon: number;
+            /** Credit Limit */
+            credit_limit: number;
+            /** Total Revolving Bal */
+            total_revolving_bal: number;
+            /** Avg Open To Buy */
+            avg_open_to_buy: number;
+            /** Total Amt Chng Q4 Q1 */
+            total_amt_chng_q4_q1: number;
+            /** Total Trans Amt */
+            total_trans_amt: number;
+            /** Total Trans Ct */
+            total_trans_ct: number;
+            /** Total Ct Chng Q4 Q1 */
+            total_ct_chng_q4_q1: number;
+            /** Avg Utilization Ratio */
+            avg_utilization_ratio: number;
+        };
+        /**
          * CustomerInsightDetailResponse
          * @description 고객 특성을 포함한 분석 결과 상세 응답입니다.
          */
@@ -412,6 +474,10 @@ export interface components {
             customer_id: number;
             /** Customer Snapshot Id */
             customer_snapshot_id?: number | null;
+            /** Scoring Batch Id */
+            scoring_batch_id?: number | null;
+            /** As Of Date */
+            as_of_date?: string | null;
             /** Classification Run Id */
             classification_run_id: number;
             /** Regression Run Id */
@@ -441,6 +507,7 @@ export interface components {
              */
             scored_at: string;
             customer: components["schemas"]["CustomerProfileResponse"];
+            customer_snapshot?: components["schemas"]["CustomerFeatureSnapshotResponse"] | null;
         };
         /**
          * CustomerInsightHistoryResponse
@@ -478,6 +545,12 @@ export interface components {
             id: number;
             /** Customer Id */
             customer_id: number;
+            /** Customer Snapshot Id */
+            customer_snapshot_id?: number | null;
+            /** Scoring Batch Id */
+            scoring_batch_id?: number | null;
+            /** As Of Date */
+            as_of_date?: string | null;
             /** Classification Run Id */
             classification_run_id: number;
             /** Regression Run Id */
@@ -614,6 +687,14 @@ export interface components {
          * @description 가장 최근 성공한 전체 모델 배치의 요약입니다.
          */
         LatestBatchResponse: {
+            /** Scoring Batch Id */
+            scoring_batch_id?: number | null;
+            /** As Of Date */
+            as_of_date?: string | null;
+            /** Decision Policy Id */
+            decision_policy_id?: number | null;
+            /** Decision Policy Sha256 */
+            decision_policy_sha256?: string | null;
             status: components["schemas"]["ModelRunStatus"];
             /**
              * Started At
@@ -676,6 +757,8 @@ export interface components {
             artifact_sha256: string;
             /** Dataset Sha256 */
             dataset_sha256: string | null;
+            /** Scoring Batch Id */
+            scoring_batch_id: number | null;
             /** Decision Policy Sha256 */
             decision_policy_sha256: string | null;
             /** Medium Threshold */
