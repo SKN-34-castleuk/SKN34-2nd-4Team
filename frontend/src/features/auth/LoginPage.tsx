@@ -1,9 +1,15 @@
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 
-type LoginErrors = {
+import { login, signup } from "../../api/auth";
+
+type AuthMode = "login" | "signup";
+
+type FormErrors = {
   accountId?: string;
+  displayName?: string;
   password?: string;
+  confirmPassword?: string;
 };
 
 function BrandMark() {
@@ -42,12 +48,19 @@ function ArrowIcon() {
 
 export function LoginPage() {
   const accountId = useId();
+  const displayNameId = useId();
   const passwordId = useId();
+  const confirmPasswordId = useId();
+  const [mode, setMode] = useState<AuthMode>("login");
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<LoginErrors>({});
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
   const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const clearFieldError = (field: keyof LoginErrors) => {
+  const isSignup = mode === "signup";
+
+  const clearFieldError = (field: keyof FormErrors) => {
     setErrors((current) => {
       if (current[field] === undefined) {
         return current;
@@ -58,34 +71,85 @@ export function LoginPage() {
     setNotice("");
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const nextErrors: LoginErrors = {};
+  const switchMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    setErrors({});
+    setNotice("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+  };
 
-    if (String(form.get("accountId") ?? "").trim() === "") {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const accountValue = String(form.get("accountId") ?? "").trim();
+    const displayNameValue = String(form.get("displayName") ?? "").trim();
+    const passwordValue = String(form.get("password") ?? "");
+    const confirmPasswordValue = String(form.get("confirmPassword") ?? "");
+    const nextErrors: FormErrors = {};
+
+    if (accountValue === "") {
       nextErrors.accountId = "팀 계정 아이디를 입력해 주세요.";
     }
 
-    if (String(form.get("password") ?? "").trim() === "") {
+    if (isSignup && displayNameValue === "") {
+      nextErrors.displayName = "표시 이름을 입력해 주세요.";
+    }
+
+    if (passwordValue.trim() === "") {
       nextErrors.password = "비밀번호를 입력해 주세요.";
+    } else if (isSignup && passwordValue.length < 8) {
+      nextErrors.password = "비밀번호는 8자 이상 입력해 주세요.";
+    }
+
+    if (isSignup && confirmPasswordValue !== passwordValue) {
+      nextErrors.confirmPassword = "비밀번호가 일치하지 않습니다.";
     }
 
     setErrors(nextErrors);
-
     if (Object.keys(nextErrors).length > 0) {
       setNotice("");
       return;
     }
 
-    setNotice(
-      "로그인 화면 UI가 준비되었습니다. 인증 API 연결 후 부서별 콘솔로 이동합니다.",
-    );
+    setIsSubmitting(true);
+    setNotice("");
+    try {
+      if (isSignup) {
+        await signup({
+          username: accountValue,
+          display_name: displayNameValue,
+          password: passwordValue,
+        });
+        formElement.reset();
+        switchMode("login");
+        setNotice("회원가입이 완료되었습니다. 로그인해 주세요.");
+      } else {
+        const result = await login({
+          username: accountValue,
+          password: passwordValue,
+          remember_me: form.get("rememberAccount") === "on",
+        });
+        setNotice(`${result.user.display_name}님, 로그인되었습니다.`);
+      }
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "요청을 처리하지 못했습니다.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <main className="login-layout">
-      <section className="login-panel" aria-label="팀 계정 로그인">
+      <section
+        className={`login-panel ${isSignup ? "login-panel--signup" : ""}`}
+        aria-label={isSignup ? "팀 계정 회원가입" : "팀 계정 로그인"}
+      >
         <div className="login-shell">
           <header className="brand login-brand">
             <BrandMark />
@@ -120,6 +184,31 @@ export function LoginPage() {
                 )}
               </div>
 
+              {isSignup && (
+                <div className="form-field">
+                  <label htmlFor={displayNameId}>표시 이름</label>
+                  <input
+                    id={displayNameId}
+                    name="displayName"
+                    type="text"
+                    autoComplete="name"
+                    placeholder="예: 분석팀"
+                    aria-invalid={errors.displayName !== undefined}
+                    aria-describedby={
+                      errors.displayName === undefined
+                        ? undefined
+                        : `${displayNameId}-error`
+                    }
+                    onInput={() => clearFieldError("displayName")}
+                  />
+                  {errors.displayName !== undefined && (
+                    <span className="field-error" id={`${displayNameId}-error`}>
+                      {errors.displayName}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="form-field">
                 <label htmlFor={passwordId}>비밀번호</label>
                 <div
@@ -133,7 +222,7 @@ export function LoginPage() {
                     id={passwordId}
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
+                    autoComplete={isSignup ? "new-password" : "current-password"}
                     placeholder="비밀번호를 입력하세요"
                     aria-invalid={errors.password !== undefined}
                     aria-describedby={
@@ -162,31 +251,87 @@ export function LoginPage() {
                 )}
               </div>
 
-              <div className="login-form__options">
-                <label className="checkbox">
-                  <input type="checkbox" name="rememberAccount" />
-                  <span aria-hidden="true" />
-                  아이디 기억하기
-                </label>
-                <span className="account-help">계정 문의 · 관리자</span>
-              </div>
+              {isSignup && (
+                <div className="form-field">
+                  <label htmlFor={confirmPasswordId}>비밀번호 확인</label>
+                  <div
+                    className={`password-input ${
+                      errors.confirmPassword === undefined
+                        ? ""
+                        : "password-input--error"
+                    }`}
+                  >
+                    <input
+                      id={confirmPasswordId}
+                      name="confirmPassword"
+                      type={showConfirmPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      placeholder="비밀번호를 다시 입력하세요"
+                      aria-invalid={errors.confirmPassword !== undefined}
+                      aria-describedby={
+                        errors.confirmPassword === undefined
+                          ? undefined
+                          : `${confirmPasswordId}-error`
+                      }
+                      onInput={() => clearFieldError("confirmPassword")}
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={
+                        showConfirmPassword
+                          ? "비밀번호 확인 숨기기"
+                          : "비밀번호 확인 표시하기"
+                      }
+                      aria-pressed={showConfirmPassword}
+                      onClick={() =>
+                        setShowConfirmPassword((current) => !current)
+                      }
+                    >
+                      <EyeIcon hidden={showConfirmPassword} />
+                    </button>
+                  </div>
+                  {errors.confirmPassword !== undefined && (
+                    <span
+                      className="field-error"
+                      id={`${confirmPasswordId}-error`}
+                    >
+                      {errors.confirmPassword}
+                    </span>
+                  )}
+                </div>
+              )}
 
-              <button className="submit-button" type="submit">
-                로그인
-                <ArrowIcon />
+              {!isSignup && (
+                <div className="login-form__options">
+                  <label className="checkbox">
+                    <input type="checkbox" name="rememberAccount" />
+                    <span aria-hidden="true" />
+                    로그인 상태 유지
+                  </label>
+                  <span className="account-help">계정 문의 · 관리자</span>
+                </div>
+              )}
+
+              <button className="submit-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "처리 중..." : isSignup ? "회원가입" : "로그인"}
+                {!isSubmitting && <ArrowIcon />}
               </button>
 
-              <button className="signup-button" type="button">
-                회원가입
+              <button
+                className="signup-button"
+                type="button"
+                onClick={() => switchMode(isSignup ? "login" : "signup")}
+              >
+                {isSignup ? "로그인으로 돌아가기" : "회원가입"}
               </button>
 
               {notice !== "" && (
-                <p className="login-notice" role="status">
+                <p className="login-notice" role="status" aria-live="polite">
                   {notice}
                 </p>
               )}
             </form>
-
           </div>
 
           <footer className="login-panel__footer">

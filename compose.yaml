@@ -30,6 +30,8 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-cardops_app}:${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}@mysql:3306/${MYSQL_DATABASE:-cardops}
       MODEL_DIR: /app/outputs/models
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - ./outputs/models:/app/outputs/models:ro
     depends_on:

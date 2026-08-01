@@ -13,11 +13,14 @@
 - 고객 입력값 19개의 타입, 범위, 범주 검증
 - XGBoost Pipeline을 이용한 고객 이탈 확률 계산
 - Liveness와 Readiness 상태 확인 분리
+- SQLAlchemy와 MySQL을 이용한 사용자 계정 저장
+- Argon2 비밀번호 해시와 HttpOnly JWT 인증 쿠키
+- 회원가입, 로그인, 현재 사용자 조회, 로그아웃 API
 - 한국어 설명이 포함된 Swagger UI와 OpenAPI 문서 제공
 
 현재 백엔드는 고객 한 명의 특성 19개를 직접 받아 이탈 여부를 예측하는 단일
-Prediction API입니다. 로그인, 고객 데이터베이스 조회, 예측 이력 저장, 일괄
-예측, 조기 경보, 캠페인 기능은 아직 포함하지 않습니다.
+Prediction API와 팀 계정 인증 API를 제공합니다. 고객 데이터베이스 조회, 예측
+이력 저장, 일괄 예측, 조기 경보, 캠페인 기능은 아직 포함하지 않습니다.
 
 ## 백엔드 파일 구조
 
@@ -26,10 +29,13 @@ backend/
 ├── __init__.py
 ├── app/
 │   ├── __init__.py
+│   ├── auth.py
 │   ├── config.py
+│   ├── database.py
 │   ├── main.py
 │   ├── model_manifest.py
 │   ├── model_registry.py
+│   ├── models.py
 │   └── schemas.py
 ├── tests/
 │   └── test_api.py
@@ -41,7 +47,10 @@ backend/
 | 파일 | 책임 |
 |---|---|
 | `backend/app/main.py` | FastAPI 앱 생성, lifespan, 의존성 주입, API 경로 정의 |
-| `backend/app/config.py` | 앱 이름·버전, 프로젝트 경로, `MODEL_DIR` 설정 관리 |
+| `backend/app/auth.py` | 회원가입·로그인·로그아웃, Argon2 해시, JWT 쿠키 검증 |
+| `backend/app/config.py` | 앱 이름·버전, 프로젝트 경로, 모델·DB·인증 설정 관리 |
+| `backend/app/database.py` | SQLAlchemy 엔진·세션과 시작 시 테이블 초기화 |
+| `backend/app/models.py` | `users` 테이블 SQLAlchemy 모델 |
 | `backend/app/schemas.py` | 요청·응답 Pydantic Schema와 API 필드명 변환 |
 | `backend/app/model_manifest.py` | 모델 manifest 구조와 데이터 일관성 검증 |
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
@@ -232,6 +241,10 @@ await fetch("/api/v1/predictions", {
 |---|---|---|
 | `GET` | `/live` | API 프로세스가 실행 중인지 확인 |
 | `GET` | `/ready` | 모델이 정상적으로 로드되었는지 확인 |
+| `POST` | `/api/v1/auth/signup` | 팀 계정 회원가입 |
+| `POST` | `/api/v1/auth/login` | 로그인 및 HttpOnly 인증 쿠키 발급 |
+| `GET` | `/api/v1/auth/me` | 현재 로그인 사용자 조회 |
+| `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
 | `GET` | `/docs` | Swagger UI |
 | `GET` | `/redoc` | ReDoc API 문서 |
@@ -240,6 +253,13 @@ await fetch("/api/v1/predictions", {
 `/`, `/health`, `/api/v1/models`는 제공하지 않으며 요청하면 `404 Not Found`를
 반환합니다. 모델 선택은 서버가 검증된 manifest의 기본 모델을 적재하는 방식으로
 처리하므로 프론트엔드용 모델 목록 API는 필요하지 않습니다.
+
+인증 API는 `users` 테이블에 계정 아이디, 표시 이름, Argon2 비밀번호 해시를
+저장합니다. 로그인 성공 시 발급되는 JWT는 JavaScript에서 읽을 수 없는
+HttpOnly 쿠키에 저장되며, `/api/v1/auth/me`가 현재 사용자를 확인할 때 사용합니다.
+개발 환경에서는 Backend 시작 시 SQLAlchemy `create_all`로 테이블을 준비합니다.
+운영 환경에서 스키마 변경을 관리할 때는 Alembic 마이그레이션을 추가하는 것을
+권장합니다.
 
 정상적인 Readiness 응답 예시는 다음과 같습니다.
 
@@ -383,8 +403,7 @@ classification_xgboost.joblib
 
 - 현재 API는 고객 한 명의 요청을 동기 방식으로 예측하며 결과를 저장하지
   않습니다.
-- 고객 ID 조회, 데이터베이스, 인증, 권한, 예측 이력과 일괄 예측은 아직
-  구현하지 않았습니다.
+- 고객 ID 조회, 역할·권한, 예측 이력과 일괄 예측은 아직 구현하지 않았습니다.
 - 입력 수치의 최솟값과 최댓값은 현재 학습 데이터 범위를 기준으로 합니다.
   실제 운영 데이터에서는 업무상 유효 범위와 학습 범위를 분리해야 합니다.
 - 현재 lifespan에서 모델 적재가 실패하면 FastAPI 시작도 실패합니다. 따라서
