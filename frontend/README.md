@@ -153,13 +153,18 @@ frontend/
 │   │   ├── client.ts
 │   │   ├── insights.ts
 │   │   ├── modelRuns.ts
+│   │   ├── team.ts
 │   │   └── schema.d.ts
 │   ├── features/
 │   │   └── auth/
 │   │       ├── LoginPage.test.tsx
 │   │       └── LoginPage.tsx
-│   │   └── dashboard/
-│   │       └── DashboardPage.tsx
+│   │   ├── dashboard/
+│   │   │   ├── DashboardPage.test.tsx
+│   │   │   └── DashboardPage.tsx
+│   │   └── department/
+│   │       ├── DepartmentDashboardPage.test.tsx
+│   │       └── DepartmentDashboardPage.tsx
 │   ├── styles/
 │   │   └── global.css
 │   ├── test/
@@ -190,6 +195,7 @@ frontend/
 | `src/features/auth/LoginPage.tsx` | 로그인 화면 구조와 사용자 동작 | 로그인 필드와 버튼, 검증 로직 변경 |
 | `src/features/auth/LoginPage.test.tsx` | 로그인 화면 자동 테스트 | 로그인 동작을 변경하거나 기능 추가 |
 | `src/features/dashboard/DashboardPage.tsx` | 벤토 그리드 대시보드, 분석 이력·캠페인 큐·상세 패널과 로그아웃 | 대시보드 화면 구현 |
+| `src/features/department/DepartmentDashboardPage.tsx` | 운영·마케팅·관리자 전용 업무 화면과 역할별 접근 분기 | 부서별 화면 구현 |
 | `src/styles/global.css` | 색상, 크기, 간격과 반응형 디자인 | 로그인 화면 디자인 변경 |
 | `src/api/insights.ts` | 고객 분석 목록·상세·이력 API 호출 | 분석 조회 API 변경 |
 | `src/api/modelRuns.ts` | 최신 모델 배치 상태 API 호출 | 배치 상태 표시 변경 |
@@ -514,6 +520,7 @@ FastAPI: http://127.0.0.1:8000/api/v1/predictions
 | `POST` | `/api/v1/auth/signup` | 팀 계정 회원가입 |
 | `POST` | `/api/v1/auth/login` | 로그인 및 HttpOnly 쿠키 발급 |
 | `GET` | `/api/v1/auth/me` | 현재 사용자 조회 |
+| `GET` | `/api/v1/auth/users` | 관리자 전용 활성 팀 계정 조회 |
 | `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 
 ## 13. FastAPI 타입 가져오기
@@ -621,7 +628,7 @@ Vite의 optional WASM fallback 의존성에서 `@emnapi` 관련 peer 경고가 �
 현재 구현 이후 실제 서비스 요구사항에 따라 확장할 수 있는 항목입니다.
 
 1. 사용자·역할 관리 화면과 역할 변경 API
-2. React Router 기반 부서별 페이지
+2. React Router 기반 URL별 부서 페이지
 3. 인증 만료 시 공통 재로그인 화면
 4. 예측 입력 화면과 `/api/v1/predictions` 연결
 

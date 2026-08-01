@@ -64,6 +64,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 활성 팀 계정 목록 조회
+         * @description 관리자 화면에서 역할별 활성 팀 계정을 조회합니다.
+         */
+        get: operations["list_team_members_api_v1_auth_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/signup": {
         parameters: {
             query?: never;
@@ -861,6 +881,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_team_members_api_v1_auth_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"][];
                 };
             };
         };

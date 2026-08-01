@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getCurrentUser, type AuthUser } from "../api/auth";
 import type { ApiError } from "../api/client";
 import { LoginPage } from "../features/auth/LoginPage";
+import { DepartmentDashboardPage } from "../features/department/DepartmentDashboardPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 
 type AuthState =
@@ -113,10 +114,10 @@ export function App() {
     );
   }
 
-  return (
-    <DashboardPage
-      user={authState.user}
-      onLoggedOut={() => setAuthState({ status: "unauthenticated" })}
-    />
-  );
+  const onLoggedOut = () => setAuthState({ status: "unauthenticated" });
+  if (authState.user.role === "analyst") {
+    return <DashboardPage user={authState.user} onLoggedOut={onLoggedOut} />;
+  }
+
+  return <DepartmentDashboardPage user={authState.user} onLoggedOut={onLoggedOut} />;
 }

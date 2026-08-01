@@ -65,7 +65,8 @@ backend/
 │   └── versions/
 ├── scripts/
 │   ├── import_customers.py
-│   └── run_analysis_batch.py
+│   ├── run_analysis_batch.py
+│   └── seed_test_users.py
 ├── alembic.ini
 ├── tests/
 │   ├── test_api.py
@@ -98,6 +99,7 @@ backend/
 | `backend/migrations/` | 버전별 DB 스키마 변경 이력 |
 | `backend/scripts/import_customers.py` | 원본 고객 CSV 적재 명령 |
 | `backend/scripts/run_analysis_batch.py` | 전체 고객 모델 분석 배치 명령 |
+| `backend/scripts/seed_test_users.py` | 로컬 역할별 테스트 계정 생성·갱신 명령 |
 | `backend/app/schemas.py` | 요청·응답 Pydantic Schema와 API 필드명 변환 |
 | `backend/app/model_manifest.py` | 모델 manifest 구조와 데이터 일관성 검증 |
 | `backend/app/model_registry.py` | 모델 파일 무결성 확인, 모델 적재, 예측 실행 |
@@ -292,6 +294,7 @@ await fetch("/api/v1/predictions", {
 | `POST` | `/api/v1/auth/signup` | 팀 계정 회원가입 |
 | `POST` | `/api/v1/auth/login` | 로그인 및 HttpOnly 인증 쿠키 발급 |
 | `GET` | `/api/v1/auth/me` | 현재 로그인 사용자 조회 |
+| `GET` | `/api/v1/auth/users` | 관리자 전용 활성 팀 계정 조회 |
 | `POST` | `/api/v1/auth/logout` | 인증 쿠키 삭제 |
 | `POST` | `/api/v1/predictions` | 고객 정보로 이탈 상태와 확률 예측 |
 | `GET` | `/api/v1/customer-insights` | 최신 고객 분석 결과 목록·필터·페이지네이션 |
@@ -309,6 +312,26 @@ await fetch("/api/v1/predictions", {
 발급되는 JWT는 JavaScript에서 읽을 수 없는
 HttpOnly 쿠키에 저장되며, `/api/v1/auth/me`가 현재 사용자를 확인할 때 사용합니다.
 DB 테이블은 `create_all()`로 변경하지 않으며 Alembic migration으로 관리합니다.
+
+### 로컬 역할별 테스트 계정
+
+Docker Compose 환경에서 다음 명령으로 테스트 계정을 생성하거나 갱신합니다.
+
+```bash
+docker compose exec backend python -m backend.scripts.seed_test_users
+```
+
+| 역할 | 아이디 | 비밀번호 |
+|---|---|---|
+| 관리자 | `test_admin` | `CardOpsAdmin2026!` |
+| 분석팀 | `test_analyst` | `CardOpsAnalyst2026!` |
+| 운영팀 | `test_operations` | `CardOpsOps2026!` |
+| 마케팅팀 | `test_marketing` | `CardOpsMarketing2026!` |
+
+이 계정은 로컬 화면 검증용입니다. 운영 환경에서는 사용하지 말고, 테스트가
+끝난 뒤 비활성화하거나 삭제해야 합니다. 스크립트는 같은 아이디가 이미 있으면
+역할·비밀번호·표시 이름을 위 값으로 갱신하므로 여러 번 실행해도 중복되지
+않습니다.
 호스트에서 API를 직접 실행하기 전에는 다음 명령을 실행합니다.
 
 ```bash
