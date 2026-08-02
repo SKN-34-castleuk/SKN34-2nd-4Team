@@ -88,6 +88,7 @@ type CampaignManagementPageProps = {
   user: AuthUser;
   onBack: () => void;
   onLoggedOut: () => void;
+  backLabel?: string;
 };
 
 type CampaignForm = {
@@ -782,7 +783,7 @@ function EventTimeline({ data, page, onPageChange }: {
   );
 }
 
-export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignManagementPageProps) {
+export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = "분석 대시보드" }: CampaignManagementPageProps) {
   const canManageCampaigns = user.role === "admin" || user.role === "marketing";
   const canEditCampaignTargets = user.role === "admin";
   const canViewTargetPerformance = user.role === "admin" || user.role === "operations";
@@ -1128,7 +1129,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
             <span>{roleLabels[user.role]}</span>
           </div>
           {!isMarketingWorkspace && (
-            <button className="campaign-back-button" type="button" onClick={onBack}>분석 대시보드</button>
+            <button className="campaign-back-button" type="button" onClick={onBack}>{backLabel}</button>
           )}
           <button className="dashboard-logout" type="button" onClick={() => void handleLogout()} disabled={isLoggingOut}>
             {isLoggingOut ? "처리 중..." : "로그아웃"}

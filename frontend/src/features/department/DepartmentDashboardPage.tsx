@@ -84,6 +84,7 @@ type DepartmentDashboardPageProps = {
   user: AuthUser;
   onLoggedOut: () => void;
   onOpenCampaigns?: () => void;
+  onOpenDashboard?: () => void;
 };
 
 type CampaignDraft = {
@@ -157,6 +158,7 @@ function WorkspaceShell({
   isLoggingOut,
   logoutError,
   onOpenCampaigns,
+  onOpenDashboard,
   children,
 }: {
   user: AuthUser;
@@ -167,6 +169,7 @@ function WorkspaceShell({
   isLoggingOut: boolean;
   logoutError: string;
   onOpenCampaigns?: () => void;
+  onOpenDashboard?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -185,6 +188,11 @@ function WorkspaceShell({
           {onOpenCampaigns && (
             <button className="dashboard-nav-button" type="button" onClick={onOpenCampaigns}>
               캠페인 관리
+            </button>
+          )}
+          {onOpenDashboard && (
+            <button className="dashboard-nav-button" type="button" onClick={onOpenDashboard}>
+              고객 분석 대시보드
             </button>
           )}
           <button
@@ -977,7 +985,7 @@ function TeamRoster({
   );
 }
 
-export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: DepartmentDashboardPageProps) {
+export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenDashboard }: DepartmentDashboardPageProps) {
   const [insights, setInsights] = useState<CustomerInsightList | null>(null);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [campaignTargetTotal, setCampaignTargetTotal] = useState(0);
@@ -1321,6 +1329,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       isLoggingOut={isLoggingOut}
       logoutError={logoutError}
       onOpenCampaigns={user.role === "marketing" ? undefined : onOpenCampaigns}
+      onOpenDashboard={user.role === "admin" ? onOpenDashboard : undefined}
     >
       {isLoading && <section className="department-loading">부서별 업무 데이터를 불러오는 중입니다.</section>}
       {!isLoading && error !== "" && <section className="department-error" role="alert">{error}</section>}

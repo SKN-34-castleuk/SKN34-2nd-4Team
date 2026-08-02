@@ -20,6 +20,22 @@ const marketingUser = {
   created_at: "2026-08-01T00:00:00Z",
 };
 
+const adminUser = {
+  id: 1,
+  username: "admin_team",
+  display_name: "관리자",
+  role: "admin" as const,
+  created_at: "2026-08-01T00:00:00Z",
+};
+
+const operationsUser = {
+  id: 2,
+  username: "operations_team",
+  display_name: "운영팀",
+  role: "operations" as const,
+  created_at: "2026-08-01T00:00:00Z",
+};
+
 function successResponse(body: unknown) {
   return {
     ok: true,
@@ -133,6 +149,68 @@ describe("인증 상태 앱 셸", () => {
       await screen.findByRole("heading", { name: "마케팅 캠페인 센터" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "분석 대시보드" })).not.toBeInTheDocument();
+  });
+
+  it("관리자는 고객 분석 대시보드에서 관리자 콘솔로 돌아갑니다", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successResponse(adminUser))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
+    vi.stubGlobal("fetch", fetchMock);
+    const userEventInstance = userEvent.setup();
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
+    await userEventInstance.click(screen.getByRole("button", { name: "고객 분석 대시보드" }));
+    expect(await screen.findByRole("heading", { name: "고객 분석 대시보드" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "캠페인 실행 피드백" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "캠페인 처리 현황" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "관리자 콘솔" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "캠페인 조회" })).not.toBeInTheDocument();
+
+    await userEventInstance.click(screen.getByRole("button", { name: "관리자 콘솔" }));
+    expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
+  });
+
+  it("관리자가 캠페인 관리에서 돌아갈 때 관리자 콘솔 버튼을 표시합니다", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successResponse(adminUser))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
+    vi.stubGlobal("fetch", fetchMock);
+    const userEventInstance = userEvent.setup();
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
+    await userEventInstance.click(screen.getByRole("button", { name: "캠페인 관리" }));
+    expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "관리자 콘솔" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "분석 대시보드" })).not.toBeInTheDocument();
+
+    await userEventInstance.click(screen.getByRole("button", { name: "관리자 콘솔" }));
+    expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
+  });
+
+  it("운영 담당자가 캠페인 관리에서 돌아갈 때 운영 업무 센터 버튼을 표시합니다", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successResponse(operationsUser))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
+    vi.stubGlobal("fetch", fetchMock);
+    const userEventInstance = userEvent.setup();
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "운영 업무 센터" })).toBeInTheDocument();
+    await userEventInstance.click(screen.getByRole("button", { name: "캠페인 관리" }));
+    expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "운영 업무 센터" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "분석 대시보드" })).not.toBeInTheDocument();
+
+    await userEventInstance.click(screen.getByRole("button", { name: "운영 업무 센터" }));
+    expect(await screen.findByRole("heading", { name: "운영 업무 센터" })).toBeInTheDocument();
   });
 
   it("로그아웃하면 로그인 화면으로 돌아갑니다", async () => {
