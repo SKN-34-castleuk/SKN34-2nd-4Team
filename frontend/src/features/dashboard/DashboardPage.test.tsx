@@ -76,6 +76,7 @@ const insightList = {
     average_churn_probability: 0.82,
     risk_counts: { high: 1, medium: 0, low: 0 },
     cluster_counts: { "활성 저하군": 1 },
+    cluster_options: { "활성 저하군": 1, "우량(예상이상)": 2 },
   },
 };
 
@@ -106,6 +107,44 @@ const latestBatch = {
   ],
 };
 
+const campaignPerformance = {
+  campaign_id: null,
+  segment_code: null,
+  assigned_to_user_id: null,
+  summary: {
+    target_count: 10,
+    treatment_count: 8,
+    control_count: 2,
+    contacted_count: 6,
+    converted_count: 2,
+    retained_count: 1,
+    retention_eligible_count: 2,
+    retention_observed_count: 1,
+    retention_observation_rate: 0.5,
+    contact_rate: 0.6,
+    conversion_rate: 0.2,
+    retention_rate: 1,
+    treatment_contact_rate: 0.75,
+    control_contact_rate: 0,
+    treatment_conversion_rate: 0.25,
+    control_conversion_rate: 0,
+    treatment_retention_rate: 1,
+    control_retention_rate: null,
+    incremental_conversion_effect: 0.25,
+    incremental_retention_effect: null,
+    incremental_conversions: 2,
+    total_cost: 100,
+    observed_revenue: 500,
+    incremental_revenue: 500,
+    total_revenue: 500,
+    roi: 4,
+  },
+  by_campaign: [],
+  by_segment: [],
+  by_assignee: [],
+  generated_at: "2026-08-01T00:05:00Z",
+};
+
 function dashboardFetchMock() {
   return vi.fn().mockImplementation((input: RequestInfo | URL) => {
     const path = String(input);
@@ -114,6 +153,9 @@ function dashboardFetchMock() {
     }
     if (path.includes("/model-runs/latest")) {
       return Promise.resolve(successResponse(latestBatch));
+    }
+    if (path.includes("/campaign-performance")) {
+      return Promise.resolve(successResponse(campaignPerformance));
     }
     if (path.includes("/campaign-targets")) {
       return Promise.resolve(successResponse({ items: [], page: 1, page_size: 20, total: 0, total_pages: 0 }));
@@ -141,6 +183,37 @@ describe("고객 분석 대시보드", () => {
     expect(screen.getByText("1001")).toBeInTheDocument();
     expect(screen.getByText("개인화 혜택을 제안하세요.")).toBeInTheDocument();
     expect(screen.getAllByText("82%")).toHaveLength(2);
+    expect(await screen.findByRole("heading", { name: "캠페인 실행 피드백" })).toBeInTheDocument();
+    expect(screen.getByText("미처리 대상")).toBeInTheDocument();
+    expect(screen.getByText("4명")).toBeInTheDocument();
+    const metricHelpButton = screen.getByRole("button", { name: "지표 설명" });
+    expect(metricHelpButton).toHaveAttribute("aria-expanded", "false");
+    const user = userEvent.setup();
+    await user.click(metricHelpButton);
+    expect(screen.getByText(/전체 대상 중 실제로 전화·문자·이메일/)).toBeInTheDocument();
+    expect(screen.getByText(/캠페인 메시지·혜택·상담을 실제로 받은 그룹/)).toBeInTheDocument();
+    expect(screen.getByText(/비슷한 고객 중 일부러 캠페인을 받지 않도록/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "캠페인 지표 설명" })).toBeInTheDocument();
+    expect(metricHelpButton).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("button", { name: "지표 설명 닫기" }));
+    expect(screen.queryByRole("dialog", { name: "캠페인 지표 설명" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "전체 군집" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "활성 저하군 (1명)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "우량(예상이상) (2명)" })).toBeInTheDocument();
+  });
+
+  it("군집을 선택한 뒤에도 다른 군집으로 변경할 수 있습니다", async () => {
+    const fetchMock = dashboardFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+
+    const clusterFilter = await screen.findByRole("combobox", { name: "군집" });
+    await user.selectOptions(clusterFilter, "활성 저하군");
+
+    expect(screen.getByRole("option", { name: "우량(예상이상) (2명)" })).toBeInTheDocument();
+    expect(clusterFilter).toHaveValue("활성 저하군");
   });
 
   it("고객을 선택하면 상세 패널을 표시합니다", async () => {

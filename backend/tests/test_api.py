@@ -662,6 +662,10 @@ def test_customer_insight_list_filters_and_detail(
     assert payload["total_pages"] == 2
     assert payload["items"][0]["churn_probability"] == 0.9
     assert payload["stats"]["risk_counts"] == {"high": 1, "low": 1}
+    assert payload["stats"]["cluster_options"] == {
+        "우선케어(거래 감소)": 1,
+        "일반관리(유지)": 1,
+    }
 
     filtered_response = auth_client.get(
         "/api/v1/customer-insights",
@@ -669,6 +673,9 @@ def test_customer_insight_list_filters_and_detail(
     )
     assert filtered_response.status_code == 200
     assert filtered_response.json()["total"] == 1
+    assert filtered_response.json()["stats"]["cluster_options"] == {
+        "우선케어(거래 감소)": 1,
+    }
 
     customer_id = raw_rows[0]["customer_id"]
     detail_response = auth_client.get(

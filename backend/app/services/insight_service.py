@@ -32,6 +32,7 @@ class InsightPage:
     average_churn_probability: float
     risk_counts: dict[str, int]
     cluster_counts: dict[str, int]
+    cluster_options: dict[str, int]
 
 
 def _latest_query() -> Select[tuple[CustomerInsight]]:
@@ -101,6 +102,19 @@ def fetch_insight_page(
             func.count().label("count"),
         ).group_by(filtered_subquery.c.cluster_name)
     ).all()
+    cluster_options_query = _filtered_query(
+        InsightFilters(
+            risk_level=filters.risk_level,
+            customer_id=filters.customer_id,
+        )
+    )
+    cluster_options_subquery = cluster_options_query.order_by(None).subquery()
+    cluster_option_rows = db.execute(
+        select(
+            cluster_options_subquery.c.cluster_name,
+            func.count().label("count"),
+        ).group_by(cluster_options_subquery.c.cluster_name)
+    ).all()
     average_probability = db.scalar(
         select(func.avg(filtered_subquery.c.churn_probability))
     )
@@ -130,6 +144,7 @@ def fetch_insight_page(
         average_churn_probability=float(average_probability or 0.0),
         risk_counts={str(row[0]): int(row[1]) for row in risk_rows},
         cluster_counts={str(row[0]): int(row[1]) for row in cluster_rows},
+        cluster_options={str(row[0]): int(row[1]) for row in cluster_option_rows},
     )
 
 

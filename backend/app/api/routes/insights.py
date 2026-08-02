@@ -103,6 +103,7 @@ def list_customer_insights(
             average_churn_probability=result.average_churn_probability,
             risk_counts=result.risk_counts,
             cluster_counts=result.cluster_counts,
+            cluster_options=result.cluster_options,
         ),
     )
 

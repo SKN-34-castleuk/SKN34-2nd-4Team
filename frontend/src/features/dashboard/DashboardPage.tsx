@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import { logout, type AuthUser } from "../../api/auth";
 import {
   createCampaignTarget,
+  getCampaignPerformance,
   listCampaignTargets,
   updateCampaignTarget,
   type CampaignStatus,
   type CampaignTarget,
+  type CampaignPerformance,
 } from "../../api/campaigns";
 import {
   getCustomerInsight,
@@ -116,6 +118,12 @@ function getDominantCluster(clusterCounts: Record<string, number>): [string, num
     ([, countA], [, countB]) => countB - countA,
   );
   return cluster ?? null;
+}
+
+function getClusterOptions(clusterCounts: Record<string, number>): [string, number][] {
+  return Object.entries(clusterCounts).sort(([clusterA], [clusterB]) =>
+    clusterA.localeCompare(clusterB, "ko"),
+  );
 }
 
 function RiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) {
@@ -255,6 +263,188 @@ function BatchOverview({ batch }: { batch: LatestBatch | null }) {
               <span key={run.id}>{run.task} · {run.model_version}</span>
             ))}
           </div>
+        </>
+      )}
+    </article>
+  );
+}
+
+function signedPercentagePoints(value: number | null): string {
+  if (value === null) {
+    return "-";
+  }
+  return `${value > 0 ? "+" : ""}${Math.round(value * 100)}%p`;
+}
+
+function CampaignFeedback({
+  performance,
+  isLoading,
+  error,
+}: {
+  performance: CampaignPerformance | null;
+  isLoading: boolean;
+  error: string;
+}) {
+  const [showMetricHelp, setShowMetricHelp] = useState(false);
+  const metrics = performance?.summary ?? null;
+  const pendingCount = metrics === null
+    ? 0
+    : Math.max(metrics.target_count - metrics.contacted_count, 0);
+
+  useEffect(() => {
+    if (!showMetricHelp) {
+      return;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMetricHelp(false);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [showMetricHelp]);
+
+  return (
+    <article className="bento-card bento-card--campaign campaign-feedback">
+      <div className="table-card__header">
+        <div>
+          <p className="card-kicker">CAMPAIGN FEEDBACK</p>
+          <h2>캠페인 실행 피드백</h2>
+        </div>
+        <div className="campaign-feedback__header-actions">
+          <span className="table-count">
+            {metrics === null ? "전체 캠페인" : `${formatNumber(metrics.target_count)}명 대상`}
+          </span>
+          <button
+            className="campaign-feedback-help"
+            type="button"
+            aria-expanded={showMetricHelp}
+            aria-controls="campaign-feedback-metric-help"
+            onClick={() => setShowMetricHelp((current) => !current)}
+          >
+            <span aria-hidden="true">?</span>
+            지표 설명
+          </button>
+        </div>
+      </div>
+      <p className="campaign-feedback__intro">
+        실행 결과를 바탕으로 타기팅 품질과 운영 병목을 확인합니다. 개별 고객 처리는 운영팀이 담당합니다.
+      </p>
+      {showMetricHelp && (
+        <div className="campaign-feedback-help-backdrop">
+          <section
+            className="campaign-feedback-help-dialog"
+            id="campaign-feedback-metric-help"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="campaign-feedback-metric-help-title"
+          >
+            <div className="campaign-feedback-help-dialog__header">
+              <div>
+                <p className="card-kicker">METRIC GUIDE</p>
+                <h3 id="campaign-feedback-metric-help-title">캠페인 지표 설명</h3>
+              </div>
+              <button
+                className="campaign-feedback-help-close"
+                type="button"
+                aria-label="지표 설명 닫기"
+                onClick={() => setShowMetricHelp(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="campaign-feedback__help">
+              <div>
+                <strong>접촉률</strong>
+                <span>전체 대상 중 실제로 전화·문자·이메일 등 연락이 완료된 고객의 비율입니다. 100명 중 70명에게 연락했다면 70%입니다.</span>
+              </div>
+              <div>
+                <strong>미처리 대상</strong>
+                <span>아직 연락이 완료되지 않은 고객 수입니다. 숫자가 많으면 분석보다 운영팀의 실행이 지연되고 있을 수 있습니다.</span>
+              </div>
+              <div>
+                <strong>전환율</strong>
+                <span>캠페인 대상 중 신청·재이용·추가 거래 등 캠페인이 목표로 한 행동을 한 고객의 비율입니다.</span>
+              </div>
+              <div>
+                <strong>치료군 전환율</strong>
+                <span>캠페인 메시지·혜택·상담을 실제로 받은 그룹의 전환율입니다. 이 수치만으로는 캠페인 효과를 확정하지 않고 대조군과 비교합니다.</span>
+              </div>
+              <div>
+                <strong>대조군 전환율</strong>
+                <span>비슷한 고객 중 일부러 캠페인을 받지 않도록 남겨둔 비교 그룹의 전환율입니다. 캠페인이 없어도 자연스럽게 전환하는 비율을 보여줍니다.</span>
+              </div>
+              <div>
+                <strong>증분 전환 효과</strong>
+                <span>치료군 전환율에서 대조군 전환율을 뺀 값입니다. 예를 들어 치료군이 30%, 대조군이 10%이면 캠페인의 추가 효과는 +20%p로 해석합니다.</span>
+              </div>
+              <div>
+                <strong>ROI</strong>
+                <span>캠페인에 쓴 비용 대비 추가로 얻은 매출입니다. 0%보다 크면 비용보다 많은 추가 매출을 만들었다는 뜻입니다.</span>
+              </div>
+              <div>
+                <strong>유지율</strong>
+                <span>전환 후 설정된 관측 기간(예: 30일)이 지나도 계속 활동하거나 거래한 고객의 비율입니다. 아직 기간이 지나지 않은 고객은 계산에서 제외합니다.</span>
+              </div>
+            </div>
+            <p className="campaign-feedback__help-note">
+              치료군과 대조군의 차이가 클수록 캠페인 자체의 효과가 높다고 볼 수 있지만, 충분한 대상 수와 관측 기간이 함께 확보되어야 신뢰할 수 있습니다.
+            </p>
+          </section>
+        </div>
+      )}
+      {isLoading ? (
+        <p className="queue-state">캠페인 성과를 집계하는 중입니다.</p>
+      ) : error !== "" ? (
+        <p className="campaign-feedback__error" role="alert">{error}</p>
+      ) : metrics === null || metrics.target_count === 0 ? (
+        <p className="queue-state">분석할 캠페인 실행 결과가 없습니다.</p>
+      ) : (
+        <>
+          <div className="campaign-feedback__metrics">
+            <div>
+              <span>접촉률</span>
+              <strong>{formatPercent(metrics.contact_rate)}</strong>
+              <small>{formatNumber(metrics.contacted_count)} / {formatNumber(metrics.target_count)}명 접촉</small>
+            </div>
+            <div>
+              <span>미처리 대상</span>
+              <strong>{formatNumber(pendingCount)}명</strong>
+              <small>실행 병목 확인 대상</small>
+            </div>
+            <div>
+              <span>전환율</span>
+              <strong>{formatPercent(metrics.conversion_rate)}</strong>
+              <small>{formatNumber(metrics.converted_count)}명 전환</small>
+            </div>
+            <div>
+              <span>증분 전환 효과</span>
+              <strong>{signedPercentagePoints(metrics.incremental_conversion_effect)}</strong>
+              <small>치료군 − 대조군</small>
+            </div>
+            <div>
+              <span>ROI</span>
+              <strong>{metrics.roi === null ? "-" : formatPercent(metrics.roi)}</strong>
+              <small>증분 매출 기준</small>
+            </div>
+          </div>
+          <div className="campaign-feedback__comparison">
+            <div>
+              <span>치료군 전환율</span>
+              <strong>{formatPercent(metrics.treatment_conversion_rate ?? 0)}</strong>
+            </div>
+            <div>
+              <span>대조군 전환율</span>
+              <strong>{formatPercent(metrics.control_conversion_rate ?? 0)}</strong>
+            </div>
+            <div>
+              <span>유지율</span>
+              <strong>{metrics.retention_rate === null ? "관측 중" : formatPercent(metrics.retention_rate)}</strong>
+            </div>
+          </div>
+          <p className="campaign-feedback__note">
+            미처리 대상은 실행 병목, 치료군과 대조군의 차이는 타기팅의 실제 효과를 나타냅니다.
+          </p>
         </>
       )}
     </article>
@@ -510,7 +700,6 @@ function CustomerDetailPanel({
                 </button>
               </div>
             )}
-            {!canManageCampaigns && <p className="drawer-inline-state">캠페인 등록 권한이 없습니다.</p>}
             {campaignMessage !== "" && <p className="campaign-message" role="status">{campaignMessage}</p>}
           </div>
         </div>
@@ -539,6 +728,9 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
   const [campaignDrafts, setCampaignDrafts] = useState<Record<number, CampaignDraft>>({});
   const [campaignLoading, setCampaignLoading] = useState(true);
   const [campaignError, setCampaignError] = useState("");
+  const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance | null>(null);
+  const [campaignPerformanceLoading, setCampaignPerformanceLoading] = useState(user.role === "analyst");
+  const [campaignPerformanceError, setCampaignPerformanceError] = useState("");
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
@@ -603,6 +795,39 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (user.role !== "analyst") {
+      return;
+    }
+
+    let isActive = true;
+    void getCampaignPerformance()
+      .then((response) => {
+        if (isActive) {
+          setCampaignPerformance(response);
+          setCampaignPerformanceError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setCampaignPerformanceError(
+            requestError instanceof Error
+              ? requestError.message
+              : "캠페인 성과를 불러오지 못했습니다.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setCampaignPerformanceLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [user.role]);
 
   useEffect(() => {
     let isActive = true;
@@ -775,6 +1000,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
 
   const isInitialLoading = data === null && error === "";
   const dominantCluster = data === null ? null : getDominantCluster(data.stats.cluster_counts);
+  const clusterOptions = data === null ? [] : getClusterOptions(data.stats.cluster_options);
   const highRiskCount = data?.stats.risk_counts.high ?? 0;
 
   return (
@@ -830,7 +1056,6 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
             <p className="hero-caption">현재 필터 조건에 해당하는 최신 분석 스냅샷</p>
             <div className="hero-meta">
               <span><i className="status-pulse" /> 데이터 연결됨</span>
-              <span>페이지 {data.page} / {data.total_pages}</span>
             </div>
           </article>
 
@@ -922,15 +1147,21 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
               </label>
               <label className="filter-field filter-field--cluster">
                 <span>군집</span>
-                <input
-                  type="search"
+                <select
+                  aria-label="군집"
                   value={clusterFilter}
-                  placeholder="군집명"
                   onChange={(event) => {
                     setClusterFilter(event.target.value);
                     setPage(1);
                   }}
-                />
+                >
+                  <option value="">전체 군집</option>
+                  {clusterOptions.map(([cluster, count]) => (
+                    <option key={cluster} value={cluster}>
+                      {cluster} ({formatNumber(count)}명)
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="filter-field">
                 <span>정렬</span>
@@ -985,15 +1216,23 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
           </article>
 
           {campaignError !== "" && <p className="campaign-error" role="alert">{campaignError}</p>}
-          <CampaignQueue
-            targets={campaignTargets}
-            drafts={campaignDrafts}
-            canManage={canProcessCampaignTargets}
-            user={user}
-            isLoading={campaignLoading}
-            onDraftChange={handleCampaignDraftChange}
-            onSave={(targetId) => void handleSaveCampaign(targetId)}
-          />
+          {user.role === "analyst" ? (
+            <CampaignFeedback
+              performance={campaignPerformance}
+              isLoading={campaignPerformanceLoading}
+              error={campaignPerformanceError}
+            />
+          ) : (
+            <CampaignQueue
+              targets={campaignTargets}
+              drafts={campaignDrafts}
+              canManage={canProcessCampaignTargets}
+              user={user}
+              isLoading={campaignLoading}
+              onDraftChange={handleCampaignDraftChange}
+              onSave={(targetId) => void handleSaveCampaign(targetId)}
+            />
+          )}
         </section>
       )}
 

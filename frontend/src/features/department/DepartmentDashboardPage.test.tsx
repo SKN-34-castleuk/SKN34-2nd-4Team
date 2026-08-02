@@ -72,6 +72,7 @@ function departmentFetchMock(isAdmin = false) {
         average_churn_probability: 0.82,
         risk_counts: { high: 1, medium: 0, low: 0 },
         cluster_counts: { "활성 저하군": 1 },
+        cluster_options: { "활성 저하군": 1 },
       },
     }));
   });

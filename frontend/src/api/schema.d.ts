@@ -1439,6 +1439,10 @@ export interface components {
             cluster_counts: {
                 [key: string]: number;
             };
+            /** Available Cluster Options */
+            cluster_options: {
+                [key: string]: number;
+            };
         };
         /**
          * CustomerProfileResponse
