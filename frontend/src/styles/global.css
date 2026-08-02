@@ -2555,6 +2555,37 @@ button {
   font-size: 10px;
 }
 
+.campaign-inline-pagination--grouped {
+  position: relative;
+  justify-content: center;
+  flex-wrap: wrap;
+  min-height: 25px;
+}
+
+.campaign-inline-pagination--grouped > span {
+  position: absolute;
+  right: 0;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.campaign-inline-pagination__pages {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.campaign-inline-pagination__page {
+  padding: 0;
+  font-size: 9px;
+}
+
+.campaign-inline-pagination__page--active {
+  color: #ffffff !important;
+  border-color: var(--primary) !important;
+  background: var(--primary) !important;
+  font-weight: 800;
+}
+
 .campaign-detail-heading {
   padding-bottom: 22px;
   border-bottom: 1px solid #eef0f6;
@@ -2562,6 +2593,23 @@ button {
 
 .campaign-detail-heading h2 {
   font-size: clamp(20px, 3vw, 28px);
+}
+
+@media (max-width: 700px) {
+  .campaign-inline-pagination--grouped {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .campaign-inline-pagination--grouped > span {
+    position: static;
+    flex: 0 0 100%;
+    order: 2;
+  }
+
+  .campaign-inline-pagination--grouped > .campaign-inline-pagination__pages {
+    order: 1;
+  }
 }
 
 .campaign-detail-heading p:not(.card-kicker) {
@@ -2812,6 +2860,17 @@ button {
   box-shadow: none;
 }
 
+.campaign-target-panel__notice {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  border: 1px solid #e1e2f5;
+  border-radius: 9px;
+  background: #f8f8ff;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 .campaign-candidate-panel {
   margin-top: 16px;
   padding: 20px;
@@ -2907,6 +2966,17 @@ button {
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.campaign-target-performance-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.campaign-target-performance-readonly small {
+  color: var(--muted);
+  font-size: 8px;
 }
 
 .campaign-target-table select,
@@ -3264,6 +3334,11 @@ button {
   letter-spacing: 0.12em;
 }
 
+.department-layout--operations .department-stat > span {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
 .department-stat strong {
   margin-top: auto;
   color: var(--navy);
@@ -3281,6 +3356,10 @@ button {
 
 .department-layout--admin .department-stat small {
   font-size: 12px;
+}
+
+.department-layout--operations .department-stat small {
+  font-size: 13px;
 }
 
 .department-stat--purple {
@@ -3418,7 +3497,9 @@ button {
 .department-insight-pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  flex-wrap: wrap;
+  position: relative;
   gap: 12px;
   margin-top: 16px;
   padding-top: 14px;
@@ -3427,10 +3508,22 @@ button {
   font-size: 10px;
 }
 
+.department-insight-pagination > span {
+  position: absolute;
+  right: 14px;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .department-insight-pagination > div {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.department-insight-pagination__pages {
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .department-insight-pagination button {
@@ -3445,6 +3538,19 @@ button {
   background: #ffffff;
   font-size: 14px;
   cursor: pointer;
+}
+
+.department-insight-pagination__page {
+  width: 30px !important;
+  padding: 0 6px;
+  font-size: 10px !important;
+}
+
+.department-insight-pagination__page--active {
+  color: #ffffff !important;
+  border-color: var(--primary) !important;
+  background: var(--primary) !important;
+  font-weight: 800;
 }
 
 .department-insight-pagination button:hover:not(:disabled) {
@@ -3463,6 +3569,23 @@ button {
   color: var(--navy);
   font-size: 10px;
   text-align: center;
+}
+
+@media (max-width: 700px) {
+  .department-insight-pagination {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .department-insight-pagination > span {
+    position: static;
+    flex: 0 0 100%;
+    order: 2;
+  }
+
+  .department-insight-pagination__pages {
+    order: 1;
+  }
 }
 
 .department-insight-row,
@@ -3607,8 +3730,19 @@ button {
 
 .department-campaign-controls {
   display: grid;
-  grid-template-columns: 120px auto 180px minmax(100px, 1fr) auto;
+  grid-template-columns: 120px minmax(250px, 1.4fr) auto 180px minmax(100px, 1fr) auto;
   gap: 7px;
+}
+
+.department-campaign-performance {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(100px, 1fr) minmax(90px, 1fr);
+  gap: 6px;
+}
+
+.department-campaign-performance .campaign-conversion {
+  min-width: 58px;
 }
 
 .department-campaign-controls select,

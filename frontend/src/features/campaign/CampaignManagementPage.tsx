@@ -23,6 +23,7 @@ import { CampaignCandidatePanel } from "./CampaignCandidatePanel";
 import { CampaignPerformancePanel } from "./CampaignPerformancePanel";
 
 const PAGE_SIZE = 8;
+const PAGE_GROUP_SIZE = 10;
 
 const lifecycleLabels: Record<CampaignLifecycleStatus, string> = {
   draft: "초안",
@@ -496,7 +497,8 @@ function TargetTable({
   data,
   drafts,
   assignees,
-  canProcessTargets,
+  canEditTargets,
+  canViewPerformance,
   processingUser,
   onDraftChange,
   onSave,
@@ -505,7 +507,8 @@ function TargetTable({
   data: CampaignTargetList;
   drafts: Record<number, TargetDraft>;
   assignees: TeamMember[];
-  canProcessTargets: boolean;
+  canEditTargets: boolean;
+  canViewPerformance: boolean;
   processingUser: AuthUser;
   onDraftChange: (targetId: number, draft: TargetDraft) => void;
   onSave: (targetId: number) => void;
@@ -520,12 +523,12 @@ function TargetTable({
           <span>담당자</span>
           <span>결과</span>
           <span>전환</span>
-          {canProcessTargets && <span>성과</span>}
-          {canProcessTargets && <span>작업</span>}
+          {canViewPerformance && <span>성과</span>}
+          {canEditTargets && <span>작업</span>}
         </div>
         {data.items.map((target) => {
           const draft = drafts[target.id] ?? getTargetDraft(target);
-          const canEditTarget = canProcessTargets && (
+          const canEditTarget = canEditTargets && (
             processingUser.role === "admin"
             || (
               target.experiment_group === "treatment"
@@ -629,7 +632,7 @@ function TargetTable({
                   {target.converted ? "전환" : "-"}
                 </span>
               )}
-              {canProcessTargets && (canEditTarget ? (
+              {canViewPerformance && (canEditTarget ? (
                 <div className="campaign-target-retention">
                   <select
                     value={draft.retained === null ? "" : String(draft.retained)}
@@ -654,11 +657,12 @@ function TargetTable({
                   />
                 </div>
               ) : (
-                <span className="campaign-target-muted">
-                  {target.retained === null ? "미관측" : target.retained ? "유지" : "미유지"}
+                <span className="campaign-target-muted campaign-target-performance-readonly">
+                  <span>{target.retained === null ? "유지 미관측" : target.retained ? "유지" : "미유지"}</span>
+                  {target.outcome_revenue != null && <small>매출 {formatNumber(Math.round(target.outcome_revenue))}</small>}
                 </span>
               ))}
-              {canProcessTargets && (canEditTarget ? (
+              {canEditTargets && (canEditTarget ? (
                 <button
                   className="campaign-save-button"
                   type="button"
@@ -676,6 +680,68 @@ function TargetTable({
   );
 }
 
+function CampaignPagination({
+  label,
+  total,
+  page,
+  pageSize,
+  totalPages,
+  summarySuffix,
+  onPageChange,
+}: {
+  label: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  summarySuffix: string;
+  onPageChange: (page: number) => void;
+}) {
+  if (total <= 0) {
+    return null;
+  }
+  const groupStart = Math.floor((page - 1) / PAGE_GROUP_SIZE) * PAGE_GROUP_SIZE + 1;
+  const groupEnd = Math.min(groupStart + PAGE_GROUP_SIZE - 1, Math.max(totalPages, 1));
+  const pages = Array.from({ length: groupEnd - groupStart + 1 }, (_, index) => groupStart + index);
+  const currentStart = (page - 1) * pageSize + 1;
+  const currentEnd = Math.min(page * pageSize, total);
+  return (
+    <div className="campaign-inline-pagination campaign-inline-pagination--grouped">
+      <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}{summarySuffix}</span>
+      <div className="campaign-inline-pagination__pages">
+        <button
+          type="button"
+          disabled={groupStart === 1}
+          onClick={() => onPageChange(groupStart - 1)}
+          aria-label={`이전 ${label} 페이지 묶음`}
+        >
+          ‹
+        </button>
+        {pages.map((pageNumber) => (
+          <button
+            className={pageNumber === page ? "campaign-inline-pagination__page campaign-inline-pagination__page--active" : "campaign-inline-pagination__page"}
+            type="button"
+            key={pageNumber}
+            aria-label={`${label} ${pageNumber}페이지`}
+            aria-current={pageNumber === page ? "page" : undefined}
+            onClick={() => onPageChange(pageNumber)}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={groupEnd >= totalPages}
+          onClick={() => onPageChange(groupEnd + 1)}
+          aria-label={`다음 ${label} 페이지 묶음`}
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EventTimeline({ data, page, onPageChange }: {
   data: CampaignEventList | null;
   page: number;
@@ -684,7 +750,6 @@ function EventTimeline({ data, page, onPageChange }: {
   if (data === null || data.items.length === 0) {
     return <p className="campaign-empty-copy">아직 기록된 이벤트가 없습니다.</p>;
   }
-  const totalPages = Math.max(Math.ceil(data.total / data.page_size), 1);
   return (
     <>
       <div className="campaign-event-list">
@@ -704,21 +769,23 @@ function EventTimeline({ data, page, onPageChange }: {
           </article>
         ))}
       </div>
-      <div className="campaign-inline-pagination">
-        <span>{formatNumber(data.total)}개 이벤트</span>
-        <div>
-          <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="이전 이벤트 페이지">←</button>
-          <strong>{page}</strong>
-          <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} aria-label="다음 이벤트 페이지">→</button>
-        </div>
-      </div>
+      <CampaignPagination
+        label="이벤트"
+        total={data.total}
+        page={page}
+        pageSize={data.page_size}
+        totalPages={Math.max(Math.ceil(data.total / data.page_size), 1)}
+        summarySuffix="개 이벤트"
+        onPageChange={onPageChange}
+      />
     </>
   );
 }
 
 export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignManagementPageProps) {
   const canManageCampaigns = user.role === "admin" || user.role === "marketing";
-  const canProcessTargets = user.role === "admin" || user.role === "operations";
+  const canEditCampaignTargets = user.role === "admin";
+  const canViewTargetPerformance = user.role === "admin" || user.role === "operations";
   const isReadOnly = user.role === "analyst";
   const isMarketingWorkspace = user.role === "marketing";
   const [campaignData, setCampaignData] = useState<CampaignList | null>(null);
@@ -1040,7 +1107,6 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
   };
 
   const targetStats = targetData?.stats ?? selectedCampaign?.stats;
-  const targetTotalPages = targetData === null ? 0 : Math.max(targetData.total_pages, 1);
 
   return (
     <main className="campaign-management-layout">
@@ -1097,7 +1163,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
 
       <section className="campaign-management-grid">
         <aside className="campaign-catalog-panel">
-          <div className="campaign-panel-heading">
+                      <div className="campaign-panel-heading">
             <div>
               <p className="card-kicker">CAMPAIGN CATALOG</p>
               <h2>캠페인 목록</h2>
@@ -1248,6 +1314,11 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
                       </div>
                       <span className="campaign-panel-count">{formatNumber(targetData?.total ?? 0)}명</span>
                     </div>
+                    {user.role === "operations" && (
+                      <p className="campaign-target-panel__notice">
+                        운영팀의 대상 처리와 성과 입력은 WORK QUEUE에서 진행합니다. 이 화면에서는 캠페인별 현황과 이력을 조회할 수 있습니다.
+                      </p>
+                    )}
                     <div className="campaign-target-filters">
                       <select
                         value={targetStatusFilter}
@@ -1309,7 +1380,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
                         data={targetData}
                         drafts={targetDrafts}
                         assignees={assignees}
-                        canProcessTargets={canProcessTargets}
+                        canEditTargets={canEditCampaignTargets}
+                        canViewPerformance={canViewTargetPerformance}
                         processingUser={user}
                         onDraftChange={handleTargetDraftChange}
                         onSave={(targetId) => void handleSaveTarget(targetId)}
@@ -1317,14 +1389,15 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
                       />
                     )}
                     {targetData !== null && targetData.total > 0 && (
-                      <div className="campaign-inline-pagination">
-                        <span>{formatNumber(targetData.total)}명 중 {targetData.page}페이지</span>
-                        <div>
-                          <button type="button" disabled={targetPage <= 1} onClick={() => setTargetPage((current) => current - 1)} aria-label="이전 대상 페이지">←</button>
-                          <strong>{targetPage}</strong>
-                          <button type="button" disabled={targetPage >= targetTotalPages} onClick={() => setTargetPage((current) => current + 1)} aria-label="다음 대상 페이지">→</button>
-                        </div>
-                      </div>
+                      <CampaignPagination
+                        label="대상"
+                        total={targetData.total}
+                        page={targetPage}
+                        pageSize={targetData.page_size}
+                        totalPages={Math.max(targetData.total_pages, 1)}
+                        summarySuffix="명"
+                        onPageChange={setTargetPage}
+                      />
                     )}
                   </section>
 
