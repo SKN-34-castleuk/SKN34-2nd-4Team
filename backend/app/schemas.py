@@ -274,6 +274,7 @@ class CampaignStatsResponse(BaseModel):
     unprocessed_targets: int
     contacted_targets: int
     converted_targets: int
+    status_counts: dict[str, int]
 
 
 class CampaignResponse(BaseModel):

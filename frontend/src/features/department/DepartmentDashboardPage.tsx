@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { listTeamMembers, updateTeamMember, type TeamMember } from "../../api/team";
+import type { ApiError } from "../../api/client";
 import { logout, type AuthUser } from "../../api/auth";
 import {
   createCampaignTarget,
@@ -8,9 +9,15 @@ import {
   updateCampaignTarget,
   type CampaignStatus,
   type CampaignTarget,
+  type CampaignTargetList,
   type CampaignResultCode,
 } from "../../api/campaigns";
-import { listCustomerInsights, type CustomerInsight, type CustomerInsightList } from "../../api/insights";
+import {
+  listCustomerInsights,
+  type CustomerInsight,
+  type CustomerInsightList,
+  type InsightQuery,
+} from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 
 const roleLabels: Record<AuthUser["role"], string> = {
@@ -18,6 +25,12 @@ const roleLabels: Record<AuthUser["role"], string> = {
   analyst: "분석 담당자",
   operations: "운영 담당자",
   marketing: "마케팅 담당자",
+};
+
+const riskLabels: Record<CustomerInsight["risk_level"], string> = {
+  low: "낮음",
+  medium: "주의",
+  high: "높음",
 };
 
 const campaignStatusLabels: Record<CampaignStatus, string> = {
@@ -53,6 +66,9 @@ const roleDescriptions: Record<AuthUser["role"], string> = {
   marketing: "고객 세그먼트와 캠페인 실행 결과를 관리합니다.",
 };
 
+const MARKETING_INSIGHT_PAGE_SIZE = 8;
+const CAMPAIGN_QUEUE_PAGE_SIZE = 8;
+
 type DepartmentDashboardPageProps = {
   user: AuthUser;
   onLoggedOut: () => void;
@@ -66,6 +82,11 @@ type CampaignDraft = {
   assigned_to_user_id: number | null;
   converted: boolean;
 };
+
+type MarketingRiskFilter = "" | NonNullable<InsightQuery["risk_level"]>;
+type MarketingSortBy = NonNullable<InsightQuery["sort_by"]>;
+type MarketingSortOrder = NonNullable<InsightQuery["sort_order"]>;
+type CampaignTargetStats = NonNullable<CampaignTargetList["stats"]>;
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
@@ -89,6 +110,15 @@ function formatDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function DepartmentRiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) {
+  return (
+    <span className={`risk-badge risk-badge--${risk}`}>
+      <span aria-hidden="true" />
+      {riskLabels[risk]}
+    </span>
+  );
 }
 
 function WorkspaceShell({
@@ -188,45 +218,242 @@ function BatchCard({ batch }: { batch: LatestBatch | null }) {
   );
 }
 
+function MarketingCandidateFilters({
+  riskLevel,
+  clusterName,
+  sortBy,
+  sortOrder,
+  clusterOptions,
+  onRiskLevelChange,
+  onClusterNameChange,
+  onSortByChange,
+  onSortOrderChange,
+  onReset,
+}: {
+  riskLevel: MarketingRiskFilter;
+  clusterName: string;
+  sortBy: MarketingSortBy;
+  sortOrder: MarketingSortOrder;
+  clusterOptions: Record<string, number>;
+  onRiskLevelChange: (value: MarketingRiskFilter) => void;
+  onClusterNameChange: (value: string) => void;
+  onSortByChange: (value: MarketingSortBy) => void;
+  onSortOrderChange: (value: MarketingSortOrder) => void;
+  onReset: () => void;
+}) {
+  const sortedClusterOptions = Object.entries(clusterOptions).sort(
+    ([firstName, firstCount], [secondName, secondCount]) => secondCount - firstCount
+      || firstName.localeCompare(secondName),
+  );
+
+  return (
+    <>
+      <div className="insight-filters department-insight-filters">
+        <label className="filter-field">
+          <span>위험도</span>
+          <select
+            aria-label="캠페인 후보 위험도"
+            value={riskLevel}
+            onChange={(event) => onRiskLevelChange(event.target.value as MarketingRiskFilter)}
+          >
+            <option value="">전체 위험도</option>
+            <option value="high">높음</option>
+            <option value="medium">주의</option>
+            <option value="low">낮음</option>
+          </select>
+        </label>
+        <label className="filter-field filter-field--cluster">
+          <span>군집</span>
+          <select
+            aria-label="캠페인 후보 군집"
+            value={clusterName}
+            onChange={(event) => onClusterNameChange(event.target.value)}
+          >
+            <option value="">전체 군집</option>
+            {sortedClusterOptions.map(([name, count]) => (
+              <option key={name} value={name}>
+                {name} ({formatNumber(count)}명)
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>정렬 기준</span>
+          <select
+            aria-label="캠페인 후보 정렬 기준"
+            value={sortBy}
+            onChange={(event) => onSortByChange(event.target.value as MarketingSortBy)}
+          >
+            <option value="churn_probability">이탈 확률</option>
+            <option value="activity_gap">활동성 갭</option>
+            <option value="expected_transaction_count">예상 거래 건수</option>
+            <option value="scored_at">최근 분석 시각</option>
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>정렬 순서</span>
+          <select
+            aria-label="캠페인 후보 정렬 순서"
+            value={sortOrder}
+            onChange={(event) => onSortOrderChange(event.target.value as MarketingSortOrder)}
+          >
+            <option value="desc">높은 값부터</option>
+            <option value="asc">낮은 값부터</option>
+          </select>
+        </label>
+        <button className="reset-filter-button" type="button" onClick={onReset}>초기화</button>
+      </div>
+      <p className="department-panel__caption">
+        분석 결과를 기준으로 후보를 좁힌 뒤, 정렬된 고객부터 캠페인에 등록할 수 있습니다.
+      </p>
+    </>
+  );
+}
+
+function CampaignConflictDialog({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="campaign-feedback-help-backdrop">
+      <section
+        className="campaign-feedback-help-dialog campaign-conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="campaign-conflict-title"
+      >
+        <div className="campaign-feedback-help-dialog__header">
+          <div>
+            <p className="card-kicker">CAMPAIGN GUARD</p>
+            <h3 id="campaign-conflict-title">캠페인 등록 불가</h3>
+          </div>
+          <button
+            className="campaign-feedback-help-close"
+            type="button"
+            aria-label="캠페인 등록 안내 닫기"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <p className="campaign-conflict-dialog__message">{message}</p>
+        <p className="campaign-conflict-dialog__message">
+          중복 접촉을 막기 위해 이미 처리 중인 캠페인, 최근 접촉 고객, 수신 거부 고객은 후보 목록에서 자동으로 제외됩니다.
+        </p>
+        <button
+          className="department-action-button campaign-conflict-dialog__confirm"
+          type="button"
+          onClick={onClose}
+        >
+          확인
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function InsightPriorityTable({
+  kicker,
+  heading,
+  toolbar,
   insights,
   targets,
   campaignName,
   onCreate,
   isCreating,
+  total,
+  page,
+  pageSize,
+  totalPages,
+  onPageChange,
 }: {
+  kicker: string;
+  heading: string;
+  toolbar?: ReactNode;
   insights: CustomerInsight[];
   targets: CampaignTarget[];
   campaignName: string;
   onCreate?: (insight: CustomerInsight) => void;
   isCreating: number | null;
+  total: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  onPageChange?: (page: number) => void;
 }) {
   const targetInsightIds = new Set(targets.map((target) => target.customer_insight_id));
+  const currentPage = page ?? 1;
+  const currentPageSize = pageSize ?? insights.length;
+  const currentStart = total === 0 ? 0 : (currentPage - 1) * currentPageSize + 1;
+  const currentEnd = total === 0 ? 0 : Math.min(currentPage * currentPageSize, total);
+  const hasPagination = onPageChange !== undefined && totalPages !== undefined && totalPages > 1;
   return (
     <section className="department-panel department-panel--wide">
       <div className="department-panel__heading">
         <div>
-          <p className="card-kicker">CUSTOMER PRIORITY</p>
-          <h2>우선 관리 고객</h2>
+          <p className="card-kicker">{kicker}</p>
+          <h2>{heading}</h2>
         </div>
-        <span className="table-count">{formatNumber(insights.length)}명</span>
+        <span className="table-count">{formatNumber(total)}명</span>
       </div>
+      {toolbar}
       {insights.length === 0 ? (
         <p className="department-empty">현재 조건에 맞는 고객이 없습니다.</p>
       ) : (
-        <div className="department-insight-list">
-          {insights.slice(0, 8).map((insight) => {
+        <div className="department-insight-list" role="list" aria-label={`${heading} 목록`}>
+          <div className="department-insight-list__header" aria-hidden="true">
+            <span>고객</span>
+            <span>위험도</span>
+            <span>이탈 확률</span>
+            <span>활동성 갭</span>
+            <span>예상 거래</span>
+            <span>군집</span>
+            <span>추천 액션</span>
+            <span>캠페인</span>
+          </div>
+          {insights.map((insight) => {
             const isRegistered = targetInsightIds.has(insight.id);
             return (
-              <div className="department-insight-row" key={insight.id}>
-                <div>
+              <div className="department-insight-row" key={insight.id} role="listitem">
+                <span className="department-insight-row__customer">
                   <strong>{insight.customer_id}</strong>
-                  <small>{insight.recommended_action}</small>
-                </div>
-                <span className="department-risk">{formatPercent(insight.churn_probability)}</span>
-                <span className={insight.activity_gap < 0 ? "department-gap department-gap--negative" : "department-gap"}>
-                  {insight.activity_gap > 0 ? "+" : ""}{formatDecimal(insight.activity_gap)}
+                  <small>{formatDate(insight.scored_at)}</small>
                 </span>
+                <span className="department-insight-row__risk">
+                  <DepartmentRiskBadge risk={insight.risk_level} />
+                </span>
+                <span className="department-insight-row__metric">
+                  <strong>{formatPercent(insight.churn_probability)}</strong>
+                  <small>이탈 확률</small>
+                </span>
+                <span className={`department-insight-row__gap ${insight.activity_gap < 0 ? "department-gap--negative" : ""}`}>
+                  {insight.activity_gap > 0 ? "+" : ""}{formatDecimal(insight.activity_gap)}
+                  <small>활동성 갭</small>
+                </span>
+                <span className="department-insight-row__expected">
+                  {formatDecimal(insight.expected_transaction_count)}건
+                  <small>예상 거래</small>
+                </span>
+                <span className="department-insight-row__cluster">
+                  {insight.cluster_name}
+                  <small>
+                    신뢰도 {insight.cluster_confidence == null ? "-" : formatPercent(insight.cluster_confidence)}
+                  </small>
+                </span>
+                <span className="department-insight-row__action">{insight.recommended_action}</span>
                 {onCreate ? (
                   <button
                     type="button"
@@ -237,11 +464,35 @@ function InsightPriorityTable({
                     {isRegistered ? "등록됨" : isCreating === insight.id ? "등록 중..." : campaignName}
                   </button>
                 ) : (
-                  <span className="department-campaign-result">타깃 등록은 마케팅팀이 담당합니다.</span>
+                  <span className="department-campaign-result">마케팅팀 등록</span>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+      {hasPagination && (
+        <div className="department-insight-pagination">
+          <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}명</span>
+          <div>
+            <button
+              type="button"
+              aria-label="이전 우선 고객 페이지"
+              disabled={currentPage <= 1}
+              onClick={() => onPageChange?.(currentPage - 1)}
+            >
+              ←
+            </button>
+            <strong>{currentPage} / {totalPages}</strong>
+            <button
+              type="button"
+              aria-label="다음 우선 고객 페이지"
+              disabled={currentPage >= (totalPages ?? 1)}
+              onClick={() => onPageChange?.(currentPage + 1)}
+            >
+              →
+            </button>
+          </div>
         </div>
       )}
     </section>
@@ -250,12 +501,22 @@ function InsightPriorityTable({
 
 function CampaignQueue({
   targets,
+  total,
+  page,
+  pageSize,
+  totalPages,
+  onPageChange,
   canManage,
   assignees,
   user,
   onUpdated,
 }: {
   targets: CampaignTarget[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
   canManage: boolean;
   assignees: TeamMember[];
   user: AuthUser;
@@ -264,6 +525,9 @@ function CampaignQueue({
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const currentStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const currentEnd = total === 0 ? 0 : Math.min(page * pageSize, total);
+  const hasPagination = totalPages > 1;
 
   const save = async (target: CampaignTarget) => {
     const draft = drafts[target.id] ?? {
@@ -299,14 +563,14 @@ function CampaignQueue({
           <p className="card-kicker">WORK QUEUE</p>
           <h2>캠페인 처리 현황</h2>
         </div>
-        <span className="table-count">{formatNumber(targets.length)}건</span>
+        <span className="table-count">{formatNumber(total)}건</span>
       </div>
       {error !== "" && <p className="department-inline-error" role="alert">{error}</p>}
       {targets.length === 0 ? (
         <p className="department-empty">등록된 캠페인 대상이 없습니다.</p>
       ) : (
         <div className="department-campaign-list">
-          {targets.slice(0, 12).map((target) => {
+          {targets.map((target) => {
             const draft = drafts[target.id] ?? {
               status: target.status,
               result: target.result ?? "",
@@ -421,6 +685,30 @@ function CampaignQueue({
           })}
         </div>
       )}
+      {hasPagination && (
+        <div className="department-insight-pagination">
+          <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}건</span>
+          <div>
+            <button
+              type="button"
+              aria-label="이전 캠페인 처리 페이지"
+              disabled={page <= 1}
+              onClick={() => onPageChange(page - 1)}
+            >
+              ←
+            </button>
+            <strong>{page} / {totalPages}</strong>
+            <button
+              type="button"
+              aria-label="다음 캠페인 처리 페이지"
+              disabled={page >= totalPages}
+              onClick={() => onPageChange(page + 1)}
+            >
+              →
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -522,27 +810,62 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
   const [insights, setInsights] = useState<CustomerInsightList | null>(null);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [campaignTargetTotal, setCampaignTargetTotal] = useState(0);
+  const [campaignQueuePage, setCampaignQueuePage] = useState(1);
+  const [campaignQueueTotalPages, setCampaignQueueTotalPages] = useState(0);
+  const [campaignQueueStats, setCampaignQueueStats] = useState<CampaignTargetStats | null>(null);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState<number | null>(null);
+  const [insightPage, setInsightPage] = useState(1);
+  const [marketingRiskFilter, setMarketingRiskFilter] = useState<MarketingRiskFilter>("");
+  const [marketingClusterFilter, setMarketingClusterFilter] = useState("");
+  const [marketingSortBy, setMarketingSortBy] = useState<MarketingSortBy>("churn_probability");
+  const [marketingSortOrder, setMarketingSortOrder] = useState<MarketingSortOrder>("desc");
   const [createMessage, setCreateMessage] = useState("");
+  const [campaignConflictMessage, setCampaignConflictMessage] = useState("");
+  const [insightRefreshKey, setInsightRefreshKey] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
 
   const canProcessTargets = user.role === "admin" || user.role === "operations";
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
-  const insightQuery = useMemo(() => user.role === "operations"
-    ? { risk_level: "high" as const, sort_by: "churn_probability" as const, sort_order: "desc" as const, page: 1, page_size: 100 }
-    : { sort_by: "churn_probability" as const, sort_order: "desc" as const, page: 1, page_size: 100 }, [user.role]);
+  const insightQuery = useMemo(() => {
+    if (user.role === "operations") {
+      return {
+        risk_level: "high" as const,
+        sort_by: "churn_probability" as const,
+        sort_order: "desc" as const,
+        page: 1,
+        page_size: 100,
+      };
+    }
+    if (user.role === "marketing") {
+      return {
+        risk_level: marketingRiskFilter || undefined,
+        cluster_name: marketingClusterFilter || undefined,
+        sort_by: marketingSortBy,
+        sort_order: marketingSortOrder,
+        campaign_candidates_only: true,
+        page: insightPage,
+        page_size: MARKETING_INSIGHT_PAGE_SIZE,
+      };
+    }
+    return {
+      sort_by: "churn_probability" as const,
+      sort_order: "desc" as const,
+      page: 1,
+      page_size: 100,
+    };
+  }, [insightPage, marketingClusterFilter, marketingRiskFilter, marketingSortBy, marketingSortOrder, user.role]);
 
   useEffect(() => {
     let isActive = true;
     const load = async () => {
       const [insightResult, campaignResult, batchResult] = await Promise.allSettled([
         listCustomerInsights(insightQuery),
-        listCampaignTargets({ page: 1, page_size: 100 }),
+        listCampaignTargets({ page: campaignQueuePage, page_size: CAMPAIGN_QUEUE_PAGE_SIZE }),
         getLatestBatch(),
       ]);
       if (!isActive) {
@@ -556,6 +879,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       if (campaignResult.status === "fulfilled") {
         setTargets(campaignResult.value.items);
         setCampaignTargetTotal(campaignResult.value.total);
+        setCampaignQueueTotalPages(campaignResult.value.total_pages);
+        setCampaignQueueStats(campaignResult.value.stats ?? null);
       }
       if (batchResult.status === "fulfilled") {
         setBatch(batchResult.value);
@@ -566,7 +891,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
     return () => {
       isActive = false;
     };
-  }, [insightQuery]);
+  }, [campaignQueuePage, insightQuery, insightRefreshKey]);
 
   useEffect(() => {
     let isActive = true;
@@ -622,22 +947,74 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       setTargets((current) => [target, ...current]);
       setCampaignTargetTotal((current) => current + 1);
       setCreateMessage("캠페인 대상에 미배정 상태로 등록했습니다.");
+      setCampaignQueuePage(1);
+      setInsightPage(1);
+      setInsightRefreshKey((current) => current + 1);
     } catch (requestError) {
-      setCreateMessage(requestError instanceof Error ? requestError.message : "캠페인 등록에 실패했습니다.");
+      const apiError = requestError as ApiError;
+      if (apiError.status === 409) {
+        setCreateMessage("");
+        setCampaignConflictMessage(
+          "다른 사용자가 먼저 등록했거나 이 고객이 최근 접촉·수신 거부 상태로 변경되어 등록할 수 없습니다.",
+        );
+        setCampaignQueuePage(1);
+        setInsightPage(1);
+        setInsightRefreshKey((current) => current + 1);
+      } else {
+        setCreateMessage(requestError instanceof Error ? requestError.message : "캠페인 등록에 실패했습니다.");
+      }
     } finally {
       setIsCreating(null);
     }
   };
 
+  const updateMarketingRiskFilter = (value: MarketingRiskFilter) => {
+    setMarketingRiskFilter(value);
+    setInsightPage(1);
+  };
+
+  const handleCampaignQueueUpdated = (updated: CampaignTarget) => {
+    setTargets((current) => current.map((target) => target.id === updated.id ? updated : target));
+    setInsightRefreshKey((current) => current + 1);
+  };
+
+  const updateMarketingClusterFilter = (value: string) => {
+    setMarketingClusterFilter(value);
+    setInsightPage(1);
+  };
+
+  const updateMarketingSortBy = (value: MarketingSortBy) => {
+    setMarketingSortBy(value);
+    setMarketingSortOrder(value === "activity_gap" ? "asc" : "desc");
+    setInsightPage(1);
+  };
+
+  const updateMarketingSortOrder = (value: MarketingSortOrder) => {
+    setMarketingSortOrder(value);
+    setInsightPage(1);
+  };
+
+  const resetMarketingFilters = () => {
+    setMarketingRiskFilter("");
+    setMarketingClusterFilter("");
+    setMarketingSortBy("churn_probability");
+    setMarketingSortOrder("desc");
+    setInsightPage(1);
+  };
+
   const highRiskCount = insights?.stats.risk_counts.high ?? 0;
-  const pendingCount = targets.filter((target) => ["pending", "assigned"].includes(target.status)).length;
-  const completedCount = targets.filter((target) => target.status === "completed").length;
+  const pendingCount = campaignQueueStats?.unprocessed_targets ?? 0;
+  const completedCount = campaignQueueStats?.status_counts.completed ?? 0;
   const campaignStatusCounts = useMemo(() => Object.fromEntries(
     Object.keys(campaignStatusLabels).map((status) => [
       status,
-      targets.filter((target) => target.status === status).length,
+      campaignQueueStats?.status_counts[status] ?? 0,
     ]),
-  ) as Record<CampaignStatus, number>, [targets]);
+  ) as Record<CampaignStatus, number>, [campaignQueueStats]);
+  const campaignStatusTotal = Math.max(
+    campaignQueueStats?.total_targets ?? campaignTargetTotal,
+    1,
+  );
 
   const roleContent = user.role === "operations" ? (
     <>
@@ -647,8 +1024,28 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         <StatCard label="AVERAGE CHURN" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} caption="고위험 고객 기준" tone="purple" />
         <BatchCard batch={batch} />
       </section>
-      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="리텐션 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members.filter((member) => member.role === "operations" && member.is_active)} user={user} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <InsightPriorityTable
+        kicker="CUSTOMER PRIORITY"
+        heading="우선 관리 고객"
+        insights={(insights?.items ?? []).slice(0, 8)}
+        targets={targets}
+        campaignName="리텐션 등록"
+        onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined}
+        isCreating={isCreating}
+        total={Math.min(insights?.total ?? 0, 8)}
+      />
+      <CampaignQueue
+        targets={targets}
+        total={campaignTargetTotal}
+        page={campaignQueuePage}
+        pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
+        totalPages={campaignQueueTotalPages}
+        onPageChange={setCampaignQueuePage}
+        canManage={canProcessTargets}
+        assignees={members.filter((member) => member.role === "operations" && member.is_active)}
+        user={user}
+        onUpdated={handleCampaignQueueUpdated}
+      />
     </>
   ) : user.role === "marketing" ? (
     <>
@@ -670,13 +1067,61 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
             <div key={status}>
               <span>{label}</span>
               <strong>{campaignStatusCounts[status as CampaignStatus]}</strong>
-              <i style={{ width: `${Math.max((campaignStatusCounts[status as CampaignStatus] / Math.max(targets.length, 1)) * 100, campaignStatusCounts[status as CampaignStatus] > 0 ? 8 : 0)}%` }} />
+              <i
+                style={{
+                  width: `${Math.min(
+                    Math.max(
+                      (campaignStatusCounts[status as CampaignStatus] / campaignStatusTotal) * 100,
+                      campaignStatusCounts[status as CampaignStatus] > 0 ? 8 : 0,
+                    ),
+                    100,
+                  )}%`,
+                }}
+              />
             </div>
           ))}
         </div>
       </section>
-      <InsightPriorityTable insights={insights?.items ?? []} targets={targets} campaignName="캠페인 등록" onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined} isCreating={isCreating} />
-      <CampaignQueue targets={targets} canManage={canProcessTargets} assignees={members.filter((member) => member.role === "operations" && member.is_active)} user={user} onUpdated={(updated) => setTargets((current) => current.map((target) => target.id === updated.id ? updated : target))} />
+      <InsightPriorityTable
+        kicker="CAMPAIGN CANDIDATES"
+        heading="캠페인 후보 고객"
+        toolbar={(
+          <MarketingCandidateFilters
+            riskLevel={marketingRiskFilter}
+            clusterName={marketingClusterFilter}
+            sortBy={marketingSortBy}
+            sortOrder={marketingSortOrder}
+            clusterOptions={insights?.stats.cluster_options ?? {}}
+            onRiskLevelChange={updateMarketingRiskFilter}
+            onClusterNameChange={updateMarketingClusterFilter}
+            onSortByChange={updateMarketingSortBy}
+            onSortOrderChange={updateMarketingSortOrder}
+            onReset={resetMarketingFilters}
+          />
+        )}
+        insights={insights?.items ?? []}
+        targets={targets}
+        campaignName="캠페인 등록"
+        onCreate={undefined}
+        isCreating={isCreating}
+        total={insights?.total ?? 0}
+        page={insightPage}
+        pageSize={MARKETING_INSIGHT_PAGE_SIZE}
+        totalPages={insights?.total_pages ?? 0}
+        onPageChange={setInsightPage}
+      />
+      <CampaignQueue
+        targets={targets}
+        total={campaignTargetTotal}
+        page={campaignQueuePage}
+        pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
+        totalPages={campaignQueueTotalPages}
+        onPageChange={setCampaignQueuePage}
+        canManage={canProcessTargets}
+        assignees={members.filter((member) => member.role === "operations" && member.is_active)}
+        user={user}
+        onUpdated={handleCampaignQueueUpdated}
+      />
     </>
   ) : (
     <>
@@ -699,7 +1144,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       onLogout={() => void handleLogout()}
       isLoggingOut={isLoggingOut}
       logoutError={logoutError}
-      onOpenCampaigns={onOpenCampaigns}
+      onOpenCampaigns={user.role === "marketing" ? undefined : onOpenCampaigns}
     >
       {isLoading && <section className="department-loading">부서별 업무 데이터를 불러오는 중입니다.</section>}
       {!isLoading && error !== "" && <section className="department-error" role="alert">{error}</section>}
@@ -709,6 +1154,12 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
           {createMessage !== "" && <p className="department-message" role="status">{createMessage}</p>}
           {roleContent}
         </div>
+      )}
+      {campaignConflictMessage !== "" && (
+        <CampaignConflictDialog
+          message={campaignConflictMessage}
+          onClose={() => setCampaignConflictMessage("")}
+        />
       )}
     </WorkspaceShell>
   );

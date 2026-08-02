@@ -15,7 +15,13 @@ export type InsightQuery = {
   risk_level?: "low" | "medium" | "high";
   cluster_name?: string;
   customer_id?: number;
-  sort_by?: "churn_probability" | "activity_gap" | "scored_at";
+  campaign_candidates_only?: boolean;
+  campaign_id?: number;
+  sort_by?:
+    | "churn_probability"
+    | "activity_gap"
+    | "expected_transaction_count"
+    | "scored_at";
   sort_order?: "asc" | "desc";
   page?: number;
   page_size?: number;

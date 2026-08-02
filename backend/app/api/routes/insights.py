@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user
 from ...database import get_db
 from ...enums import RiskLevel
-from ...models import CustomerInsight, User
+from ...models import Campaign, CustomerInsight, User
 from ...schemas import (
     CustomerFeatureSnapshotResponse,
     CustomerInsightDetailResponse,
@@ -31,7 +31,12 @@ insights_router = APIRouter(
     prefix="/api/v1/customer-insights",
     tags=["customer-insights"],
 )
-SortField = Literal["churn_probability", "activity_gap", "scored_at"]
+SortField = Literal[
+    "churn_probability",
+    "activity_gap",
+    "expected_transaction_count",
+    "scored_at",
+]
 SortOrder = Literal["asc", "desc"]
 
 
@@ -61,6 +66,15 @@ def list_customer_insights(
         ge=1,
         description="고객 ID 정확히 검색",
     ),
+    campaign_candidates_only: bool = Query(
+        default=False,
+        description="캠페인 등록 가능한 고객만 조회",
+    ),
+    campaign_id: int | None = Query(
+        default=None,
+        ge=1,
+        description="후보 등록 대상 캠페인 ID",
+    ),
     sort_by: SortField = Query(
         default="churn_probability",
         description="정렬 기준",
@@ -80,12 +94,20 @@ def list_customer_insights(
     db: Session = Depends(get_db),
 ) -> CustomerInsightListResponse:
     """로그인 사용자가 고객별 최신 분석 결과를 필터·페이지 단위로 조회합니다."""
+    if campaign_candidates_only and campaign_id is not None:
+        if db.get(Campaign, campaign_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="The campaign was not found.",
+            )
     result = fetch_insight_page(
         db,
         filters=InsightFilters(
             risk_level=risk_level,
             cluster_name=cluster_name,
             customer_id=customer_id,
+            campaign_candidates_only=campaign_candidates_only,
+            campaign_id=campaign_id,
         ),
         sort_by=sort_by,
         sort_order=sort_order,

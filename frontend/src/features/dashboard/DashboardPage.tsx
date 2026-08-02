@@ -1174,6 +1174,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
                 >
                   <option value="churn_probability">이탈 확률</option>
                   <option value="activity_gap">활동성 갭</option>
+                  <option value="expected_transaction_count">예상 거래 건수</option>
                   <option value="scored_at">분석 시각</option>
                 </select>
               </label>
