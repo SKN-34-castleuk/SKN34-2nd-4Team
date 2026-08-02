@@ -219,6 +219,7 @@ class CustomerInsightStats(BaseModel):
     average_churn_probability: float = Field(ge=0.0, le=1.0)
     risk_counts: dict[str, int]
     cluster_counts: dict[str, int]
+    cluster_options: dict[str, int]
 
 
 class CustomerInsightHistoryResponse(BaseModel):

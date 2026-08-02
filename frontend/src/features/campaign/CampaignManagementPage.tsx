@@ -942,11 +942,11 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
           </p>
         </div>
         <div className="campaign-management-account">
-          <button className="campaign-back-button" type="button" onClick={onBack}>분석 대시보드</button>
           <div>
             <strong>{user.display_name}</strong>
             <span>{roleLabels[user.role]}</span>
           </div>
+          <button className="campaign-back-button" type="button" onClick={onBack}>분석 대시보드</button>
           <button className="dashboard-logout" type="button" onClick={() => void handleLogout()} disabled={isLoggingOut}>
             {isLoggingOut ? "처리 중..." : "로그아웃"}
           </button>

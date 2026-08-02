@@ -40,6 +40,7 @@ function insightsResponse() {
       average_churn_probability: 0,
       risk_counts: { high: 0, medium: 0, low: 0 },
       cluster_counts: {},
+      cluster_options: {},
     },
   };
 }
