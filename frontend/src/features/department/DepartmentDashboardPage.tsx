@@ -59,6 +59,15 @@ const campaignResultLabels: Record<CampaignResultCode, string> = {
   invalid_contact: "연락처 오류",
 };
 
+const finalCampaignResultCodes: CampaignResultCode[] = [
+  "converted",
+  "not_converted",
+  "no_response",
+  "declined",
+  "opted_out",
+  "invalid_contact",
+];
+
 const roleDescriptions: Record<AuthUser["role"], string> = {
   admin: "팀 계정과 업무 권한을 관리합니다.",
   analyst: "고객 분석 결과와 모델 배치 상태를 확인합니다.",
@@ -67,7 +76,9 @@ const roleDescriptions: Record<AuthUser["role"], string> = {
 };
 
 const MARKETING_INSIGHT_PAGE_SIZE = 8;
+const OPERATIONS_INSIGHT_PAGE_SIZE = 8;
 const CAMPAIGN_QUEUE_PAGE_SIZE = 8;
+const PAGE_GROUP_SIZE = 10;
 
 type DepartmentDashboardPageProps = {
   user: AuthUser;
@@ -81,6 +92,9 @@ type CampaignDraft = {
   result_code: CampaignResultCode | "";
   assigned_to_user_id: number | null;
   converted: boolean;
+  retained: boolean | null;
+  retainedDirty: boolean;
+  outcome_revenue: string;
 };
 
 type MarketingRiskFilter = "" | NonNullable<InsightQuery["risk_level"]>;
@@ -110,6 +124,19 @@ function formatDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function campaignQueueErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const translations: Record<string, string> = {
+    "Retention cannot be recorded before retention_window_days has elapsed.": "처리 완료와 전환은 저장할 수 있지만, 유지 결과는 유지 관측 기간(기본 30일)이 지난 후에 입력할 수 있습니다. 유지 여부를 '유지 미관측'으로 두고 먼저 저장한 뒤, 30일이 지나면 유지 또는 미유지를 입력해 주세요.",
+    "A treatment target must be completed before retention is recorded.": "유지 결과를 입력하려면 먼저 대상을 처리 완료 상태로 저장해야 합니다.",
+    "Retention cannot be recorded before the observation period starts.": "유지 관측 시작일이 아직 도래하지 않아 유지 결과를 입력할 수 없습니다.",
+    "A treatment result code requires a completed target.": "전환·미전환과 같은 최종 결과 코드는 대상을 처리 완료 상태로 저장한 후 입력할 수 있습니다.",
+    "A completed treatment target requires a final structured result code.": "처리 완료로 저장하려면 전환, 미전환, 응답 없음, 거절, 수신 거부 또는 연락처 오류 중 하나를 선택해야 합니다.",
+    "Outcome revenue can only be recorded for a converted target.": "성과 매출은 전환으로 처리된 고객에게만 입력할 수 있습니다.",
+  };
+  return translations[message] ?? (message || "캠페인 처리 결과를 저장하지 못했습니다. 입력값을 확인한 후 다시 시도해 주세요.");
 }
 
 function DepartmentRiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) {
@@ -365,6 +392,118 @@ function CampaignConflictDialog({
   );
 }
 
+function CampaignQueueFeedbackDialog({
+  message,
+  onClose,
+  variant,
+}: {
+  message: string;
+  onClose: () => void;
+  variant: "error" | "success";
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const title = variant === "success" ? "저장 완료" : "캠페인 처리 저장 안내";
+
+  return (
+    <div className="campaign-feedback-help-backdrop">
+      <section
+        className={`campaign-feedback-help-dialog campaign-conflict-dialog campaign-action-dialog campaign-action-dialog--${variant}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="campaign-queue-feedback-title"
+      >
+        <div className="campaign-feedback-help-dialog__header">
+          <div>
+            <p className="card-kicker">{variant === "success" ? "CAMPAIGN SAVED" : "CAMPAIGN UPDATE"}</p>
+            <h3 id="campaign-queue-feedback-title">{title}</h3>
+          </div>
+          <button
+            className="campaign-feedback-help-close"
+            type="button"
+            aria-label={`${title} 닫기`}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <p className="campaign-conflict-dialog__message">{message}</p>
+        <button className="department-action-button campaign-conflict-dialog__confirm" type="button" onClick={onClose}>
+          확인
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function DepartmentPagination({
+  label,
+  currentStart,
+  currentEnd,
+  total,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  label: string;
+  currentStart: number;
+  currentEnd: number;
+  total: number;
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) {
+    return null;
+  }
+  const groupStart = Math.floor((page - 1) / PAGE_GROUP_SIZE) * PAGE_GROUP_SIZE + 1;
+  const groupEnd = Math.min(groupStart + PAGE_GROUP_SIZE - 1, totalPages);
+  const pages = Array.from({ length: groupEnd - groupStart + 1 }, (_, index) => groupStart + index);
+  return (
+    <div className="department-insight-pagination">
+      <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}명</span>
+      <div className="department-insight-pagination__pages">
+        <button
+          type="button"
+          aria-label={`이전 ${label} 페이지 묶음`}
+          disabled={groupStart === 1}
+          onClick={() => onPageChange(groupStart - 1)}
+        >
+          ‹
+        </button>
+        {pages.map((pageNumber) => (
+          <button
+            type="button"
+            key={pageNumber}
+            className={pageNumber === page ? "department-insight-pagination__page department-insight-pagination__page--active" : "department-insight-pagination__page"}
+            aria-label={`${label} ${pageNumber}페이지`}
+            aria-current={pageNumber === page ? "page" : undefined}
+            onClick={() => onPageChange(pageNumber)}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-label={`다음 ${label} 페이지 묶음`}
+          disabled={groupEnd === totalPages}
+          onClick={() => onPageChange(groupEnd + 1)}
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function InsightPriorityTable({
   kicker,
   heading,
@@ -472,28 +611,15 @@ function InsightPriorityTable({
         </div>
       )}
       {hasPagination && (
-        <div className="department-insight-pagination">
-          <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}명</span>
-          <div>
-            <button
-              type="button"
-              aria-label="이전 우선 고객 페이지"
-              disabled={currentPage <= 1}
-              onClick={() => onPageChange?.(currentPage - 1)}
-            >
-              ←
-            </button>
-            <strong>{currentPage} / {totalPages}</strong>
-            <button
-              type="button"
-              aria-label="다음 우선 고객 페이지"
-              disabled={currentPage >= (totalPages ?? 1)}
-              onClick={() => onPageChange?.(currentPage + 1)}
-            >
-              →
-            </button>
-          </div>
-        </div>
+        <DepartmentPagination
+          label="우선 고객"
+          currentStart={currentStart}
+          currentEnd={currentEnd}
+          total={total}
+          page={currentPage}
+          totalPages={totalPages ?? 0}
+          onPageChange={onPageChange!}
+        />
       )}
     </section>
   );
@@ -525,6 +651,7 @@ function CampaignQueue({
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const currentStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const currentEnd = total === 0 ? 0 : Math.min(page * pageSize, total);
   const hasPagination = totalPages > 1;
@@ -536,9 +663,13 @@ function CampaignQueue({
       result_code: target.result_code ?? "",
       assigned_to_user_id: target.assigned_to_user_id,
       converted: target.converted,
+      retained: target.retained ?? null,
+      retainedDirty: false,
+      outcome_revenue: target.outcome_revenue == null ? "" : String(target.outcome_revenue),
     };
     setSavingId(target.id);
     setError("");
+    setSuccess("");
     try {
       const updated = await updateCampaignTarget(target.id, {
         status: draft.status,
@@ -547,10 +678,14 @@ function CampaignQueue({
           : {}),
         result: draft.result || undefined,
         result_code: draft.result_code || undefined,
+        converted: draft.converted,
+        ...(draft.retainedDirty ? { retained: draft.retained } : {}),
+        outcome_revenue: draft.outcome_revenue === "" ? null : Number(draft.outcome_revenue),
       });
       onUpdated(updated);
+      setSuccess("캠페인 처리 결과를 저장했습니다.");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "처리 결과 저장에 실패했습니다.");
+      setError(campaignQueueErrorMessage(requestError));
     } finally {
       setSavingId(null);
     }
@@ -565,7 +700,8 @@ function CampaignQueue({
         </div>
         <span className="table-count">{formatNumber(total)}건</span>
       </div>
-      {error !== "" && <p className="department-inline-error" role="alert">{error}</p>}
+      {error !== "" && <CampaignQueueFeedbackDialog message={error} variant="error" onClose={() => setError("")} />}
+      {success !== "" && <CampaignQueueFeedbackDialog message={success} variant="success" onClose={() => setSuccess("")} />}
       {targets.length === 0 ? (
         <p className="department-empty">등록된 캠페인 대상이 없습니다.</p>
       ) : (
@@ -577,6 +713,9 @@ function CampaignQueue({
               result_code: target.result_code ?? "",
               assigned_to_user_id: target.assigned_to_user_id,
               converted: target.converted,
+              retained: target.retained ?? null,
+              retainedDirty: false,
+              outcome_revenue: target.outcome_revenue == null ? "" : String(target.outcome_revenue),
             };
             const canEditTarget = canManage && (
               user.role === "admin"
@@ -595,7 +734,17 @@ function CampaignQueue({
               return true;
             });
             const finalCodeRequired = draft.status === "completed"
-              && !["converted", "not_converted", "no_response", "declined", "opted_out", "invalid_contact"].includes(draft.result_code);
+              && !finalCampaignResultCodes.includes(draft.result_code as CampaignResultCode);
+            const availableResultCodes = Object.entries(campaignResultLabels).filter(([code]) => {
+              if (target.experiment_group === "control") {
+                return code !== "contacted";
+              }
+              if (code === "contacted") {
+                return draft.status === "contacted" || draft.status === "completed";
+              }
+              return draft.status === "completed";
+            });
+            const retentionDisabled = target.experiment_group === "treatment" && draft.status !== "completed";
             return (
               <div className="department-campaign-row" key={target.id}>
                 <div>
@@ -610,10 +759,22 @@ function CampaignQueue({
                     <select
                       aria-label={`${target.customer_id} 처리 상태`}
                       value={draft.status}
-                      onChange={(event) => setDrafts((current) => ({
-                        ...current,
-                        [target.id]: { ...draft, status: event.target.value as CampaignStatus },
-                      }))}
+                      onChange={(event) => setDrafts((current) => {
+                        const status = event.target.value as CampaignStatus;
+                        const isCompleted = status === "completed";
+                        const isFinalCode = finalCampaignResultCodes.includes(draft.result_code as CampaignResultCode);
+                        return {
+                          ...current,
+                          [target.id]: {
+                            ...draft,
+                            status,
+                            result_code: !isCompleted && isFinalCode ? "" : draft.result_code,
+                            converted: isCompleted ? draft.converted : false,
+                            retained: retentionDisabled || !isCompleted ? null : draft.retained,
+                            outcome_revenue: isCompleted && draft.converted ? draft.outcome_revenue : "",
+                          },
+                        };
+                      })}
                     >
                       {availableStatuses.map((value) => (
                         <option value={value} key={value}>
@@ -621,6 +782,38 @@ function CampaignQueue({
                         </option>
                       ))}
                     </select>
+                    <div className="department-campaign-performance">
+                      <select
+                        aria-label={`${target.customer_id} 유지 여부`}
+                        value={draft.retained === null ? "" : String(draft.retained)}
+                        disabled={retentionDisabled}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current,
+                          [target.id]: {
+                          ...draft,
+                            retained: event.target.value === "" ? null : event.target.value === "true",
+                            retainedDirty: true,
+                          },
+                        }))}
+                      >
+                        <option value="">유지 미관측</option>
+                        <option value="true">유지</option>
+                        <option value="false">미유지</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        aria-label={`${target.customer_id} 성과 매출`}
+                        value={draft.outcome_revenue}
+                        placeholder="성과 매출"
+                        disabled={!draft.converted}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current,
+                          [target.id]: { ...draft, outcome_revenue: event.target.value },
+                        }))}
+                      />
+                    </div>
                     <select
                       aria-label={`${target.customer_id} 결과 코드`}
                       value={draft.result_code}
@@ -630,22 +823,13 @@ function CampaignQueue({
                           ...draft,
                           result_code: event.target.value as CampaignResultCode | "",
                           converted: event.target.value === "converted",
+                          outcome_revenue: event.target.value === "converted" ? draft.outcome_revenue : "",
                         },
                       }))}
                     >
                       <option value="">결과 코드</option>
-                      {Object.entries(campaignResultLabels)
-                        .filter(([code]) => target.experiment_group !== "control" || code !== "contacted")
-                        .map(([code, label]) => <option value={code} key={code}>{label}</option>)}
+                      {availableResultCodes.map(([code, label]) => <option value={code} key={code}>{label}</option>)}
                     </select>
-                    <label className="campaign-conversion">
-                      <input
-                        type="checkbox"
-                        checked={draft.result_code === "converted"}
-                        disabled
-                      />
-                      전환
-                    </label>
                     <select
                       aria-label={`${target.customer_id} 담당자`}
                       value={draft.assigned_to_user_id === null ? "" : String(draft.assigned_to_user_id)}
@@ -686,28 +870,15 @@ function CampaignQueue({
         </div>
       )}
       {hasPagination && (
-        <div className="department-insight-pagination">
-          <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}건</span>
-          <div>
-            <button
-              type="button"
-              aria-label="이전 캠페인 처리 페이지"
-              disabled={page <= 1}
-              onClick={() => onPageChange(page - 1)}
-            >
-              ←
-            </button>
-            <strong>{page} / {totalPages}</strong>
-            <button
-              type="button"
-              aria-label="다음 캠페인 처리 페이지"
-              disabled={page >= totalPages}
-              onClick={() => onPageChange(page + 1)}
-            >
-              →
-            </button>
-          </div>
-        </div>
+        <DepartmentPagination
+          label="캠페인 처리"
+          currentStart={currentStart}
+          currentEnd={currentEnd}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+        />
       )}
     </section>
   );
@@ -818,6 +989,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState<number | null>(null);
+  const [operationsInsightPage, setOperationsInsightPage] = useState(1);
   const [insightPage, setInsightPage] = useState(1);
   const [marketingRiskFilter, setMarketingRiskFilter] = useState<MarketingRiskFilter>("");
   const [marketingClusterFilter, setMarketingClusterFilter] = useState("");
@@ -837,8 +1009,8 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         risk_level: "high" as const,
         sort_by: "churn_probability" as const,
         sort_order: "desc" as const,
-        page: 1,
-        page_size: 100,
+        page: operationsInsightPage,
+        page_size: OPERATIONS_INSIGHT_PAGE_SIZE,
       };
     }
     if (user.role === "marketing") {
@@ -858,7 +1030,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       page: 1,
       page_size: 100,
     };
-  }, [insightPage, marketingClusterFilter, marketingRiskFilter, marketingSortBy, marketingSortOrder, user.role]);
+  }, [insightPage, marketingClusterFilter, marketingRiskFilter, marketingSortBy, marketingSortOrder, operationsInsightPage, user.role]);
 
   useEffect(() => {
     let isActive = true;
@@ -1027,12 +1199,16 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       <InsightPriorityTable
         kicker="CUSTOMER PRIORITY"
         heading="우선 관리 고객"
-        insights={(insights?.items ?? []).slice(0, 8)}
+        insights={insights?.items ?? []}
         targets={targets}
         campaignName="리텐션 등록"
         onCreate={canCreateCampaignTargets ? (item) => void createCampaign(item) : undefined}
         isCreating={isCreating}
-        total={Math.min(insights?.total ?? 0, 8)}
+        total={insights?.total ?? 0}
+        page={operationsInsightPage}
+        pageSize={OPERATIONS_INSIGHT_PAGE_SIZE}
+        totalPages={insights?.total_pages ?? 0}
+        onPageChange={setOperationsInsightPage}
       />
       <CampaignQueue
         targets={targets}

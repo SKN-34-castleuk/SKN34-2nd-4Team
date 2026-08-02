@@ -80,9 +80,11 @@ const insight = {
   scored_at: "2026-08-01T00:00:00Z",
 };
 
-function campaignFetchMock(conflictOnTarget = false, updateError = false) {
+function campaignFetchMock(conflictOnTarget = false, updateError = false, paginatedTotal = 1) {
   return vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
+    const requestUrl = new URL(path, "http://localhost");
+    const requestedPage = Number(requestUrl.searchParams.get("page") ?? "1");
     if (path.includes("/customer-insights")) {
       return Promise.resolve(successResponse({
         items: [insight],
@@ -119,10 +121,10 @@ function campaignFetchMock(conflictOnTarget = false, updateError = false) {
     if (path.includes("/campaigns/1/targets")) {
       return Promise.resolve(successResponse({
         items: [target],
-        page: 1,
+        page: requestedPage,
         page_size: 8,
-        total: 1,
-        total_pages: 1,
+        total: paginatedTotal,
+        total_pages: Math.max(Math.ceil(paginatedTotal / 8), 1),
         stats: campaign.stats,
       }));
     }
@@ -141,9 +143,9 @@ function campaignFetchMock(conflictOnTarget = false, updateError = false) {
           metadata_json: null,
           created_at: "2026-08-01T01:00:00Z",
         }],
-        page: 1,
+        page: requestedPage,
         page_size: 8,
-        total: 1,
+        total: paginatedTotal,
       }));
     }
     if (path.includes("/auth/users")) {
@@ -178,8 +180,47 @@ describe("캠페인 관리 화면", () => {
     expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
     expect(screen.getAllByText("8월 고위험 고객 리텐션")).toHaveLength(2);
     expect(await screen.findByText("고객 1001")).toBeInTheDocument();
+    expect(screen.getByText(/운영팀의 대상 처리와 성과 입력은 WORK QUEUE에서 진행합니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "저장" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "캠페인 이벤트 이력" })).toBeInTheDocument();
     expect(screen.getByText("상태 변경")).toBeInTheDocument();
+  });
+
+  it("대상과 이벤트 이력은 10개 페이지 단위로 이동합니다", async () => {
+    const fetchMock = campaignFetchMock(false, false, 168);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CampaignManagementPage
+        user={operationsUser}
+        onBack={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "대상 1페이지" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "대상 10페이지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "대상 11페이지" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이벤트 1페이지" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이벤트 10페이지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이벤트 11페이지" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 대상 페이지 묶음" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+      String(input).includes("/campaigns/1/targets") && String(input).includes("page=11")
+    ))).toBe(true));
+    expect(screen.getByRole("button", { name: "대상 11페이지" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "대상 20페이지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "대상 1페이지" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 이벤트 페이지 묶음" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+      String(input).includes("/campaigns/1/events") && String(input).includes("page=11")
+    ))).toBe(true));
+    expect(screen.getByRole("button", { name: "이벤트 11페이지" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이벤트 20페이지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이벤트 1페이지" })).not.toBeInTheDocument();
   });
 
   it("마케팅팀은 캠페인 센터에서 후보를 선택해 대상 등록을 수행합니다", async () => {
