@@ -118,6 +118,7 @@ class CampaignStats:
     unprocessed_targets: int
     contacted_targets: int
     converted_targets: int
+    status_counts: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,15 @@ def _campaign_stats_query(conditions: list[Any]):
             func.sum(case((CampaignTarget.converted.is_(True), 1), else_=0)),
             0,
         ),
+        *(
+            func.coalesce(
+                func.sum(
+                    case((CampaignTarget.status == status.value, 1), else_=0)
+                ),
+                0,
+            )
+            for status in CampaignStatus
+        ),
     ).where(*conditions)
 
 
@@ -196,6 +206,10 @@ def _to_stats(row: Any) -> CampaignStats:
         unprocessed_targets=int(values[1] or 0),
         contacted_targets=int(values[2] or 0),
         converted_targets=int(values[3] or 0),
+        status_counts={
+            status.value: int(values[index] or 0)
+            for index, status in enumerate(CampaignStatus, start=4)
+        },
     )
 
 
@@ -703,6 +717,19 @@ def _enforce_contact_eligibility(
     if recent_target_id is not None:
         raise CampaignConflictError(
             "The customer was contacted within the contact cooldown period."
+        )
+
+    existing_campaign_target_id = db.scalar(
+        select(CampaignTarget.id)
+        .where(
+            CampaignTarget.customer_id == customer_id,
+            CampaignTarget.campaign_id == campaign.id,
+        )
+        .limit(1)
+    )
+    if existing_campaign_target_id is not None:
+        raise CampaignConflictError(
+            "The customer is already registered in this campaign."
         )
 
     query = (

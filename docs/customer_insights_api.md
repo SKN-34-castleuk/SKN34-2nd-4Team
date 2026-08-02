@@ -58,7 +58,9 @@ GET /api/v1/customer-insights
 | `risk_level` | 없음 | `low`, `medium`, `high` |
 | `cluster_name` | 없음 | 예: `우선케어(거래 감소)` |
 | `customer_id` | 없음 | 고객 ID 정확히 검색 |
-| `sort_by` | `churn_probability` | `churn_probability`, `activity_gap`, `scored_at` |
+| `campaign_candidates_only` | `false` | 수신 거부·최근 접촉·활성 캠페인 대상 고객을 제외하고 등록 가능한 후보만 조회 |
+| `campaign_id` | 없음 | 후보를 등록할 캠페인 ID. 지정하면 해당 캠페인이 대체할 수 없는 동일/상위 우선순위 활성 대상만 제외 |
+| `sort_by` | `churn_probability` | `churn_probability`, `activity_gap`, `expected_transaction_count`, `scored_at` |
 | `sort_order` | `desc` | `asc`, `desc` |
 | `page` | `1` | 1 이상의 페이지 번호 |
 | `page_size` | `50` | 1~100 |
@@ -67,7 +69,7 @@ GET /api/v1/customer-insights
 
 ~~~bash
 curl -b cookies.txt \
-  'http://127.0.0.1:8000/api/v1/customer-insights?risk_level=high&page=1&page_size=20'
+  'http://127.0.0.1:8000/api/v1/customer-insights?campaign_candidates_only=true&campaign_id=3&risk_level=high&page=1&page_size=20'
 ~~~
 
 ### 응답 구조
@@ -214,7 +216,14 @@ PATCH /api/v1/campaigns/{campaign_id}
   "total_targets": 120,
   "unprocessed_targets": 42,
   "contacted_targets": 78,
-  "converted_targets": 16
+  "converted_targets": 16,
+  "status_counts": {
+    "pending": 30,
+    "assigned": 12,
+    "contacted": 40,
+    "completed": 38,
+    "cancelled": 0
+  }
 }
 ```
 
@@ -277,6 +286,10 @@ GET /api/v1/campaign-targets?campaign_id=3&assigned_to_user_id=7&converted=true
 캠페인, 담당자, 고객, 대상 상태, 전환 여부 기준의 서버 필터와 페이지네이션을
 지원합니다. 응답에는 필터 결과 기준의 전체 대상·미처리·접촉 완료·전환 집계가
 포함됩니다.
+
+부서 대시보드의 `캠페인 처리 현황`은 `page_size=8`로 조회하고, 응답의
+`total`·`total_pages`로 페이지를 이동합니다. 화면에는 한 번에 8건만 표시되지만
+전체 업무 수와 상태별 집계는 서버 기준으로 유지됩니다.
 
 ### 캠페인 이벤트 이력
 

@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Select, desc, func, select
+from sqlalchemy import Select, case, desc, exists, false, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..enums import RiskLevel
-from ..models import CustomerInsight
+from ..enums import CampaignStatus, RiskLevel
+from ..models import Campaign, CampaignTarget, Customer, CustomerInsight
+from .campaign_service import (
+    DEFAULT_CONTACT_COOLDOWN_DAYS,
+    OPEN_CAMPAIGN_STATUSES,
+    OPEN_TARGET_STATUSES,
+    SEGMENT_PRIORITIES,
+    UNCLASSIFIED_CAMPAIGN_PRIORITY,
+    _campaign_priority,
+)
 
 
 @dataclass(frozen=True)
@@ -18,6 +27,8 @@ class InsightFilters:
     risk_level: RiskLevel | None = None
     cluster_name: str | None = None
     customer_id: int | None = None
+    campaign_candidates_only: bool = False
+    campaign_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +74,93 @@ def _latest_query() -> Select[tuple[CustomerInsight]]:
     )
 
 
-def _filtered_query(filters: InsightFilters) -> Select[tuple[CustomerInsight]]:
+def _campaign_priority_expression():
+    """캠페인 등록 서비스와 동일한 우선순위를 SQL 표현식으로 만듭니다."""
+    return case(
+        (
+            Campaign.segment_code == "high_risk_retention",
+            SEGMENT_PRIORITIES["high_risk_retention"],
+        ),
+        (
+            Campaign.segment_code == "medium_reactivation",
+            SEGMENT_PRIORITIES["medium_reactivation"],
+        ),
+        (
+            Campaign.segment_code == "low_risk_upsell",
+            SEGMENT_PRIORITIES["low_risk_upsell"],
+        ),
+        else_=UNCLASSIFIED_CAMPAIGN_PRIORITY,
+    )
+
+
+def _campaign_candidate_conditions(
+    db: Session,
+    *,
+    campaign_id: int | None = None,
+) -> list[object]:
+    """캠페인 등록 시점에 충돌하는 고객을 목록 단계에서 제외합니다."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DEFAULT_CONTACT_COOLDOWN_DAYS)
+    recent_customer_contact = exists(
+        select(Customer.customer_id).where(
+            Customer.customer_id == CustomerInsight.customer_id,
+            or_(
+                Customer.marketing_opt_out.is_(True),
+                Customer.last_contacted_at >= cutoff,
+            ),
+        )
+    )
+    recent_target_contact = exists(
+        select(CampaignTarget.id).where(
+            CampaignTarget.customer_id == CustomerInsight.customer_id,
+            CampaignTarget.status.in_(
+                [CampaignStatus.CONTACTED.value, CampaignStatus.COMPLETED.value]
+            ),
+            CampaignTarget.processed_at >= cutoff,
+        )
+    )
+    same_campaign_target = None
+    active_target_conditions: list[object] = [
+        CampaignTarget.customer_id == CustomerInsight.customer_id,
+        CampaignTarget.status.in_(OPEN_TARGET_STATUSES),
+        Campaign.status.in_(OPEN_CAMPAIGN_STATUSES),
+    ]
+    if campaign_id is not None:
+        selected_campaign = db.get(Campaign, campaign_id)
+        if selected_campaign is None:
+            return [false()]
+        selected_priority = _campaign_priority(selected_campaign)
+        same_campaign_target = exists(
+            select(CampaignTarget.id).where(
+                CampaignTarget.customer_id == CustomerInsight.customer_id,
+                CampaignTarget.campaign_id == campaign_id,
+            )
+        )
+        # 선택 캠페인이 대체할 수 없는 동일·상위 우선순위 대상만 제외합니다.
+        active_target_conditions.append(
+            or_(
+                CampaignTarget.status == CampaignStatus.CONTACTED.value,
+                _campaign_priority_expression() >= selected_priority,
+            )
+        )
+    active_priority_conflict = exists(
+        select(CampaignTarget.id)
+        .join(Campaign, Campaign.id == CampaignTarget.campaign_id)
+        .where(*active_target_conditions)
+    )
+    conditions = [
+        ~recent_customer_contact,
+        ~recent_target_contact,
+        ~active_priority_conflict,
+    ]
+    if same_campaign_target is not None:
+        conditions.append(~same_campaign_target)
+    return conditions
+
+
+def _filtered_query(
+    db: Session,
+    filters: InsightFilters,
+) -> Select[tuple[CustomerInsight]]:
     """최신 스냅샷 쿼리에 필터를 적용합니다."""
     conditions = []
     if filters.risk_level is not None:
@@ -72,6 +169,10 @@ def _filtered_query(filters: InsightFilters) -> Select[tuple[CustomerInsight]]:
         conditions.append(CustomerInsight.cluster_name == filters.cluster_name)
     if filters.customer_id is not None:
         conditions.append(CustomerInsight.customer_id == filters.customer_id)
+    if filters.campaign_candidates_only:
+        conditions.extend(
+            _campaign_candidate_conditions(db, campaign_id=filters.campaign_id)
+        )
     return _latest_query().where(*conditions)
 
 
@@ -85,7 +186,7 @@ def fetch_insight_page(
     page_size: int,
 ) -> InsightPage:
     """최신 분석 결과 목록과 요약 통계를 조회합니다."""
-    query = _filtered_query(filters)
+    query = _filtered_query(db, filters)
     filtered_subquery = query.order_by(None).subquery()
     total = int(
         db.scalar(select(func.count()).select_from(filtered_subquery)) or 0
@@ -103,9 +204,12 @@ def fetch_insight_page(
         ).group_by(filtered_subquery.c.cluster_name)
     ).all()
     cluster_options_query = _filtered_query(
+        db,
         InsightFilters(
             risk_level=filters.risk_level,
             customer_id=filters.customer_id,
+            campaign_candidates_only=filters.campaign_candidates_only,
+            campaign_id=filters.campaign_id,
         )
     )
     cluster_options_subquery = cluster_options_query.order_by(None).subquery()
@@ -122,6 +226,7 @@ def fetch_insight_page(
     sort_column = {
         "churn_probability": CustomerInsight.churn_probability,
         "activity_gap": CustomerInsight.activity_gap,
+        "expected_transaction_count": CustomerInsight.expected_transaction_count,
         "scored_at": CustomerInsight.scored_at,
     }[sort_by]
     ordered_query = query.order_by(
@@ -153,7 +258,7 @@ def fetch_latest_customer_insight(
     customer_id: int,
 ) -> CustomerInsight | None:
     """고객 한 명의 최신 분석 결과와 고객 특성을 조회합니다."""
-    query = _filtered_query(InsightFilters(customer_id=customer_id)).options(
+    query = _filtered_query(db, InsightFilters(customer_id=customer_id)).options(
         selectinload(CustomerInsight.customer),
         selectinload(CustomerInsight.customer_snapshot),
     )

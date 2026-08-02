@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 
 import { logout, type AuthUser } from "../../api/auth";
 import {
@@ -19,6 +19,7 @@ import {
 } from "../../api/campaigns";
 import { listTeamMembers, type TeamMember } from "../../api/team";
 import { BulkTargetingPanel } from "./BulkTargetingPanel";
+import { CampaignCandidatePanel } from "./CampaignCandidatePanel";
 import { CampaignPerformancePanel } from "./CampaignPerformancePanel";
 
 const PAGE_SIZE = 8;
@@ -173,6 +174,19 @@ function toDateTimeInput(value: string | null): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function preventDateTextEntry(event: KeyboardEvent<HTMLInputElement>) {
+  if ((event.ctrlKey || event.metaKey) && ["a", "c"].includes(event.key.toLowerCase())) {
+    return;
+  }
+  if (event.key.length === 1 || event.key === "Backspace" || event.key === "Delete") {
+    event.preventDefault();
+  }
+}
+
+function preventDatePaste(event: ClipboardEvent<HTMLInputElement>) {
+  event.preventDefault();
+}
+
 function toIsoDate(value: string): string | null {
   return value === "" ? null : new Date(value).toISOString();
 }
@@ -196,6 +210,81 @@ function getTargetDraft(target: CampaignTarget): TargetDraft {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function campaignActionErrorMessage(error: unknown, fallback: string): string {
+  const message = errorMessage(error, fallback);
+  const translations: Record<string, string> = {
+    "A campaign cannot be active after end_at.": "진행 중 캠페인의 종료일은 현재 시각 이후여야 합니다. 종료일을 미래로 변경한 후 다시 저장해 주세요.",
+    "A campaign cannot be active before start_at.": "캠페인의 시작일이 아직 지나지 않았습니다. 시작일을 현재 시각 이전으로 변경한 후 다시 저장해 주세요.",
+    "A scheduled campaign requires start_at.": "예약 캠페인은 시작일을 입력해야 합니다.",
+    "A scheduled campaign must start in the future.": "예약 캠페인의 시작일은 현재 시각 이후여야 합니다.",
+    "Campaign end_at must be after start_at.": "종료일은 시작일 이후로 설정해야 합니다.",
+    "A closed campaign is immutable.": "완료되거나 취소된 캠페인은 변경할 수 없습니다.",
+    "Experiment, segment, and financial policies are immutable after targets exist.": "대상이 등록된 캠페인은 A/B 설정, 세그먼트, 비용 정책을 변경할 수 없습니다.",
+    "A campaign cannot be completed while treatment targets remain open.": "처리 중인 대상군이 남아 있어 캠페인을 완료할 수 없습니다.",
+    "A campaign with the same name already exists.": "같은 이름의 캠페인이 이미 존재합니다. 다른 이름을 입력해 주세요.",
+    "The campaign was not found.": "캠페인을 찾을 수 없습니다. 목록을 새로고침한 후 다시 시도해 주세요.",
+  };
+  if (translations[message] !== undefined) {
+    return translations[message];
+  }
+  if (message.startsWith("Campaign status cannot change from")) {
+    return "현재 캠페인 상태에서는 선택한 상태로 변경할 수 없습니다. 허용된 상태 전이를 확인해 주세요.";
+  }
+  return fallback;
+}
+
+function CampaignActionDialog({
+  title,
+  message,
+  onClose,
+  variant = "error",
+}: {
+  title: string;
+  message: string;
+  onClose: () => void;
+  variant?: "error" | "success";
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="campaign-feedback-help-backdrop">
+      <section
+        className={`campaign-feedback-help-dialog campaign-conflict-dialog campaign-action-dialog campaign-action-dialog--${variant}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="campaign-action-dialog-title"
+      >
+        <div className="campaign-feedback-help-dialog__header">
+          <div>
+            <p className="card-kicker">{variant === "success" ? "CAMPAIGN UPDATE" : "CAMPAIGN GUARD"}</p>
+            <h3 id="campaign-action-dialog-title">{title}</h3>
+          </div>
+          <button
+            className="campaign-feedback-help-close"
+            type="button"
+            aria-label={`${title} 닫기`}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <p className="campaign-conflict-dialog__message">{message}</p>
+        <button className="department-action-button campaign-conflict-dialog__confirm" type="button" onClick={onClose}>
+          확인
+        </button>
+      </section>
+    </div>
+  );
 }
 
 function CampaignStats({ campaign }: { campaign: Campaign }) {
@@ -236,6 +325,7 @@ function CampaignEditor({
   isSubmitting,
   isCreate,
   statusOptions,
+  lockPolicyFields = false,
 }: {
   title: string;
   form: CampaignForm;
@@ -246,13 +336,14 @@ function CampaignEditor({
   isSubmitting: boolean;
   isCreate?: boolean;
   statusOptions?: CampaignLifecycleStatus[];
+  lockPolicyFields?: boolean;
 }) {
   const availableStatuses = isCreate
     ? (["draft"] as CampaignLifecycleStatus[])
     : statusOptions ?? (Object.keys(lifecycleLabels) as CampaignLifecycleStatus[]);
   return (
     <form
-      className="campaign-editor"
+      className={isCreate ? "campaign-editor" : "campaign-editor campaign-editor--edit"}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
@@ -269,6 +360,11 @@ function CampaignEditor({
           </button>
         )}
       </div>
+      {lockPolicyFields && (
+        <p className="campaign-editor__notice">
+          대상이 등록된 캠페인은 A/B 설정, 비용, 유지 관측 정책을 변경할 수 없습니다.
+        </p>
+      )}
       <label>
         <span>캠페인 이름</span>
         <input
@@ -306,7 +402,10 @@ function CampaignEditor({
           <span>시작 일시</span>
           <input
             type="datetime-local"
+            inputMode="none"
             value={form.start_at}
+            onKeyDown={preventDateTextEntry}
+            onPaste={preventDatePaste}
             onChange={(event) => onChange({ ...form, start_at: event.target.value })}
           />
         </label>
@@ -314,7 +413,10 @@ function CampaignEditor({
           <span>종료 일시</span>
           <input
             type="datetime-local"
+            inputMode="none"
             value={form.end_at}
+            onKeyDown={preventDateTextEntry}
+            onPaste={preventDatePaste}
             onChange={(event) => onChange({ ...form, end_at: event.target.value })}
           />
         </label>
@@ -324,6 +426,7 @@ function CampaignEditor({
           <input
             type="checkbox"
             checked={form.experiment_enabled}
+            disabled={lockPolicyFields}
             onChange={(event) => onChange({ ...form, experiment_enabled: event.target.checked })}
           />
           <span>A/B 테스트 활성화</span>
@@ -335,7 +438,7 @@ function CampaignEditor({
             min={0.01}
             max={0.99}
             step={0.01}
-            disabled={!form.experiment_enabled}
+            disabled={!form.experiment_enabled || lockPolicyFields}
             value={form.control_group_ratio}
             onChange={(event) => onChange({ ...form, control_group_ratio: Number(event.target.value) })}
           />
@@ -346,6 +449,7 @@ function CampaignEditor({
             type="number"
             min={1}
             max={365}
+            disabled={lockPolicyFields}
             value={form.retention_window_days}
             onChange={(event) => onChange({ ...form, retention_window_days: Number(event.target.value) })}
           />
@@ -354,15 +458,15 @@ function CampaignEditor({
       <div className="campaign-editor__row">
         <label>
           <span>고정 비용</span>
-          <input type="number" min={0} step={1000} value={form.fixed_cost} onChange={(event) => onChange({ ...form, fixed_cost: Number(event.target.value) })} />
+          <input type="number" min={0} step={1000} disabled={lockPolicyFields} value={form.fixed_cost} onChange={(event) => onChange({ ...form, fixed_cost: Number(event.target.value) })} />
         </label>
         <label>
           <span>접촉당 비용</span>
-          <input type="number" min={0} step={100} value={form.cost_per_contact} onChange={(event) => onChange({ ...form, cost_per_contact: Number(event.target.value) })} />
+          <input type="number" min={0} step={100} disabled={lockPolicyFields} value={form.cost_per_contact} onChange={(event) => onChange({ ...form, cost_per_contact: Number(event.target.value) })} />
         </label>
         <label>
           <span>전환당 매출</span>
-          <input type="number" min={0} step={1000} value={form.revenue_per_conversion} onChange={(event) => onChange({ ...form, revenue_per_conversion: Number(event.target.value) })} />
+          <input type="number" min={0} step={1000} disabled={lockPolicyFields} value={form.revenue_per_conversion} onChange={(event) => onChange({ ...form, revenue_per_conversion: Number(event.target.value) })} />
         </label>
       </div>
       <label>
@@ -616,6 +720,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
   const canManageCampaigns = user.role === "admin" || user.role === "marketing";
   const canProcessTargets = user.role === "admin" || user.role === "operations";
   const isReadOnly = user.role === "analyst";
+  const isMarketingWorkspace = user.role === "marketing";
   const [campaignData, setCampaignData] = useState<CampaignList | null>(null);
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<CampaignLifecycleStatus | "">("");
   const [campaignNameFilter, setCampaignNameFilter] = useState("");
@@ -630,6 +735,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
   const [editForm, setEditForm] = useState<CampaignForm>(emptyCampaignForm);
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
+  const [campaignActionError, setCampaignActionError] = useState("");
+  const [campaignActionSuccess, setCampaignActionSuccess] = useState("");
   const [targetData, setTargetData] = useState<CampaignTargetList | null>(null);
   const [targetStatusFilter, setTargetStatusFilter] = useState<CampaignStatus | "">("");
   const [targetAssigneeFilter, setTargetAssigneeFilter] = useState("");
@@ -666,6 +773,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
     setTargetConvertedFilter("");
     setTargetDrafts({});
     setCampaignMessage("");
+    setCampaignActionError("");
+    setCampaignActionSuccess("");
   };
 
   useEffect(() => {
@@ -805,6 +914,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
   const handleCreateCampaign = async () => {
     setIsSavingCampaign(true);
     setCampaignMessage("");
+    setCampaignActionError("");
+    setCampaignActionSuccess("");
     try {
       const created = await createCampaign({
         name: createForm.name.trim(),
@@ -837,9 +948,9 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
       setCampaignNameFilter("");
       setCreateForm(emptyCampaignForm());
       setShowCreateForm(false);
-      setCampaignMessage("캠페인을 생성했습니다.");
+      setCampaignActionSuccess("캠페인을 생성했습니다.");
     } catch (error: unknown) {
-      setCampaignMessage(errorMessage(error, "캠페인 생성에 실패했습니다."));
+      setCampaignActionError(campaignActionErrorMessage(error, "캠페인 생성에 실패했습니다. 입력값을 확인한 후 다시 시도해 주세요."));
     } finally {
       setIsSavingCampaign(false);
     }
@@ -851,6 +962,8 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
     }
     setIsSavingCampaign(true);
     setCampaignMessage("");
+    setCampaignActionError("");
+    setCampaignActionSuccess("");
     try {
       const updated = await updateCampaign(selectedCampaign.id, {
         name: editForm.name.trim(),
@@ -868,10 +981,10 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
       });
       updateCampaignInList(updated);
       setEditingCampaign(false);
-      setCampaignMessage("캠페인 정보를 저장했습니다.");
+      setCampaignActionSuccess("캠페인 정보를 저장했습니다.");
       setTargetRefreshKey((current) => current + 1);
     } catch (error: unknown) {
-      setCampaignMessage(errorMessage(error, "캠페인 정보 저장에 실패했습니다."));
+      setCampaignActionError(campaignActionErrorMessage(error, "캠페인 정보 저장에 실패했습니다. 입력값과 캠페인 상태를 확인한 후 다시 시도해 주세요."));
     } finally {
       setIsSavingCampaign(false);
     }
@@ -934,10 +1047,12 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
       <header className="campaign-management-header">
         <div>
           <p className="dashboard-eyebrow">CARDOPS CONSOLE / CAMPAIGNS</p>
-          <h1>{isReadOnly ? "캠페인 조회" : "캠페인 관리"}</h1>
+          <h1>{isReadOnly ? "캠페인 조회" : isMarketingWorkspace ? "마케팅 캠페인 센터" : "캠페인 관리"}</h1>
           <p className="dashboard-subtitle">
             {isReadOnly
               ? "캠페인 현황과 처리 이력을 조회합니다. 변경 작업은 담당 부서에서 수행합니다."
+              : isMarketingWorkspace
+              ? "후보 고객 선정부터 캠페인 생성·타기팅·성과 확인까지 한 곳에서 관리합니다."
               : "캠페인 실행 기간, 대상 고객, 처리 결과와 변경 이력을 한 곳에서 관리합니다."}
           </p>
         </div>
@@ -946,7 +1061,9 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
             <strong>{user.display_name}</strong>
             <span>{roleLabels[user.role]}</span>
           </div>
-          <button className="campaign-back-button" type="button" onClick={onBack}>분석 대시보드</button>
+          {!isMarketingWorkspace && (
+            <button className="campaign-back-button" type="button" onClick={onBack}>분석 대시보드</button>
+          )}
           <button className="dashboard-logout" type="button" onClick={() => void handleLogout()} disabled={isLoggingOut}>
             {isLoggingOut ? "처리 중..." : "로그아웃"}
           </button>
@@ -955,6 +1072,21 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
 
       {logoutError !== "" && <p className="campaign-management-error" role="alert">{logoutError}</p>}
       {campaignError !== "" && <p className="campaign-management-error" role="alert">{campaignError}</p>}
+      {campaignActionError !== "" && (
+        <CampaignActionDialog
+          title="캠페인 변경 불가"
+          message={campaignActionError}
+          onClose={() => setCampaignActionError("")}
+        />
+      )}
+      {campaignActionSuccess !== "" && (
+        <CampaignActionDialog
+          title="저장 완료"
+          message={campaignActionSuccess}
+          variant="success"
+          onClose={() => setCampaignActionSuccess("")}
+        />
+      )}
 
       {canManageCampaigns && (
         <BulkTargetingPanel
@@ -1089,12 +1221,23 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut }: CampaignMa
                   onSubmit={() => void handleUpdateCampaign()}
                   onCancel={() => setEditingCampaign(false)}
                   isSubmitting={isSavingCampaign}
+                  lockPolicyFields={selectedCampaign.stats.total_targets > 0}
                   statusOptions={lifecycleTransitions[selectedCampaign.status]}
                 />
               ) : (
                 <>
                   {targetStats && <CampaignStats campaign={{ ...selectedCampaign, stats: targetStats }} />}
                   <CampaignPerformancePanel campaignId={selectedCampaign.id} refreshKey={targetRefreshKey} />
+                  {canManageCampaigns && (
+                    <CampaignCandidatePanel
+                      selectedCampaign={selectedCampaign}
+                      canManage={canManageCampaigns}
+                      onRegistered={() => {
+                        setTargetRefreshKey((current) => current + 1);
+                        setCampaignRefreshKey((current) => current + 1);
+                      }}
+                    />
+                  )}
                   {campaignMessage !== "" && <p className="campaign-management-message" role="status">{campaignMessage}</p>}
 
                   <section className="campaign-target-panel">

@@ -23,6 +23,8 @@ from backend.app.enums import CampaignStatus, ModelRunStatus, RiskLevel, UserRol
 from backend.app.model_registry import ModelLoadError, ModelRegistry
 from backend.app.models import (
     AuthEvent,
+    Campaign,
+    CampaignTarget,
     Customer,
     CustomerFeatureSnapshot,
     CustomerInsight,
@@ -677,6 +679,17 @@ def test_customer_insight_list_filters_and_detail(
         "우선케어(거래 감소)": 1,
     }
 
+    expected_transaction_sort_response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={
+            "sort_by": "expected_transaction_count",
+            "sort_order": "desc",
+            "page_size": 100,
+        },
+    )
+    assert expected_transaction_sort_response.status_code == 200
+    assert expected_transaction_sort_response.json()["items"][0]["expected_transaction_count"] == 70.0
+
     customer_id = raw_rows[0]["customer_id"]
     detail_response = auth_client.get(
         f"/api/v1/customer-insights/{customer_id}"
@@ -1073,3 +1086,195 @@ def test_hash_mismatch_is_rejected(
 
     with pytest.raises(ModelLoadError, match="hash mismatch"):
         ModelRegistry(invalid_dir).load()
+
+
+def test_campaign_candidate_insights_exclude_registration_conflicts(
+    auth_client: TestClient,
+) -> None:
+    """캠페인 후보 조회가 수신 거부·최근 접촉·활성 중복 고객을 제외하는지 검증합니다."""
+    signup_response = auth_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "username": "candidate_filter_viewer",
+            "display_name": "후보 필터 조회자",
+            "password": "strong-password-123",
+        },
+    )
+    assert signup_response.status_code == 201
+    session_factory = auth_client.app.state.session_factory
+    assert session_factory is not None
+    with session_factory() as session:
+        viewer = session.scalar(
+            select(User).where(User.username == "candidate_filter_viewer")
+        )
+        assert viewer is not None
+        viewer.is_active = True
+        viewer.role = UserRole.MARKETING.value
+        session.commit()
+        viewer_id = viewer.id
+    assert auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "candidate_filter_viewer",
+            "password": "strong-password-123",
+        },
+    ).status_code == 200
+
+    def make_customer(customer_id: int, *, opt_out: bool = False) -> Customer:
+        return Customer(
+            customer_id=customer_id,
+            customer_age=40,
+            gender="F",
+            dependent_count=1,
+            education_level="Graduate",
+            marital_status="Married",
+            income_category="$40K - $60K",
+            card_category="Blue",
+            months_on_book=20,
+            total_relationship_count=2,
+            months_inactive_12_mon=1,
+            contacts_count_12_mon=1,
+            credit_limit=1000,
+            total_revolving_bal=100,
+            avg_open_to_buy=900,
+            total_amt_chng_q4_q1=1,
+            total_trans_amt=100,
+            total_trans_ct=10,
+            total_ct_chng_q4_q1=1,
+            avg_utilization_ratio=0.1,
+            marketing_opt_out=opt_out,
+        )
+
+    customer_ids = [991000001, 991000002, 991000003, 991000004]
+    with session_factory() as session:
+        customers = [
+            make_customer(customer_ids[0]),
+            make_customer(customer_ids[1]),
+            make_customer(customer_ids[2], opt_out=True),
+            make_customer(customer_ids[3]),
+        ]
+        session.add_all(customers)
+        runs = [
+            ModelRun(
+                task=task,
+                model_name=task,
+                model_version="candidate-test-v1",
+                artifact_path="outputs/models/test.joblib",
+                artifact_sha256=character * 64,
+                status=ModelRunStatus.SUCCEEDED.value,
+            )
+            for task, character in (
+                ("classification", "a"),
+                ("regression", "b"),
+                ("clustering", "c"),
+            )
+        ]
+        session.add_all(runs)
+        session.flush()
+        insights = [
+            CustomerInsight(
+                customer_id=customer_id,
+                as_of_date=date(2026, 8, 1),
+                classification_run_id=runs[0].id,
+                regression_run_id=runs[1].id,
+                clustering_run_id=runs[2].id,
+                churn_probability=0.8,
+                risk_level=RiskLevel.HIGH.value,
+                expected_transaction_count=20,
+                activity_gap=-5,
+                cluster_name="후보 테스트군",
+                recommended_action="후보 테스트",
+                scored_at=datetime.now(timezone.utc),
+            )
+            for customer_id in customer_ids
+        ]
+        session.add_all(insights)
+        session.flush()
+        blocked_campaign = Campaign(
+            name="후보 제외 활성 캠페인",
+            segment_code="high_risk_retention",
+            status="draft",
+            created_by_user_id=viewer_id,
+        )
+        recent_campaign = Campaign(
+            name="후보 제외 최근 접촉 캠페인",
+            status="draft",
+            created_by_user_id=viewer_id,
+        )
+        session.add_all([blocked_campaign, recent_campaign])
+        session.flush()
+        blocked_campaign_id = blocked_campaign.id
+        session.add_all([
+            CampaignTarget(
+                customer_id=customer_ids[0],
+                customer_insight_id=insights[0].id,
+                campaign_id=blocked_campaign.id,
+                campaign_name=blocked_campaign.name,
+                status=CampaignStatus.PENDING.value,
+            ),
+            CampaignTarget(
+                customer_id=customer_ids[1],
+                customer_insight_id=insights[1].id,
+                campaign_id=recent_campaign.id,
+                campaign_name=recent_campaign.name,
+                status=CampaignStatus.COMPLETED.value,
+                processed_at=datetime.now(timezone.utc),
+            ),
+        ])
+        eligible_insight_id = insights[3].id
+        session.commit()
+
+    response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={"campaign_candidates_only": True, "page_size": 100},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    returned_customer_ids = {
+        item["customer_id"] for item in payload["items"]
+    }
+    assert customer_ids[3] in returned_customer_ids
+    assert not returned_customer_ids.intersection(set(customer_ids[:3]))
+    with session_factory() as session:
+        session.add(
+            CampaignTarget(
+                customer_id=customer_ids[3],
+                customer_insight_id=eligible_insight_id,
+                campaign_id=blocked_campaign_id,
+                campaign_name="후보 제외 활성 캠페인",
+                status=CampaignStatus.CANCELLED.value,
+            )
+        )
+        session.commit()
+    cancelled_target_response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={
+            "campaign_candidates_only": True,
+            "campaign_id": blocked_campaign_id,
+            "customer_id": customer_ids[3],
+            "page_size": 100,
+        },
+    )
+    assert cancelled_target_response.status_code == 200
+    assert cancelled_target_response.json()["total"] == 0
+    campaign_context_response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={
+            "campaign_candidates_only": True,
+            "campaign_id": blocked_campaign_id,
+            "customer_id": customer_ids[0],
+            "page_size": 100,
+        },
+    )
+    assert campaign_context_response.status_code == 200
+    assert campaign_context_response.json()["total"] == 0
+    eligible_response = auth_client.get(
+        "/api/v1/customer-insights",
+        params={
+            "campaign_candidates_only": True,
+            "customer_id": customer_ids[3],
+            "page_size": 100,
+        },
+    )
+    assert eligible_response.status_code == 200
+    assert eligible_response.json()["total"] == 1

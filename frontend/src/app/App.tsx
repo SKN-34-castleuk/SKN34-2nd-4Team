@@ -23,6 +23,10 @@ function isUnauthorized(error: unknown): boolean {
   return (error as ApiError | undefined)?.status === 401;
 }
 
+function workspaceForUser(user: AuthUser): "dashboard" | "campaigns" {
+  return user.role === "marketing" ? "campaigns" : "dashboard";
+}
+
 function AuthLoading() {
   return (
     <main className="auth-state auth-state--loading" aria-busy="true">
@@ -62,7 +66,7 @@ export function App() {
       try {
         const user = await getCurrentUser();
         if (isActive) {
-          setActiveWorkspace("dashboard");
+          setActiveWorkspace(workspaceForUser(user));
           setAuthState({ status: "authenticated", user });
         }
       } catch (error) {
@@ -88,7 +92,10 @@ export function App() {
   const retrySession = useCallback(() => {
     setAuthState({ status: "checking" });
     void getCurrentUser()
-      .then((user) => setAuthState({ status: "authenticated", user }))
+      .then((user) => {
+        setActiveWorkspace(workspaceForUser(user));
+        setAuthState({ status: "authenticated", user });
+      })
       .catch((error: unknown) => {
         if (isUnauthorized(error)) {
           setAuthState({ status: "unauthenticated" });
@@ -110,9 +117,10 @@ export function App() {
   if (authState.status === "unauthenticated") {
     return (
       <LoginPage
-        onAuthenticated={(user) =>
-          setAuthState({ status: "authenticated", user })
-        }
+        onAuthenticated={(user) => {
+          setActiveWorkspace(workspaceForUser(user));
+          setAuthState({ status: "authenticated", user });
+        }}
       />
     );
   }

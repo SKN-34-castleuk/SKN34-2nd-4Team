@@ -81,6 +81,7 @@ def _to_stats_response(stats) -> CampaignStatsResponse:
         unprocessed_targets=stats.unprocessed_targets,
         contacted_targets=stats.contacted_targets,
         converted_targets=stats.converted_targets,
+        status_counts=stats.status_counts,
     )
 
 
@@ -89,6 +90,7 @@ EMPTY_STATS = CampaignStats(
     unprocessed_targets=0,
     contacted_targets=0,
     converted_targets=0,
+    status_counts={},
 )
 
 

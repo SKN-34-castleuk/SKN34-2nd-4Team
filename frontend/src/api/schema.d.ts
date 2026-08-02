@@ -1075,6 +1075,10 @@ export interface components {
             contacted_targets: number;
             /** Converted Targets */
             converted_targets: number;
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
         };
         /**
          * CampaignStatus
@@ -2068,8 +2072,12 @@ export interface operations {
                 cluster_name?: string | null;
                 /** @description 고객 ID 정확히 검색 */
                 customer_id?: number | null;
+                /** @description 캠페인 등록 가능한 고객만 조회 */
+                campaign_candidates_only?: boolean;
+                /** @description 후보 등록 대상 캠페인 ID */
+                campaign_id?: number | null;
                 /** @description 정렬 기준 */
-                sort_by?: "churn_probability" | "activity_gap" | "scored_at";
+                sort_by?: "churn_probability" | "activity_gap" | "expected_transaction_count" | "scored_at";
                 /** @description 정렬 방향 */
                 sort_order?: "asc" | "desc";
                 /** @description 페이지 번호 */

@@ -12,6 +12,14 @@ const user = {
   created_at: "2026-08-01T00:00:00Z",
 };
 
+const marketingUser = {
+  id: 4,
+  username: "marketing_team",
+  display_name: "마케팅팀",
+  role: "marketing" as const,
+  created_at: "2026-08-01T00:00:00Z",
+};
+
 function successResponse(body: unknown) {
   return {
     ok: true,
@@ -110,6 +118,21 @@ describe("인증 상태 앱 셸", () => {
     expect(
       await screen.findByRole("heading", { name: "고객 분석 대시보드" }),
     ).toBeInTheDocument();
+  });
+
+  it("마케팅팀은 인증 후 캠페인 센터로 바로 진입합니다", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successResponse(marketingUser))
+      .mockImplementation((input: RequestInfo | URL) => Promise.resolve(dashboardResponse(input)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "마케팅 캠페인 센터" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "분석 대시보드" })).not.toBeInTheDocument();
   });
 
   it("로그아웃하면 로그인 화면으로 돌아갑니다", async () => {
