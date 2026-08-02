@@ -113,7 +113,7 @@ function WorkspaceShell({
   children: ReactNode;
 }) {
   return (
-    <main className="department-layout">
+    <main className={`department-layout department-layout--${user.role}`}>
       <header className="department-header">
         <div>
           <p className="dashboard-eyebrow">CARDOPS CONSOLE / {section}</p>
@@ -521,6 +521,7 @@ function TeamRoster({
 export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: DepartmentDashboardPageProps) {
   const [insights, setInsights] = useState<CustomerInsightList | null>(null);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
+  const [campaignTargetTotal, setCampaignTargetTotal] = useState(0);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
@@ -554,6 +555,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
       }
       if (campaignResult.status === "fulfilled") {
         setTargets(campaignResult.value.items);
+        setCampaignTargetTotal(campaignResult.value.total);
       }
       if (batchResult.status === "fulfilled") {
         setBatch(batchResult.value);
@@ -618,6 +620,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
         campaign_name: user.role === "marketing" ? "세그먼트 리텐션 캠페인" : "고위험 고객 리텐션",
       });
       setTargets((current) => [target, ...current]);
+      setCampaignTargetTotal((current) => current + 1);
       setCreateMessage("캠페인 대상에 미배정 상태로 등록했습니다.");
     } catch (requestError) {
       setCreateMessage(requestError instanceof Error ? requestError.message : "캠페인 등록에 실패했습니다.");
@@ -650,7 +653,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
   ) : user.role === "marketing" ? (
     <>
       <section className="department-stats">
-        <StatCard label="TARGETS" value={formatNumber(targets.length)} caption="등록된 캠페인 대상" tone="purple" />
+        <StatCard label="TARGETS" value={formatNumber(campaignTargetTotal)} caption="등록된 캠페인 대상" tone="purple" />
         <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="실행 대기 대상" tone="orange" />
         <StatCard label="COMPLETED" value={formatNumber(completedCount)} caption="처리 완료 캠페인" tone="green" />
         <BatchCard batch={batch} />
@@ -679,7 +682,7 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns }: 
     <>
       <section className="department-stats">
         <StatCard label="CUSTOMERS" value={formatNumber(insights?.stats.total ?? 0)} caption="분석 대상 고객" tone="purple" />
-        <StatCard label="CAMPAIGN QUEUE" value={formatNumber(targets.length)} caption="전체 업무 대상" tone="orange" />
+        <StatCard label="CAMPAIGN QUEUE" value={formatNumber(campaignTargetTotal)} caption="전체 업무 대상" tone="orange" />
         <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="고위험 고객" tone="pink" />
         <BatchCard batch={batch} />
       </section>

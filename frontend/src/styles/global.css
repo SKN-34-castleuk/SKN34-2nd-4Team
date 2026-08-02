@@ -3176,6 +3176,11 @@ button {
   letter-spacing: 0.15em;
 }
 
+.department-layout--admin .department-stat > span {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
 .department-stat strong {
   margin-top: auto;
   color: var(--navy);
@@ -3189,6 +3194,10 @@ button {
   margin-top: 10px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.department-layout--admin .department-stat small {
+  font-size: 12px;
 }
 
 .department-stat--purple {
