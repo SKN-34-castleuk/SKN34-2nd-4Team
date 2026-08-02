@@ -317,13 +317,16 @@ describe("부서별 대시보드", () => {
 
   it("관리자는 팀 계정과 권한 현황을 봅니다", async () => {
     vi.stubGlobal("fetch", departmentFetchMock(true));
+    const onOpenDashboard = vi.fn();
 
-    render(<DepartmentDashboardPage user={adminUser} onLoggedOut={vi.fn()} />);
+    render(<DepartmentDashboardPage user={adminUser} onLoggedOut={vi.fn()} onOpenDashboard={onOpenDashboard} />);
 
     expect(await screen.findByRole("heading", { name: "관리자 콘솔" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "활성 팀 계정" })).toBeInTheDocument();
     expect(screen.getByText("운영팀")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "관리자 역할" })).toBeDisabled();
     expect(screen.queryByText("역할별 업무 권한")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "고객 분석 대시보드" }));
+    expect(onOpenDashboard).toHaveBeenCalledOnce();
   });
 });

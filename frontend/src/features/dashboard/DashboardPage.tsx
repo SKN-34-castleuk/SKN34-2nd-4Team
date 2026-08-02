@@ -67,6 +67,8 @@ type DashboardPageProps = {
   user: AuthUser;
   onLoggedOut: () => void;
   onOpenCampaigns?: () => void;
+  onOpenAdminConsole?: () => void;
+  showCampaignFeedback?: boolean;
 };
 
 function formatPercent(value: number): string {
@@ -708,7 +710,7 @@ function CustomerDetailPanel({
   );
 }
 
-export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardPageProps) {
+export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminConsole, showCampaignFeedback = false }: DashboardPageProps) {
   const [data, setData] = useState<CustomerInsightList | null>(null);
   const [error, setError] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("");
@@ -729,7 +731,8 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
   const [campaignLoading, setCampaignLoading] = useState(true);
   const [campaignError, setCampaignError] = useState("");
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance | null>(null);
-  const [campaignPerformanceLoading, setCampaignPerformanceLoading] = useState(user.role === "analyst");
+  const shouldShowCampaignFeedback = user.role === "analyst" || showCampaignFeedback;
+  const [campaignPerformanceLoading, setCampaignPerformanceLoading] = useState(shouldShowCampaignFeedback);
   const [campaignPerformanceError, setCampaignPerformanceError] = useState("");
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
@@ -797,7 +800,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
   }, []);
 
   useEffect(() => {
-    if (user.role !== "analyst") {
+    if (!shouldShowCampaignFeedback) {
       return;
     }
 
@@ -827,7 +830,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
     return () => {
       isActive = false;
     };
-  }, [user.role]);
+  }, [shouldShowCampaignFeedback]);
 
   useEffect(() => {
     let isActive = true;
@@ -1016,7 +1019,11 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
             <strong>{user.display_name}</strong>
             <span>{roleLabels[user.role]}</span>
           </div>
-          {onOpenCampaigns && (
+          {onOpenAdminConsole ? (
+            <button className="dashboard-nav-button" type="button" onClick={onOpenAdminConsole}>
+              관리자 콘솔
+            </button>
+          ) : onOpenCampaigns && (
             <button className="dashboard-nav-button" type="button" onClick={onOpenCampaigns}>
               캠페인 조회
             </button>
@@ -1217,7 +1224,7 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns }: DashboardP
           </article>
 
           {campaignError !== "" && <p className="campaign-error" role="alert">{campaignError}</p>}
-          {user.role === "analyst" ? (
+          {shouldShowCampaignFeedback ? (
             <CampaignFeedback
               performance={campaignPerformance}
               isLoading={campaignPerformanceLoading}

@@ -57,7 +57,7 @@ export function App() {
   const [authState, setAuthState] = useState<AuthState>({
     status: "checking",
   });
-  const [activeWorkspace, setActiveWorkspace] = useState<"dashboard" | "campaigns">("dashboard");
+  const [activeWorkspace, setActiveWorkspace] = useState<"dashboard" | "campaigns" | "insights">("dashboard");
 
   useEffect(() => {
     let isActive = true;
@@ -135,6 +135,23 @@ export function App() {
         user={authState.user}
         onBack={() => setActiveWorkspace("dashboard")}
         onLoggedOut={onLogout}
+        backLabel={
+          authState.user.role === "admin"
+            ? "관리자 콘솔"
+            : authState.user.role === "operations"
+            ? "운영 업무 센터"
+            : "분석 대시보드"
+        }
+      />
+    );
+  }
+  if (activeWorkspace === "insights") {
+    return (
+      <DashboardPage
+        user={authState.user}
+        onLoggedOut={onLogout}
+        onOpenAdminConsole={() => setActiveWorkspace("dashboard")}
+        showCampaignFeedback
       />
     );
   }
@@ -153,6 +170,7 @@ export function App() {
       user={authState.user}
       onLoggedOut={onLogout}
       onOpenCampaigns={() => setActiveWorkspace("campaigns")}
+      onOpenDashboard={authState.user.role === "admin" ? () => setActiveWorkspace("insights") : undefined}
     />
   );
 }
