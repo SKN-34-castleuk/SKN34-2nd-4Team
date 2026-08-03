@@ -204,6 +204,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer-insights/demographics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 인구통계 단면별 분석 요약
+         * @description 소득·연령대·학력·카드등급별 고객 분포와 예측 위험도를 반환합니다.
+         *
+         *     ``/{customer_id}`` 보다 먼저 선언해야 "demographics"가 고객 ID로 해석되지 않습니다.
+         */
+        get: operations["get_demographic_breakdown_api_v1_customer_insights_demographics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer-insights/history/{customer_id}": {
         parameters: {
             query?: never;
@@ -1443,7 +1465,7 @@ export interface components {
             cluster_counts: {
                 [key: string]: number;
             };
-            /** Available Cluster Options */
+            /** Cluster Options */
             cluster_options: {
                 [key: string]: number;
             };
@@ -1510,6 +1532,43 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * DemographicBreakdownResponse
+         * @description 분석 화면이 쓰는 인구통계 단면 4종입니다.
+         *
+         *     high_risk_ratio는 **예측 위험도(risk_level='high') 비율**입니다.
+         *     이 시스템은 실제 이탈 여부 라벨을 저장하지 않으므로 실측 이탈률이 아닙니다.
+         */
+        DemographicBreakdownResponse: {
+            /** Total Customers */
+            total_customers: number;
+            /** Income */
+            income: components["schemas"]["DemographicBucketResponse"][];
+            /** Age Band */
+            age_band: components["schemas"]["DemographicBucketResponse"][];
+            /** Education */
+            education: components["schemas"]["DemographicBucketResponse"][];
+            /** Card Category */
+            card_category: components["schemas"]["DemographicBucketResponse"][];
+        };
+        /**
+         * DemographicBucketResponse
+         * @description 인구통계 구간 하나의 집계 값입니다.
+         */
+        DemographicBucketResponse: {
+            /** Label */
+            label: string;
+            /** Customer Count */
+            customer_count: number;
+            /** High Risk Count */
+            high_risk_count: number;
+            /** High Risk Ratio */
+            high_risk_ratio: number;
+            /** Average Churn Probability */
+            average_churn_probability: number;
+            /** Average Utilization Ratio */
+            average_utilization_ratio: number;
         };
         /**
          * ExperimentGroup
@@ -2107,6 +2166,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_demographic_breakdown_api_v1_customer_insights_demographics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemographicBreakdownResponse"];
                 };
             };
         };

@@ -15,11 +15,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from backend.app.config import get_app_env, get_database_url
+from backend.app.config import get_database_url
 from backend.app.database import initialize_database
+from backend.scripts.db_safety import validate_local_database
 from backend.app.enums import (
     BulkTargetingSegment,
     CampaignEventType,
@@ -135,21 +135,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="캠페인별 대상 수를 줄입니다(기본값: 180, 최소 20).",
     )
     return parser
-
-
-def _validate_local_database(database_url: str) -> None:
-    """시연 데이터가 운영 DB에 들어가지 않도록 실행 환경을 제한합니다."""
-    if get_app_env() not in {"local", "development", "test"}:
-        raise RuntimeError(
-            "Demo data can only be seeded when APP_ENV is local, development, or test."
-        )
-    url = make_url(database_url)
-    if url.get_backend_name() != "sqlite" and url.host not in {
-        "127.0.0.1",
-        "localhost",
-        "mysql",
-    }:
-        raise RuntimeError("Demo data can only be seeded into a local database host.")
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -790,7 +775,7 @@ def main() -> None:
     database_url = get_database_url()
     if not database_url:
         raise RuntimeError("DATABASE_URL must be configured before seeding demo data.")
-    _validate_local_database(database_url)
+    validate_local_database(database_url)
 
     engine, session_factory = initialize_database(database_url)
     try:

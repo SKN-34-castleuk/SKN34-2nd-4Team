@@ -169,16 +169,9 @@ describe("캠페인 관리 화면", () => {
   it("캠페인 통계·대상·이벤트 이력을 표시합니다", async () => {
     vi.stubGlobal("fetch", campaignFetchMock());
 
-    render(
-      <CampaignManagementPage
-        user={operationsUser}
-        onBack={vi.fn()}
-        onLoggedOut={vi.fn()}
-      />,
-    );
+    render(<CampaignManagementPage user={operationsUser} />);
 
-    expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
-    expect(screen.getAllByText("8월 고위험 고객 리텐션")).toHaveLength(2);
+    expect(await screen.findAllByText("8월 고위험 고객 리텐션")).toHaveLength(2);
 
     fireEvent.click(await screen.findByRole("tab", { name: "캠페인 대상" }));
     expect(await screen.findByText("고객 1001")).toBeInTheDocument();
@@ -194,15 +187,7 @@ describe("캠페인 관리 화면", () => {
     const fetchMock = campaignFetchMock(false, false, 168);
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <CampaignManagementPage
-        user={operationsUser}
-        onBack={vi.fn()}
-        onLoggedOut={vi.fn()}
-      />,
-    );
-
-    expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
+    render(<CampaignManagementPage user={operationsUser} />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "캠페인 대상" }));
     expect(await screen.findByRole("button", { name: "대상 1페이지" })).toBeInTheDocument();
@@ -235,15 +220,8 @@ describe("캠페인 관리 화면", () => {
     const fetchMock = campaignFetchMock(true);
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <CampaignManagementPage
-        user={marketingUser}
-        onBack={vi.fn()}
-        onLoggedOut={vi.fn()}
-      />,
-    );
+    render(<CampaignManagementPage user={marketingUser} />);
 
-    expect(await screen.findByRole("heading", { name: "마케팅 캠페인 센터" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("tab", { name: "캠페인 후보 고객" }));
     expect(await screen.findByRole("heading", { name: "캠페인 후보 고객" })).toBeInTheDocument();
     expect(await screen.findByText("고객 1001")).toBeInTheDocument();
@@ -258,16 +236,9 @@ describe("캠페인 관리 화면", () => {
   it("캠페인 저장 오류를 한국어 다이얼로그로 표시합니다", async () => {
     vi.stubGlobal("fetch", campaignFetchMock(false, true));
 
-    render(
-      <CampaignManagementPage
-        user={marketingUser}
-        onBack={vi.fn()}
-        onLoggedOut={vi.fn()}
-      />,
-    );
+    render(<CampaignManagementPage user={marketingUser} />);
 
-    expect(await screen.findByRole("heading", { name: "마케팅 캠페인 센터" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "캠페인 편집" }));
+    fireEvent.click(await screen.findByRole("button", { name: "캠페인 편집" }));
     fireEvent.change(screen.getByDisplayValue("8월 고위험 고객 리텐션"), {
       target: { value: "수정된 캠페인 이름" },
     });
@@ -282,16 +253,9 @@ describe("캠페인 관리 화면", () => {
   it("캠페인 저장 성공을 다이얼로그로 표시합니다", async () => {
     vi.stubGlobal("fetch", campaignFetchMock());
 
-    render(
-      <CampaignManagementPage
-        user={marketingUser}
-        onBack={vi.fn()}
-        onLoggedOut={vi.fn()}
-      />,
-    );
+    render(<CampaignManagementPage user={marketingUser} />);
 
-    expect(await screen.findByRole("heading", { name: "마케팅 캠페인 센터" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "캠페인 편집" }));
+    fireEvent.click(await screen.findByRole("button", { name: "캠페인 편집" }));
     fireEvent.change(screen.getByDisplayValue("8월 고위험 고객 리텐션"), {
       target: { value: "수정된 캠페인 이름" },
     });

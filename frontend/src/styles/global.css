@@ -581,6 +581,13 @@ button {
   background: #ededff;
 }
 
+.dashboard-nav-button.is-active {
+  color: #ffffff;
+  border-color: var(--navy);
+  background: var(--navy);
+  cursor: default;
+}
+
 .dashboard-placeholder {
   width: min(1280px, 100%);
   margin: 28px auto 0;
@@ -4287,5 +4294,153 @@ button {
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== 분석 대시보드 KPI 한 줄 요약 =====
+   기존 hero/average/priority/cluster 카드 4개를 압축한 형태입니다. */
+
+.kpi-row {
+  display: grid;
+  grid-column: span 12;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.kpi-tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid rgba(228, 231, 241, 0.92);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 32px rgba(36, 45, 88, 0.055);
+  text-align: left;
+}
+
+.kpi-tile__label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kpi-tile__value {
+  color: var(--navy);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* 군집 이름처럼 긴 문자열은 숫자보다 작게 잡아 줄바꿈을 막습니다. */
+.kpi-tile__value--text {
+  overflow: hidden;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpi-tile__value--risk {
+  color: var(--danger);
+}
+
+.kpi-tile__hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.kpi-tile--action {
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.kpi-tile--action:hover {
+  border-color: #f0c9d0;
+  box-shadow: 0 16px 34px rgba(184, 73, 96, 0.12);
+  transform: translateY(-2px);
+}
+
+.kpi-tile--action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ===== 인구통계 카드 (소득·연령·학력·카드등급) ===== */
+
+.bento-card--demographic {
+  grid-column: span 6;
+}
+
+.card-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.demographic-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.demographic-bar {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: minmax(88px, 130px) 1fr auto;
+}
+
+.demographic-bar__label {
+  overflow: hidden;
+  color: var(--navy);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demographic-bar__track {
+  height: 10px;
+  border-radius: 999px;
+  background: #eef0f7;
+}
+
+.demographic-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.demographic-bar__fill--risk {
+  background: #c65265;
+}
+
+.demographic-bar__value {
+  min-width: 52px;
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bento-card--demographic {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 560px) {
+  .kpi-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .demographic-bar {
+    grid-template-columns: minmax(72px, 96px) 1fr auto;
   }
 }

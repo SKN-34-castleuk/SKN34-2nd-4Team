@@ -145,9 +145,56 @@ const campaignPerformance = {
   generated_at: "2026-08-01T00:05:00Z",
 };
 
+const demographics = {
+  total_customers: 1,
+  income: [
+    {
+      label: "Less than $40K",
+      customer_count: 1,
+      high_risk_count: 1,
+      high_risk_ratio: 1,
+      average_churn_probability: 0.82,
+      average_utilization_ratio: 0.3,
+    },
+  ],
+  age_band: [
+    {
+      label: "40대",
+      customer_count: 1,
+      high_risk_count: 1,
+      high_risk_ratio: 1,
+      average_churn_probability: 0.82,
+      average_utilization_ratio: 0.3,
+    },
+  ],
+  education: [
+    {
+      label: "Graduate",
+      customer_count: 1,
+      high_risk_count: 1,
+      high_risk_ratio: 1,
+      average_churn_probability: 0.82,
+      average_utilization_ratio: 0.3,
+    },
+  ],
+  card_category: [
+    {
+      label: "Blue",
+      customer_count: 1,
+      high_risk_count: 1,
+      high_risk_ratio: 1,
+      average_churn_probability: 0.82,
+      average_utilization_ratio: 0.3,
+    },
+  ],
+};
+
 function dashboardFetchMock() {
   return vi.fn().mockImplementation((input: RequestInfo | URL) => {
     const path = String(input);
+    if (path.includes("/customer-insights/demographics")) {
+      return Promise.resolve(successResponse(demographics));
+    }
     if (path.includes("/history/")) {
       return Promise.resolve(successResponse(insightHistory));
     }
@@ -176,7 +223,7 @@ describe("고객 분석 대시보드", () => {
     const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     expect(await screen.findByText("분석 대상 고객")).toBeInTheDocument();
     expect(screen.getByText("고객별 분석 결과")).toBeInTheDocument();
@@ -207,7 +254,7 @@ describe("고객 분석 대시보드", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     const clusterFilter = await screen.findByRole("combobox", { name: "군집" });
     await user.selectOptions(clusterFilter, "활성 저하군");
@@ -221,7 +268,7 @@ describe("고객 분석 대시보드", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     await user.click(await screen.findByRole("button", { name: /1001/ }));
 
