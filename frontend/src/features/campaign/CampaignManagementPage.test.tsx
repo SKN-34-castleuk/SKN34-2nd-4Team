@@ -244,6 +244,7 @@ describe("캠페인 관리 화면", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "마케팅 캠페인 센터" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "캠페인 후보 고객" }));
     expect(await screen.findByRole("heading", { name: "캠페인 후보 고객" })).toBeInTheDocument();
     expect(await screen.findByText("고객 1001")).toBeInTheDocument();
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("campaign_id=1"))).toBe(true));

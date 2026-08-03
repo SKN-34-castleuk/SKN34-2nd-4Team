@@ -84,10 +84,11 @@ const roleLabels: Record<AuthUser["role"], string> = {
   marketing: "마케팅 담당자",
 };
 
-type DetailTabKey = "overview" | "targets" | "events";
+type DetailTabKey = "overview" | "candidates" | "targets" | "events";
 
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
   { key: "overview", label: "캠페인" },
+  { key: "candidates", label: "캠페인 후보 고객" },
   { key: "targets", label: "캠페인 대상" },
   { key: "events", label: "캠페인 이벤트 이력" },
 ];
@@ -1304,7 +1305,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
               ) : (
                 <>
                   <div className="campaign-detail-tabs" role="tablist" aria-label="캠페인 상세 보기 선택">
-                    {DETAIL_TABS.map((tab) => (
+                    {DETAIL_TABS.filter((tab) => tab.key !== "candidates" || canManageCampaigns).map((tab) => (
                       <button
                         key={tab.key}
                         type="button"
@@ -1322,17 +1323,18 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
                     <>
                       {targetStats && <CampaignStats campaign={{ ...selectedCampaign, stats: targetStats }} />}
                       <CampaignPerformancePanel campaignId={selectedCampaign.id} refreshKey={targetRefreshKey} />
-                      {canManageCampaigns && (
-                        <CampaignCandidatePanel
-                          selectedCampaign={selectedCampaign}
-                          canManage={canManageCampaigns}
-                          onRegistered={() => {
-                            setTargetRefreshKey((current) => current + 1);
-                            setCampaignRefreshKey((current) => current + 1);
-                          }}
-                        />
-                      )}
                     </>
+                  )}
+
+                  {detailTab === "candidates" && canManageCampaigns && (
+                    <CampaignCandidatePanel
+                      selectedCampaign={selectedCampaign}
+                      canManage={canManageCampaigns}
+                      onRegistered={() => {
+                        setTargetRefreshKey((current) => current + 1);
+                        setCampaignRefreshKey((current) => current + 1);
+                      }}
+                    />
                   )}
 
                   {detailTab === "targets" && (
