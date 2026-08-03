@@ -231,9 +231,20 @@ def fetch_insight_page(
         "scored_at": CustomerInsight.scored_at,
     }.get(sort_by)
 
+    card_category_rank = {
+        "Blue": 1,
+        "Silver": 2,
+        "Gold": 3,
+        "Platinum": 4,
+    }
+
+    def _card_category_rank(customer: Customer):
+        """카드 등급을 알파벳순이 아니라 실제 등급 순서(낮음→높음)로 정렬합니다."""
+        return case(card_category_rank, value=customer.card_category, else_=0)
+
     customer_sort_columns = {
         "total_trans_amt": lambda customer: customer.total_trans_amt,
-        "card_category": lambda customer: customer.card_category,
+        "card_category": _card_category_rank,
         "contacts_count_12_mon": lambda customer: customer.contacts_count_12_mon,
     }
 
