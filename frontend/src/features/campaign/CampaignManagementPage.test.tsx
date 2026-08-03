@@ -179,9 +179,13 @@ describe("캠페인 관리 화면", () => {
 
     expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
     expect(screen.getAllByText("8월 고위험 고객 리텐션")).toHaveLength(2);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "캠페인 대상" }));
     expect(await screen.findByText("고객 1001")).toBeInTheDocument();
     expect(screen.getByText(/운영팀의 대상 처리와 성과 입력은 WORK QUEUE에서 진행합니다/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "저장" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "캠페인 이벤트 이력" }));
     expect(screen.getByRole("heading", { name: "캠페인 이벤트 이력" })).toBeInTheDocument();
     expect(screen.getByText("상태 변경")).toBeInTheDocument();
   });
@@ -199,12 +203,11 @@ describe("캠페인 관리 화면", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "캠페인 관리" })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "캠페인 대상" }));
     expect(await screen.findByRole("button", { name: "대상 1페이지" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "대상 10페이지" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "대상 11페이지" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "이벤트 1페이지" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "이벤트 10페이지" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "이벤트 11페이지" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "다음 대상 페이지 묶음" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
@@ -213,6 +216,11 @@ describe("캠페인 관리 화면", () => {
     expect(screen.getByRole("button", { name: "대상 11페이지" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "대상 20페이지" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "대상 1페이지" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "캠페인 이벤트 이력" }));
+    expect(screen.getByRole("button", { name: "이벤트 1페이지" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이벤트 10페이지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이벤트 11페이지" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "다음 이벤트 페이지 묶음" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
