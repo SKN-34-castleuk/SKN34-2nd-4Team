@@ -71,6 +71,15 @@ function insightsResponse() {
 
 function dashboardResponse(input: RequestInfo | URL) {
   const path = String(input);
+  if (path.includes("/customer-insights/demographics")) {
+    return successResponse({
+      total_customers: 0,
+      income: [],
+      age_band: [],
+      education: [],
+      card_category: [],
+    });
+  }
   if (path.includes("/model-runs/latest")) {
     return successResponse({
       status: "succeeded",
