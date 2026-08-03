@@ -1043,11 +1043,15 @@ export function DepartmentDashboardPage({ user, onLoggedOut, onOpenCampaigns, on
   useEffect(() => {
     let isActive = true;
     const load = async () => {
-      const [insightResult, campaignResult, batchResult] = await Promise.allSettled([
+    const [insightResult, campaignResult, batchResult] = await Promise.allSettled([
         listCustomerInsights(insightQuery),
-        listCampaignTargets({ page: campaignQueuePage, page_size: CAMPAIGN_QUEUE_PAGE_SIZE }),
-        getLatestBatch(),
-      ]);
+        listCampaignTargets({
+    page: campaignQueuePage,
+    page_size: CAMPAIGN_QUEUE_PAGE_SIZE,
+    ...(user.role === "operations" ? { sort_by_priority: true } : {}),
+  }),
+  getLatestBatch(),
+]);
       if (!isActive) {
         return;
       }
