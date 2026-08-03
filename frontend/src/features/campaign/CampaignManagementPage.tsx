@@ -20,10 +20,10 @@ import {
 import { listTeamMembers, type TeamMember } from "../../api/team";
 import { BulkTargetingPanel } from "./BulkTargetingPanel";
 import { CampaignCandidatePanel } from "./CampaignCandidatePanel";
+import { CampaignPagination } from "./CampaignPagination";
 import { CampaignPerformancePanel } from "./CampaignPerformancePanel";
 
 const PAGE_SIZE = 8;
-const PAGE_GROUP_SIZE = 10;
 
 const lifecycleLabels: Record<CampaignLifecycleStatus, string> = {
   draft: "초안",
@@ -83,6 +83,15 @@ const roleLabels: Record<AuthUser["role"], string> = {
   operations: "운영 담당자",
   marketing: "마케팅 담당자",
 };
+
+type DetailTabKey = "overview" | "candidates" | "targets" | "events";
+
+const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
+  { key: "overview", label: "캠페인" },
+  { key: "candidates", label: "캠페인 후보 고객" },
+  { key: "targets", label: "캠페인 대상" },
+  { key: "events", label: "캠페인 이벤트 이력" },
+];
 
 type CampaignManagementPageProps = {
   user: AuthUser;
@@ -681,68 +690,6 @@ function TargetTable({
   );
 }
 
-function CampaignPagination({
-  label,
-  total,
-  page,
-  pageSize,
-  totalPages,
-  summarySuffix,
-  onPageChange,
-}: {
-  label: string;
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  summarySuffix: string;
-  onPageChange: (page: number) => void;
-}) {
-  if (total <= 0) {
-    return null;
-  }
-  const groupStart = Math.floor((page - 1) / PAGE_GROUP_SIZE) * PAGE_GROUP_SIZE + 1;
-  const groupEnd = Math.min(groupStart + PAGE_GROUP_SIZE - 1, Math.max(totalPages, 1));
-  const pages = Array.from({ length: groupEnd - groupStart + 1 }, (_, index) => groupStart + index);
-  const currentStart = (page - 1) * pageSize + 1;
-  const currentEnd = Math.min(page * pageSize, total);
-  return (
-    <div className="campaign-inline-pagination campaign-inline-pagination--grouped">
-      <span>{formatNumber(currentStart)}–{formatNumber(currentEnd)} / {formatNumber(total)}{summarySuffix}</span>
-      <div className="campaign-inline-pagination__pages">
-        <button
-          type="button"
-          disabled={groupStart === 1}
-          onClick={() => onPageChange(groupStart - 1)}
-          aria-label={`이전 ${label} 페이지 묶음`}
-        >
-          ‹
-        </button>
-        {pages.map((pageNumber) => (
-          <button
-            className={pageNumber === page ? "campaign-inline-pagination__page campaign-inline-pagination__page--active" : "campaign-inline-pagination__page"}
-            type="button"
-            key={pageNumber}
-            aria-label={`${label} ${pageNumber}페이지`}
-            aria-current={pageNumber === page ? "page" : undefined}
-            onClick={() => onPageChange(pageNumber)}
-          >
-            {pageNumber}
-          </button>
-        ))}
-        <button
-          type="button"
-          disabled={groupEnd >= totalPages}
-          onClick={() => onPageChange(groupEnd + 1)}
-          aria-label={`다음 ${label} 페이지 묶음`}
-        >
-          ›
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function EventTimeline({ data, page, onPageChange }: {
   data: CampaignEventList | null;
   page: number;
@@ -821,6 +768,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
   const [eventLoading, setEventLoading] = useState(false);
   const [eventError, setEventError] = useState("");
   const [assignees, setAssignees] = useState<TeamMember[]>([]);
+  const [detailTab, setDetailTab] = useState<DetailTabKey>("overview");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
 
@@ -843,6 +791,7 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
     setCampaignMessage("");
     setCampaignActionError("");
     setCampaignActionSuccess("");
+    setDetailTab("overview");
   };
 
   useEffect(() => {
@@ -1293,9 +1242,29 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
                 />
               ) : (
                 <>
-                  {targetStats && <CampaignStats campaign={{ ...selectedCampaign, stats: targetStats }} />}
-                  <CampaignPerformancePanel campaignId={selectedCampaign.id} refreshKey={targetRefreshKey} />
-                  {canManageCampaigns && (
+                  <div className="campaign-detail-tabs" role="tablist" aria-label="캠페인 상세 보기 선택">
+                    {DETAIL_TABS.filter((tab) => tab.key !== "candidates" || canManageCampaigns).map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={detailTab === tab.key}
+                        className={`campaign-detail-tab${detailTab === tab.key ? " is-active" : ""}`}
+                        onClick={() => setDetailTab(tab.key)}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {detailTab === "overview" && (
+                    <>
+                      {targetStats && <CampaignStats campaign={{ ...selectedCampaign, stats: targetStats }} />}
+                      <CampaignPerformancePanel campaignId={selectedCampaign.id} refreshKey={targetRefreshKey} />
+                    </>
+                  )}
+
+                  {detailTab === "candidates" && canManageCampaigns && (
                     <CampaignCandidatePanel
                       selectedCampaign={selectedCampaign}
                       canManage={canManageCampaigns}
@@ -1305,114 +1274,120 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
                       }}
                     />
                   )}
-                  {campaignMessage !== "" && <p className="campaign-management-message" role="status">{campaignMessage}</p>}
 
-                  <section className="campaign-target-panel">
-                    <div className="campaign-panel-heading">
-                      <div>
-                        <p className="card-kicker">TARGET OPERATIONS</p>
-                        <h3>캠페인 대상</h3>
-                      </div>
-                      <span className="campaign-panel-count">{formatNumber(targetData?.total ?? 0)}명</span>
-                    </div>
-                    {user.role === "operations" && (
-                      <p className="campaign-target-panel__notice">
-                        운영팀의 대상 처리와 성과 입력은 WORK QUEUE에서 진행합니다. 이 화면에서는 캠페인별 현황과 이력을 조회할 수 있습니다.
-                      </p>
-                    )}
-                    <div className="campaign-target-filters">
-                      <select
-                        value={targetStatusFilter}
-                        aria-label="대상 처리 상태 필터"
-                        onChange={(event) => {
-                          setTargetStatusFilter(event.target.value as CampaignStatus | "");
-                          setTargetPage(1);
-                        }}
-                      >
-                        <option value="">전체 처리 상태</option>
-                        {Object.entries(targetStatusLabels).map(([status, label]) => (
-                          <option value={status} key={status}>{label}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={targetAssigneeFilter}
-                        aria-label="대상 담당자 필터"
-                        onChange={(event) => {
-                          setTargetAssigneeFilter(event.target.value);
-                          setTargetPage(1);
-                        }}
-                      >
-                        <option value="">전체 담당자</option>
-                        {assignees.map((assignee) => (
-                          <option value={assignee.id} key={assignee.id}>{assignee.display_name}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="search"
-                        inputMode="numeric"
-                        value={targetCustomerFilter}
-                        placeholder="고객 ID"
-                        aria-label="대상 고객 ID 필터"
-                        onChange={(event) => {
-                          setTargetCustomerFilter(event.target.value);
-                          setTargetPage(1);
-                        }}
-                      />
-                      <select
-                        value={targetConvertedFilter}
-                        aria-label="전환 여부 필터"
-                        onChange={(event) => {
-                          setTargetConvertedFilter(event.target.value as "" | "true" | "false");
-                          setTargetPage(1);
-                        }}
-                      >
-                        <option value="">전환 전체</option>
-                        <option value="true">전환 완료</option>
-                        <option value="false">미전환</option>
-                      </select>
-                    </div>
-                    {targetError !== "" && <p className="campaign-management-error" role="alert">{targetError}</p>}
-                    {targetLoading ? (
-                      <p className="campaign-empty-copy">캠페인 대상을 불러오는 중입니다.</p>
-                    ) : targetData === null || targetData.items.length === 0 ? (
-                      <p className="campaign-empty-copy">조건에 맞는 캠페인 대상이 없습니다.</p>
-                    ) : (
-                      <TargetTable
-                        data={targetData}
-                        drafts={targetDrafts}
-                        assignees={assignees}
-                        canEditTargets={canEditCampaignTargets}
-                        canViewPerformance={canViewTargetPerformance}
-                        processingUser={user}
-                        onDraftChange={handleTargetDraftChange}
-                        onSave={(targetId) => void handleSaveTarget(targetId)}
-                        isSaving={savingTargetId}
-                      />
-                    )}
-                    {targetData !== null && targetData.total > 0 && (
-                      <CampaignPagination
-                        label="대상"
-                        total={targetData.total}
-                        page={targetPage}
-                        pageSize={targetData.page_size}
-                        totalPages={Math.max(targetData.total_pages, 1)}
-                        summarySuffix="명"
-                        onPageChange={setTargetPage}
-                      />
-                    )}
-                  </section>
+                  {detailTab === "targets" && (
+                    <>
+                      {campaignMessage !== "" && <p className="campaign-management-message" role="status">{campaignMessage}</p>}
+                      <section className="campaign-target-panel">
+                        <div className="campaign-panel-heading">
+                          <div>
+                            <p className="card-kicker">TARGET OPERATIONS</p>
+                            <h3>캠페인 대상</h3>
+                          </div>
+                          <span className="campaign-panel-count">{formatNumber(targetData?.total ?? 0)}명</span>
+                        </div>
+                        {user.role === "operations" && (
+                          <p className="campaign-target-panel__notice">
+                            운영팀의 대상 처리와 성과 입력은 WORK QUEUE에서 진행합니다. 이 화면에서는 캠페인별 현황과 이력을 조회할 수 있습니다.
+                          </p>
+                        )}
+                        <div className="campaign-target-filters">
+                          <select
+                            value={targetStatusFilter}
+                            aria-label="대상 처리 상태 필터"
+                            onChange={(event) => {
+                              setTargetStatusFilter(event.target.value as CampaignStatus | "");
+                              setTargetPage(1);
+                            }}
+                          >
+                            <option value="">전체 처리 상태</option>
+                            {Object.entries(targetStatusLabels).map(([status, label]) => (
+                              <option value={status} key={status}>{label}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={targetAssigneeFilter}
+                            aria-label="대상 담당자 필터"
+                            onChange={(event) => {
+                              setTargetAssigneeFilter(event.target.value);
+                              setTargetPage(1);
+                            }}
+                          >
+                            <option value="">전체 담당자</option>
+                            {assignees.map((assignee) => (
+                              <option value={assignee.id} key={assignee.id}>{assignee.display_name}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="search"
+                            inputMode="numeric"
+                            value={targetCustomerFilter}
+                            placeholder="고객 ID"
+                            aria-label="대상 고객 ID 필터"
+                            onChange={(event) => {
+                              setTargetCustomerFilter(event.target.value);
+                              setTargetPage(1);
+                            }}
+                          />
+                          <select
+                            value={targetConvertedFilter}
+                            aria-label="전환 여부 필터"
+                            onChange={(event) => {
+                              setTargetConvertedFilter(event.target.value as "" | "true" | "false");
+                              setTargetPage(1);
+                            }}
+                          >
+                            <option value="">전환 전체</option>
+                            <option value="true">전환 완료</option>
+                            <option value="false">미전환</option>
+                          </select>
+                        </div>
+                        {targetError !== "" && <p className="campaign-management-error" role="alert">{targetError}</p>}
+                        {targetLoading ? (
+                          <p className="campaign-empty-copy">캠페인 대상을 불러오는 중입니다.</p>
+                        ) : targetData === null || targetData.items.length === 0 ? (
+                          <p className="campaign-empty-copy">조건에 맞는 캠페인 대상이 없습니다.</p>
+                        ) : (
+                          <TargetTable
+                            data={targetData}
+                            drafts={targetDrafts}
+                            assignees={assignees}
+                            canEditTargets={canEditCampaignTargets}
+                            canViewPerformance={canViewTargetPerformance}
+                            processingUser={user}
+                            onDraftChange={handleTargetDraftChange}
+                            onSave={(targetId) => void handleSaveTarget(targetId)}
+                            isSaving={savingTargetId}
+                          />
+                        )}
+                        {targetData !== null && targetData.total > 0 && (
+                          <CampaignPagination
+                            label="대상"
+                            total={targetData.total}
+                            page={targetPage}
+                            pageSize={targetData.page_size}
+                            totalPages={Math.max(targetData.total_pages, 1)}
+                            summarySuffix="명"
+                            onPageChange={setTargetPage}
+                          />
+                        )}
+                      </section>
+                    </>
+                  )}
 
-                  <section className="campaign-event-panel">
-                    <div className="campaign-panel-heading">
-                      <div>
-                        <p className="card-kicker">AUDIT TRAIL</p>
-                        <h3>캠페인 이벤트 이력</h3>
+                  {detailTab === "events" && (
+                    <section className="campaign-event-panel">
+                      <div className="campaign-panel-heading">
+                        <div>
+                          <p className="card-kicker">AUDIT TRAIL</p>
+                          <h3>캠페인 이벤트 이력</h3>
+                        </div>
+                        {eventLoading && <span className="campaign-loading-label">불러오는 중...</span>}
                       </div>
-                      {eventLoading && <span className="campaign-loading-label">불러오는 중...</span>}
-                    </div>
-                    {eventError !== "" && <p className="campaign-management-error" role="alert">{eventError}</p>}
-                    <EventTimeline data={eventData} page={eventPage} onPageChange={setEventPage} />
-                  </section>
+                      {eventError !== "" && <p className="campaign-management-error" role="alert">{eventError}</p>}
+                      <EventTimeline data={eventData} page={eventPage} onPageChange={setEventPage} />
+                    </section>
+                  )}
                 </>
               )}
             </>

@@ -584,7 +584,7 @@ def run_batch(
     session: Session,
     *,
     model_dir: Path | None = None,
-    medium_threshold: float = 0.5,
+    medium_threshold: float = 0.4,
     high_threshold: float = 0.85,
     activity_gap_quantile: float = DEFAULT_ACTIVITY_GAP_QUANTILE,
     as_of_date: date | None = None,

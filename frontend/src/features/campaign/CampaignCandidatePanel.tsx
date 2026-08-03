@@ -11,6 +11,7 @@ import {
   type CustomerInsightList,
   type InsightQuery,
 } from "../../api/insights";
+import { CampaignPagination } from "./CampaignPagination";
 
 const PAGE_SIZE = 8;
 
@@ -353,14 +354,15 @@ export function CampaignCandidatePanel({
             </div>
           )}
           {data !== null && data.total > 0 && (
-            <div className="department-insight-pagination campaign-candidate-pagination">
-              <span>{formatNumber((data.page - 1) * data.page_size + 1)}–{formatNumber(Math.min(data.page * data.page_size, data.total))} / {formatNumber(data.total)}명</span>
-              <div>
-                <button type="button" aria-label="이전 캠페인 후보 페이지" disabled={data.page <= 1} onClick={() => changePage(data.page - 1)}>←</button>
-                <strong>{data.page} / {data.total_pages}</strong>
-                <button type="button" aria-label="다음 캠페인 후보 페이지" disabled={data.page >= data.total_pages} onClick={() => changePage(data.page + 1)}>→</button>
-              </div>
-            </div>
+            <CampaignPagination
+              label="캠페인 후보"
+              total={data.total}
+              page={data.page}
+              pageSize={data.page_size}
+              totalPages={Math.max(data.total_pages, 1)}
+              summarySuffix="명"
+              onPageChange={changePage}
+            />
           )}
         </>
       )}
