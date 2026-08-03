@@ -27,6 +27,61 @@ src/classification.py
 `outputs/`는 호스트 디렉터리를 컨테이너에 마운트합니다. 따라서 생성된 모델과
 manifest는 Docker 이미지에 포함되지 않고 프로젝트의 `outputs/models/`에 남습니다.
 
+## 실행 전 환경 설정
+
+프로젝트 루트에서 `.env.example`을 복사해 로컬 설정 파일을 만듭니다.
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Docker Compose가 정상적으로 시작하려면 다음 값은 반드시 설정해야 합니다.
+
+```env
+MYSQL_ROOT_PASSWORD=로컬용 root 비밀번호
+MYSQL_PASSWORD=로컬용 애플리케이션 비밀번호
+JWT_SECRET=32자 이상의 임의 문자열
+```
+
+`JWT_SECRET`은 로그인 JWT 쿠키 서명에 사용됩니다. PowerShell에서 임의 값을
+생성하려면 다음 명령을 사용할 수 있습니다.
+
+```powershell
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+출력된 값을 `.env`의 `JWT_SECRET`에 입력합니다. `.env`는 Git에 커밋하지 않습니다.
+
+### 테스트 계정 자동 생성 설정
+
+로컬 Compose에서는 `ALLOW_TEST_USER_SEEDING`의 기본값이 `true`이므로 별도 설정 없이
+테스트 계정이 생성됩니다. 기본 비밀번호도 `compose.yaml`에 정의되어 있습니다.
+
+명시적으로 비활성화하려면 다음을 `.env`에 추가합니다.
+
+```env
+ALLOW_TEST_USER_SEEDING=false
+```
+
+반대로 명시적으로 활성화하려면 다음처럼 설정합니다.
+
+```env
+ALLOW_TEST_USER_SEEDING=true
+```
+
+테스트 계정 비밀번호를 직접 바꾸고 싶을 때만 다음 값을 `.env`에 추가합니다.
+
+```env
+TEST_ADMIN_PASSWORD=12자 이상의 로컬 비밀번호
+TEST_ANALYST_PASSWORD=12자 이상의 로컬 비밀번호
+TEST_OPERATIONS_PASSWORD=12자 이상의 로컬 비밀번호
+TEST_MARKETING_PASSWORD=12자 이상의 로컬 비밀번호
+```
+
+`ALLOW_TEST_USER_SEEDING=true`인 상태에서 Backend가 시작되면 migration 직후 네 계정이
+upsert됩니다. 따라서 이미 계정이 있어도 비밀번호와 역할이 최신 설정으로 갱신됩니다.
+
 ## 최초 실행 및 재실행
 
 Docker Desktop을 실행한 뒤 프로젝트 루트에서 실행합니다.
@@ -104,6 +159,10 @@ docker compose exec backend python -m backend.scripts.run_analysis_batch --force
 | `test_analyst` | `CardOpsAnalyst2026!` | 분석 |
 | `test_operations` | `CardOpsOps2026!` | 운영 |
 | `test_marketing` | `CardOpsMarketing2026!` | 마케팅 |
+
+위 표의 비밀번호는 fallback 기본값입니다. `.env`에 `TEST_*_PASSWORD` 값을 지정하면
+해당 값이 기본값보다 우선 적용됩니다. 사용자 아이디는 `seed_test_users.py`에 고정되어
+있으며 `.env`로 변경하지 않습니다.
 
 `ALLOW_TEST_USER_SEEDING=false`를 명시하면 자동 생성을 끌 수 있습니다. 테스트 계정은
 로컬 개발 DB에서만 사용하고 운영 환경에서는 반드시 비활성화합니다.
