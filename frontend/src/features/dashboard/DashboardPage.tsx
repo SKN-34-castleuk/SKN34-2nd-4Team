@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { logout, type AuthUser } from "../../api/auth";
+import type { AuthUser } from "../../api/auth";
 import {
   createCampaignTarget,
   getCampaignPerformance,
@@ -23,13 +23,6 @@ import {
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 
 const PAGE_SIZE = 8;
-
-const roleLabels: Record<AuthUser["role"], string> = {
-  admin: "관리자",
-  analyst: "분석 담당자",
-  operations: "운영 담당자",
-  marketing: "마케팅 담당자",
-};
 
 const riskLabels: Record<CustomerInsight["risk_level"], string> = {
   low: "낮음",
@@ -65,9 +58,6 @@ type SortOrder = NonNullable<InsightQuery["sort_order"]>;
 
 type DashboardPageProps = {
   user: AuthUser;
-  onLoggedOut: () => void;
-  onOpenCampaigns?: () => void;
-  onOpenAdminConsole?: () => void;
   showCampaignFeedback?: boolean;
 };
 
@@ -710,7 +700,7 @@ function CustomerDetailPanel({
   );
 }
 
-export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminConsole, showCampaignFeedback = false }: DashboardPageProps) {
+export function DashboardPage({ user, showCampaignFeedback = false }: DashboardPageProps) {
   const [data, setData] = useState<CustomerInsightList | null>(null);
   const [error, setError] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("");
@@ -737,8 +727,6 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminC
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState("");
 
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
   const canProcessCampaignTargets = user.role === "admin" || user.role === "operations";
@@ -986,59 +974,13 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminC
     setPage(1);
   };
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true);
-    setLogoutError("");
-    try {
-      await logout();
-      onLoggedOut();
-    } catch (requestError) {
-      setLogoutError(
-        requestError instanceof Error ? requestError.message : "로그아웃하지 못했습니다.",
-      );
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
-
   const isInitialLoading = data === null && error === "";
   const dominantCluster = data === null ? null : getDominantCluster(data.stats.cluster_counts);
   const clusterOptions = data === null ? [] : getClusterOptions(data.stats.cluster_options);
   const highRiskCount = data?.stats.risk_counts.high ?? 0;
 
   return (
-    <main className="dashboard-layout">
-      <header className="dashboard-header">
-        <div className="dashboard-brand-block">
-          <p className="dashboard-eyebrow">CARDOPS CONSOLE / INSIGHTS</p>
-          <h1>고객 분석 대시보드</h1>
-          <p className="dashboard-subtitle">고객 행동 데이터를 기반으로 이탈 위험과 실행 우선순위를 확인합니다.</p>
-        </div>
-        <div className="dashboard-account">
-          <div>
-            <strong>{user.display_name}</strong>
-            <span>{roleLabels[user.role]}</span>
-          </div>
-          {onOpenAdminConsole ? (
-            <button className="dashboard-nav-button" type="button" onClick={onOpenAdminConsole}>
-              관리자 콘솔
-            </button>
-          ) : onOpenCampaigns && (
-            <button className="dashboard-nav-button" type="button" onClick={onOpenCampaigns}>
-              캠페인 조회
-            </button>
-          )}
-          <button
-            className="dashboard-logout"
-            type="button"
-            onClick={() => void handleLogout()}
-            disabled={isLoggingOut}
-          >
-            {isLoggingOut ? "처리 중..." : "로그아웃"}
-          </button>
-        </div>
-      </header>
-
+    <>
       {isInitialLoading && <DashboardSkeleton />}
 
       {error !== "" && (
@@ -1244,7 +1186,6 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminC
         </section>
       )}
 
-      {logoutError !== "" && <p className="dashboard-notice" role="alert">{logoutError}</p>}
       {selectedCustomerId !== null && (
         <>
           <button className="drawer-backdrop" type="button" aria-label="상세 패널 닫기" onClick={() => setSelectedCustomerId(null)} />
@@ -1265,6 +1206,6 @@ export function DashboardPage({ user, onLoggedOut, onOpenCampaigns, onOpenAdminC
           />
         </>
       )}
-    </main>
+    </>
   );
 }

@@ -581,6 +581,13 @@ button {
   background: #ededff;
 }
 
+.dashboard-nav-button.is-active {
+  color: #ffffff;
+  border-color: var(--navy);
+  background: var(--navy);
+  cursor: default;
+}
+
 .dashboard-placeholder {
   width: min(1280px, 100%);
   margin: 28px auto 0;

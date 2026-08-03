@@ -176,7 +176,7 @@ describe("고객 분석 대시보드", () => {
     const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     expect(await screen.findByText("분석 대상 고객")).toBeInTheDocument();
     expect(screen.getByText("고객별 분석 결과")).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe("고객 분석 대시보드", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     const clusterFilter = await screen.findByRole("combobox", { name: "군집" });
     await user.selectOptions(clusterFilter, "활성 저하군");
@@ -221,7 +221,7 @@ describe("고객 분석 대시보드", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<DashboardPage user={authUser} onLoggedOut={vi.fn()} />);
+    render(<DashboardPage user={authUser} />);
 
     await user.click(await screen.findByRole("button", { name: /1001/ }));
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 
-import { logout, type AuthUser } from "../../api/auth";
+import type { AuthUser } from "../../api/auth";
 import {
   createCampaign,
   listCampaignEvents,
@@ -77,13 +77,6 @@ const eventLabels: Record<string, string> = {
   conversion_updated: "전환 여부 변경",
 };
 
-const roleLabels: Record<AuthUser["role"], string> = {
-  admin: "관리자",
-  analyst: "분석 담당자",
-  operations: "운영 담당자",
-  marketing: "마케팅 담당자",
-};
-
 type DetailTabKey = "overview" | "candidates" | "targets" | "events";
 
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
@@ -95,9 +88,6 @@ const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
 
 type CampaignManagementPageProps = {
   user: AuthUser;
-  onBack: () => void;
-  onLoggedOut: () => void;
-  backLabel?: string;
 };
 
 type CampaignForm = {
@@ -730,12 +720,10 @@ function EventTimeline({ data, page, onPageChange }: {
   );
 }
 
-export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = "분석 대시보드" }: CampaignManagementPageProps) {
+export function CampaignManagementPage({ user }: CampaignManagementPageProps) {
   const canManageCampaigns = user.role === "admin" || user.role === "marketing";
   const canEditCampaignTargets = user.role === "admin";
   const canViewTargetPerformance = user.role === "admin" || user.role === "operations";
-  const isReadOnly = user.role === "analyst";
-  const isMarketingWorkspace = user.role === "marketing";
   const [campaignData, setCampaignData] = useState<CampaignList | null>(null);
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<CampaignLifecycleStatus | "">("");
   const [campaignNameFilter, setCampaignNameFilter] = useState("");
@@ -769,8 +757,6 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
   const [eventError, setEventError] = useState("");
   const [assignees, setAssignees] = useState<TeamMember[]>([]);
   const [detailTab, setDetailTab] = useState<DetailTabKey>("overview");
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState("");
 
   const selectedCampaign = useMemo(
     () => campaignData?.items.find((campaign) => campaign.id === selectedCampaignId) ?? null,
@@ -1043,50 +1029,10 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
     }
   };
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true);
-    setLogoutError("");
-    try {
-      await logout();
-      onLoggedOut();
-    } catch (error: unknown) {
-      setLogoutError(errorMessage(error, "로그아웃하지 못했습니다."));
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
-
   const targetStats = targetData?.stats ?? selectedCampaign?.stats;
 
   return (
-    <main className="campaign-management-layout">
-      <header className="campaign-management-header">
-        <div>
-          <p className="dashboard-eyebrow">CARDOPS CONSOLE / CAMPAIGNS</p>
-          <h1>{isReadOnly ? "캠페인 조회" : isMarketingWorkspace ? "마케팅 캠페인 센터" : "캠페인 관리"}</h1>
-          <p className="dashboard-subtitle">
-            {isReadOnly
-              ? "캠페인 현황과 처리 이력을 조회합니다. 변경 작업은 담당 부서에서 수행합니다."
-              : isMarketingWorkspace
-              ? "후보 고객 선정부터 캠페인 생성·타기팅·성과 확인까지 한 곳에서 관리합니다."
-              : "캠페인 실행 기간, 대상 고객, 처리 결과와 변경 이력을 한 곳에서 관리합니다."}
-          </p>
-        </div>
-        <div className="campaign-management-account">
-          <div>
-            <strong>{user.display_name}</strong>
-            <span>{roleLabels[user.role]}</span>
-          </div>
-          {!isMarketingWorkspace && (
-            <button className="campaign-back-button" type="button" onClick={onBack}>{backLabel}</button>
-          )}
-          <button className="dashboard-logout" type="button" onClick={() => void handleLogout()} disabled={isLoggingOut}>
-            {isLoggingOut ? "처리 중..." : "로그아웃"}
-          </button>
-        </div>
-      </header>
-
-      {logoutError !== "" && <p className="campaign-management-error" role="alert">{logoutError}</p>}
+    <>
       {campaignError !== "" && <p className="campaign-management-error" role="alert">{campaignError}</p>}
       {campaignActionError !== "" && (
         <CampaignActionDialog
@@ -1394,6 +1340,6 @@ export function CampaignManagementPage({ user, onBack, onLoggedOut, backLabel = 
           )}
         </section>
       </section>
-    </main>
+    </>
   );
 }
