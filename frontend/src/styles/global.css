@@ -2757,10 +2757,37 @@ button {
 }
 
 .campaign-performance-comparisons {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
   margin-top: 20px;
+}
+
+.campaign-performance-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.campaign-performance-tab {
+  padding: 7px 14px;
+  border: 1px solid #eef0f6;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.campaign-performance-tab:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+
+.campaign-performance-tab.is-active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #ffffff;
 }
 
 .campaign-performance-breakdown {
@@ -2807,6 +2834,9 @@ button {
 .campaign-performance-table tbody th {
   color: var(--navy);
   font-weight: 750;
+  text-align: left;
+}
+.campaign-performance-table tbody td {
   text-align: left;
 }
 
@@ -4114,8 +4144,7 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .campaign-performance-cards,
-  .campaign-performance-comparisons {
+  .campaign-performance-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4141,8 +4170,7 @@ button {
 }
 
 @media (max-width: 480px) {
-  .campaign-performance-cards,
-  .campaign-performance-comparisons {
+  .campaign-performance-cards {
     grid-template-columns: 1fr;
   }
 }
