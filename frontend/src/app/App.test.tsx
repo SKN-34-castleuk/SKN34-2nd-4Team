@@ -71,6 +71,15 @@ function insightsResponse() {
 
 function dashboardResponse(input: RequestInfo | URL) {
   const path = String(input);
+  if (path.includes("/analytics/categorical-churn-rate")) {
+    return successResponse({ field: "Gender", items: [] });
+  }
+  if (path.includes("/analytics/numeric-distribution")) {
+    return successResponse({ field: "Total_Trans_Ct", by_target: {} });
+  }
+  if (path.includes("/analytics/feature-correlation")) {
+    return successResponse({ items: [] });
+  }
   if (path.includes("/model-runs/latest")) {
     return successResponse({
       status: "succeeded",
