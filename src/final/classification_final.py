@@ -43,6 +43,7 @@ from common import config
 from common.data import load_raw_data
 from common.evaluate import evaluate_classification, make_classification_predictions
 from feature_engine.classification_features import CHURN_TASK, ClassificationTaskSpec, build_preprocessor
+from final.update_classification_manifest import update_manifest
 from hyperparameter.classification_search import get_best_params
 
 MODEL_NAME = "LightGBM_Tuned"
@@ -135,6 +136,7 @@ def main() -> dict[str, Any]:
     pd.DataFrame([test_row]).to_csv(config.REPORT_DIR / "classification_final_metrics.csv", index=False)
     importance.to_frame("importance").to_csv(config.REPORT_DIR / "classification_feature_importance.csv")
     predictions.to_csv(config.REPORT_DIR / "classification_test_predictions.csv", index=False)
+    update_manifest()
 
     print(f"\n저장 완료: {config.MODEL_DIR / 'classification_lightgbm_final.joblib'}")
     print(f"저장 완료: {config.REPORT_DIR / 'classification_ensemble_comparison.csv'}")

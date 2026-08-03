@@ -1,5 +1,8 @@
 # Docker Compose 환경 가이드
 
+최신 자동 모델 생성·manifest 갱신·테스트 계정 생성 흐름은
+[`docker_compose_runbook.md`](docker_compose_runbook.md)를 먼저 확인합니다.
+
 이 문서는 CardOps 프로젝트의 Frontend, Backend, MySQL 개발 환경을 Docker
 Compose로 실행하고, 다른 노트북에서도 동일한 환경을 재현하기 위한 안내서입니다.
 

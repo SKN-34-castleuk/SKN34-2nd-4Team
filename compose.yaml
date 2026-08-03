@@ -19,6 +19,37 @@ services:
       retries: 20
       start_period: 20s
 
+  model-builder:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cardops-model-builder
+    working_dir: /app
+    restart: "no"
+    environment:
+      FORCE_MODEL_REBUILD: ${FORCE_MODEL_REBUILD:-false}
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$${FORCE_MODEL_REBUILD}" = "true" ] || \
+           [ ! -f /app/outputs/models/classification_manifest.json ] || \
+           ! grep -q '"artifact": "classification_lightgbm_final.joblib"' /app/outputs/models/classification_manifest.json || \
+           [ ! -f /app/outputs/models/classification_lightgbm_final.joblib ] || \
+           [ ! -f /app/outputs/models/regression_model.joblib ] || \
+           [ ! -f /app/outputs/models/clustering_activity_gap.joblib ]; then
+          python src/classification.py &&
+          python src/final/classification_final.py &&
+          python src/final/regression_final.py &&
+          python src/final/clustering_final.py
+        else
+          echo "Final model artifacts already exist; skipping model training."
+        fi
+    volumes:
+      - ./src:/app/src:ro
+      - ./data:/app/data:ro
+      - ./outputs:/app/outputs
+
   backend:
     build:
       context: ./backend
@@ -33,20 +64,22 @@ services:
       MODEL_DIR: /app/outputs/models
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
-      ALLOW_TEST_USER_SEEDING: ${ALLOW_TEST_USER_SEEDING:-false}
+      ALLOW_TEST_USER_SEEDING: ${ALLOW_TEST_USER_SEEDING:-true}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
       LOGIN_IP_MAX_ATTEMPTS: ${LOGIN_IP_MAX_ATTEMPTS:-30}
       LOGIN_RATE_WINDOW_SECONDS: ${LOGIN_RATE_WINDOW_SECONDS:-900}
-      TEST_ADMIN_PASSWORD: ${TEST_ADMIN_PASSWORD:-}
-      TEST_ANALYST_PASSWORD: ${TEST_ANALYST_PASSWORD:-}
-      TEST_OPERATIONS_PASSWORD: ${TEST_OPERATIONS_PASSWORD:-}
-      TEST_MARKETING_PASSWORD: ${TEST_MARKETING_PASSWORD:-}
+      TEST_ADMIN_PASSWORD: "${TEST_ADMIN_PASSWORD:-CardOpsAdmin2026!}"
+      TEST_ANALYST_PASSWORD: "${TEST_ANALYST_PASSWORD:-CardOpsAnalyst2026!}"
+      TEST_OPERATIONS_PASSWORD: "${TEST_OPERATIONS_PASSWORD:-CardOpsOps2026!}"
+      TEST_MARKETING_PASSWORD: "${TEST_MARKETING_PASSWORD:-CardOpsMarketing2026!}"
     volumes:
       - ./outputs/models:/app/outputs/models:ro
       - ./data:/app/data:ro
     depends_on:
       mysql:
         condition: service_healthy
+      model-builder:
+        condition: service_completed_successfully
 
   frontend:
     build:
