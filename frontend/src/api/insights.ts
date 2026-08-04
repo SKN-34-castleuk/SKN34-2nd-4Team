@@ -10,10 +10,6 @@ export type CustomerInsightList =
   components["schemas"]["CustomerInsightListResponse"];
 export type CustomerInsightHistory =
   components["schemas"]["CustomerInsightHistoryResponse"];
-export type DemographicBreakdown =
-  components["schemas"]["DemographicBreakdownResponse"];
-export type DemographicBucket =
-  components["schemas"]["DemographicBucketResponse"];
 
 export type InsightQuery = {
   risk_level?: "low" | "medium" | "high";
@@ -64,12 +60,5 @@ export function getCustomerInsightHistory(
 ): Promise<CustomerInsightHistory> {
   return request<CustomerInsightHistory>(
     `/api/v1/customer-insights/history/${customerId}?limit=${limit}`,
-  );
-}
-
-/** 소득·연령대·학력·카드등급별 고객 분포와 예측 위험도 요약입니다. */
-export function getDemographicBreakdown(): Promise<DemographicBreakdown> {
-  return request<DemographicBreakdown>(
-    "/api/v1/customer-insights/demographics",
   );
 }

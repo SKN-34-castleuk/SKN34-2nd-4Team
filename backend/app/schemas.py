@@ -222,30 +222,6 @@ class CustomerInsightStats(BaseModel):
     cluster_options: dict[str, int]
 
 
-class DemographicBucketResponse(BaseModel):
-    """인구통계 구간 하나의 집계 값입니다."""
-
-    label: str
-    customer_count: int
-    high_risk_count: int
-    high_risk_ratio: float = Field(ge=0.0, le=1.0)
-    average_churn_probability: float = Field(ge=0.0, le=1.0)
-    average_utilization_ratio: float = Field(ge=0.0, le=1.0)
-
-
-class DemographicBreakdownResponse(BaseModel):
-    """분석 화면이 쓰는 인구통계 4종입니다.
-
-    high_risk_ratio는 **예측 위험도(risk_level='high') 비율**입니다.
-    """
-
-    total_customers: int
-    income: list[DemographicBucketResponse]
-    age_band: list[DemographicBucketResponse]
-    education: list[DemographicBucketResponse]
-    card_category: list[DemographicBucketResponse]
-
-
 class CustomerInsightHistoryResponse(BaseModel):
     """고객 한 명의 분석 스냅샷 이력입니다."""
 

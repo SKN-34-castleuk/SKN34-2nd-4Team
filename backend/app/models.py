@@ -944,9 +944,12 @@ class BulkTargetingRun(Base):
 
     __tablename__ = "bulk_targeting_runs"
     __table_args__ = (
+        # BulkTargetingSegment enum과 반드시 같은 값을 유지해야 합니다 —
+        # 세그먼트를 추가하고 이 목록을 빠뜨리면 미리보기 저장이 CHECK 위반으로 실패합니다.
         CheckConstraint(
             "segment_code IN ('high_risk_retention', 'medium_reactivation', "
-            "'low_risk_upsell')",
+            "'low_risk_upsell', 'small_balance_decline', 'dormant_full_payer', "
+            "'active_full_payer', 'stable_prime')",
             name="ck_bulk_targeting_runs_segment",
         ),
         CheckConstraint(

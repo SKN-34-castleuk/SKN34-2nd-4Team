@@ -18,11 +18,9 @@ from ...schemas import (
     CustomerInsightListResponse,
     CustomerInsightResponse,
     CustomerInsightStats,
-    DemographicBreakdownResponse,
 )
 from ...services.insight_service import (
     InsightFilters,
-    fetch_demographic_breakdown,
     fetch_insight_page,
     fetch_customer_insight_history,
     fetch_latest_customer_insight,
@@ -130,23 +128,6 @@ def list_customer_insights(
             cluster_options=result.cluster_options,
         ),
     )
-
-
-@insights_router.get(
-    "/demographics",
-    response_model=DemographicBreakdownResponse,
-    summary="인구통계 단면별 분석 요약",
-)
-def get_demographic_breakdown(
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> DemographicBreakdownResponse:
-    """소득·연령대·학력·카드등급별 고객 분포와 예측 위험도를 반환합니다.
-
-    ``/{customer_id}`` 보다 먼저 선언해야 "demographics"가 고객 ID로 해석되지 않습니다.
-    """
-    breakdown = fetch_demographic_breakdown(db)
-    return DemographicBreakdownResponse.model_validate(breakdown, from_attributes=True)
 
 
 @insights_router.get(

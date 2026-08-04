@@ -46,29 +46,6 @@ class InsightPage:
     cluster_options: dict[str, int]
 
 
-@dataclass(frozen=True)
-class DemographicBucket:
-    """인구통계 구간 하나의 집계 결과입니다."""
-
-    label: str
-    customer_count: int
-    high_risk_count: int
-    high_risk_ratio: float
-    average_churn_probability: float
-    average_utilization_ratio: float
-
-
-@dataclass(frozen=True)
-class DemographicBreakdown:
-    """분석 화면이 쓰는 인구통계 단면 4종입니다."""
-
-    total_customers: int
-    income: list[DemographicBucket]
-    age_band: list[DemographicBucket]
-    education: list[DemographicBucket]
-    card_category: list[DemographicBucket]
-
-
 def _latest_query() -> Select[tuple[CustomerInsight]]:
     """고객별 최신 분석 스냅샷만 선택하는 기본 쿼리입니다."""
     ranked_insights = (
@@ -273,105 +250,6 @@ def fetch_insight_page(
         risk_counts={str(row[0]): int(row[1]) for row in risk_rows},
         cluster_counts={str(row[0]): int(row[1]) for row in cluster_rows},
         cluster_options={str(row[0]): int(row[1]) for row in cluster_option_rows},
-    )
-
-
-AGE_BANDS = (
-    (0, 29, "20대"),
-    (30, 39, "30대"),
-    (40, 49, "40대"),
-    (50, 59, "50대"),
-    (60, 200, "60대 이상"),
-)
-# 화면에서 항상 같은 순서로 보이도록 고정합니다(데이터에 없는 구간도 0으로 표시).
-INCOME_ORDER = (
-    "Less than $40K",
-    "$40K - $60K",
-    "$60K - $80K",
-    "$80K - $120K",
-    "$120K +",
-    "Unknown",
-)
-EDUCATION_ORDER = (
-    "Uneducated",
-    "High School",
-    "College",
-    "Graduate",
-    "Post-Graduate",
-    "Doctorate",
-    "Unknown",
-)
-CARD_ORDER = ("Blue", "Silver", "Gold", "Platinum")
-
-
-def _age_band_expression():
-    """고객 나이를 화면 표시용 연령대 라벨로 변환하는 SQL 표현식입니다."""
-    branches = [
-        (Customer.customer_age <= upper, label)
-        for _, upper, label in AGE_BANDS[:-1]
-    ]
-    return case(*branches, else_=AGE_BANDS[-1][2])
-
-
-def _aggregate_dimension(
-    db: Session,
-    grouping,
-    order: tuple[str, ...],
-) -> list[DemographicBucket]:
-    """한 축(소득·연령대 등)으로 최신 스냅샷을 집계합니다.
-
-    고위험 비율은 **예측 결과**(risk_level='high')의 비율입니다 — 이 DB에는 실제
-    이탈 라벨이 없으므로 실측 이탈률을 계산할 수 없습니다.
-    """
-    latest = _latest_query().order_by(None).subquery()
-    rows = db.execute(
-        select(
-            grouping.label("bucket"),
-            func.count().label("customer_count"),
-            func.sum(
-                case((latest.c.risk_level == RiskLevel.HIGH.value, 1), else_=0)
-            ).label("high_risk_count"),
-            func.avg(latest.c.churn_probability).label("average_churn"),
-            func.avg(Customer.avg_utilization_ratio).label("average_utilization"),
-        )
-        .select_from(latest)
-        .join(Customer, Customer.customer_id == latest.c.customer_id)
-        .group_by(grouping)
-    ).all()
-
-    by_label = {str(row.bucket): row for row in rows}
-    buckets: list[DemographicBucket] = []
-    # 미리 정한 순서대로 채우고, 예상 못 한 값이 있으면 뒤에 덧붙입니다.
-    for label in [*order, *sorted(set(by_label) - set(order))]:
-        row = by_label.get(label)
-        count = int(row.customer_count) if row else 0
-        high = int(row.high_risk_count or 0) if row else 0
-        buckets.append(
-            DemographicBucket(
-                label=label,
-                customer_count=count,
-                high_risk_count=high,
-                high_risk_ratio=(high / count) if count else 0.0,
-                average_churn_probability=float(row.average_churn or 0.0) if row else 0.0,
-                average_utilization_ratio=(
-                    float(row.average_utilization or 0.0) if row else 0.0
-                ),
-            )
-        )
-    return buckets
-
-
-def fetch_demographic_breakdown(db: Session) -> DemographicBreakdown:
-    """분석 화면용 인구통계 단면 4종을 최신 스냅샷 기준으로 집계합니다."""
-    latest = _latest_query().order_by(None).subquery()
-    total = int(db.scalar(select(func.count()).select_from(latest)) or 0)
-    age_labels = tuple(label for _, _, label in AGE_BANDS)
-    return DemographicBreakdown(
-        total_customers=total,
-        income=_aggregate_dimension(db, Customer.income_category, INCOME_ORDER),
-        age_band=_aggregate_dimension(db, _age_band_expression(), age_labels),
-        education=_aggregate_dimension(db, Customer.education_level, EDUCATION_ORDER),
-        card_category=_aggregate_dimension(db, Customer.card_category, CARD_ORDER),
     )
 
 

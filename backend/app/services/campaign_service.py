@@ -24,10 +24,17 @@ from ..models import Campaign, CampaignEvent, CampaignTarget, Customer, Customer
 
 MUTABLE_ASSIGNEE_ROLES = {UserRole.OPERATIONS.value}
 DEFAULT_CONTACT_COOLDOWN_DAYS = 30
+# 개별 대상 등록 시 "더 급한 캠페인에 이미 걸린 고객인가"를 판정하는 우선순위입니다.
+# 일괄 타기팅(bulk_targeting_service.SEGMENT_TARGETING_PRIORITIES)과 **같은 값**을
+# 유지해야 두 경로의 중복 접촉 방지 규칙이 어긋나지 않습니다.
 SEGMENT_PRIORITIES = {
+    "small_balance_decline": 400,
+    "dormant_full_payer": 350,
     "high_risk_retention": 300,
     "medium_reactivation": 200,
+    "active_full_payer": 120,
     "low_risk_upsell": 100,
+    "stable_prime": 90,
 }
 UNCLASSIFIED_CAMPAIGN_PRIORITY = 1000
 OPEN_TARGET_STATUSES = {

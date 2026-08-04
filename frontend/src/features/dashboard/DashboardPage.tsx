@@ -13,16 +13,14 @@ import {
 import {
   getCustomerInsight,
   getCustomerInsightHistory,
-  getDemographicBreakdown,
   listCustomerInsights,
   type CustomerInsight,
   type CustomerInsightDetail,
   type CustomerInsightHistory,
   type CustomerInsightList,
-  type DemographicBreakdown,
-  type DemographicBucket,
   type InsightQuery,
 } from "../../api/insights";
+import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 
 const PAGE_SIZE = 8;
 
@@ -186,117 +184,6 @@ function RiskOverview({ data }: { data: CustomerInsightList }) {
   );
 }
 
-/** 인구통계 카드 공용 가로 막대. `tone="risk"`면 위험 강조색을 씁니다. */
-function DemographicBars({
-  buckets,
-  valueOf,
-  formatValue,
-  tone = "neutral",
-}: {
-  buckets: DemographicBucket[];
-  valueOf: (bucket: DemographicBucket) => number;
-  formatValue: (bucket: DemographicBucket) => string;
-  tone?: "neutral" | "risk";
-}) {
-  // 응답에 해당 축이 없을 수도 있으므로(스키마 변경·부분 실패) 배열 여부를 확인한다.
-  const safeBuckets = Array.isArray(buckets) ? buckets : [];
-  if (safeBuckets.length === 0) {
-    return <p className="empty-copy">표시할 데이터가 없습니다.</p>;
-  }
-  const maxValue = Math.max(...safeBuckets.map(valueOf), 0);
-
-  return (
-    <div className="demographic-bars">
-      {safeBuckets.map((bucket) => {
-        const value = valueOf(bucket);
-        // 최댓값 대비 상대 길이로 그린다(0이면 막대를 그리지 않음).
-        const width = maxValue > 0 ? (value / maxValue) * 100 : 0;
-        return (
-          <div className="demographic-bar" key={bucket.label}>
-            <span className="demographic-bar__label">{bucket.label}</span>
-            <span className="demographic-bar__track">
-              <i
-                className={
-                  tone === "risk"
-                    ? "demographic-bar__fill demographic-bar__fill--risk"
-                    : "demographic-bar__fill"
-                }
-                style={{ width: `${width}%` }}
-              />
-            </span>
-            <strong className="demographic-bar__value">{formatValue(bucket)}</strong>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DemographicCards({ breakdown }: { breakdown: DemographicBreakdown }) {
-  return (
-    <>
-      <article className="bento-card bento-card--demographic">
-        <div className="bento-card__heading">
-          <div>
-            <p className="card-kicker">INCOME</p>
-            <h2>소득구간별 고위험 비율</h2>
-          </div>
-        </div>
-        {/* 실제 이탈 라벨은 저장하지 않으므로 '예측' 위험도 비율임을 명시한다. */}
-        <p className="card-note">이탈 예측 모델이 고위험으로 분류한 고객 비율입니다.</p>
-        <DemographicBars
-          buckets={breakdown.income}
-          tone="risk"
-          valueOf={(bucket) => bucket.high_risk_ratio}
-          formatValue={(bucket) => formatPercent(bucket.high_risk_ratio)}
-        />
-      </article>
-
-      <article className="bento-card bento-card--demographic">
-        <div className="bento-card__heading">
-          <div>
-            <p className="card-kicker">AGE</p>
-            <h2>연령대 분포</h2>
-          </div>
-        </div>
-        <DemographicBars
-          buckets={breakdown.age_band}
-          valueOf={(bucket) => bucket.customer_count}
-          formatValue={(bucket) => `${formatNumber(bucket.customer_count)}명`}
-        />
-      </article>
-
-      <article className="bento-card bento-card--demographic">
-        <div className="bento-card__heading">
-          <div>
-            <p className="card-kicker">EDUCATION</p>
-            <h2>학력별 고객 분포</h2>
-          </div>
-        </div>
-        <DemographicBars
-          buckets={breakdown.education}
-          valueOf={(bucket) => bucket.customer_count}
-          formatValue={(bucket) => `${formatNumber(bucket.customer_count)}명`}
-        />
-      </article>
-
-      <article className="bento-card bento-card--demographic">
-        <div className="bento-card__heading">
-          <div>
-            <p className="card-kicker">CARD GRADE</p>
-            <h2>카드 등급별 평균 이용률</h2>
-          </div>
-        </div>
-        <DemographicBars
-          buckets={breakdown.card_category}
-          valueOf={(bucket) => bucket.average_utilization_ratio}
-          formatValue={(bucket) => formatPercent(bucket.average_utilization_ratio)}
-        />
-      </article>
-    </>
-  );
-}
-
 function InsightRow({
   insight,
   onSelect,
@@ -338,6 +225,39 @@ function InsightRow({
       <span className="insight-row__action">{insight.recommended_action}</span>
       <span className="insight-row__arrow" aria-hidden="true">↗</span>
     </button>
+  );
+}
+
+function BatchOverview({ batch }: { batch: LatestBatch | null }) {
+  return (
+    <article className="bento-card bento-card--batch">
+      <div className="bento-card__heading">
+        <div>
+          <p className="card-kicker">DATA FRESHNESS</p>
+          <h2>최근 배치 상태</h2>
+        </div>
+        <span className="batch-status">{batch === null ? "확인 중" : "SYNCED"}</span>
+      </div>
+      {batch === null ? (
+        <p className="empty-copy">배치 실행 정보를 불러오는 중입니다.</p>
+      ) : (
+        <>
+          <strong className="batch-time">
+            {formatDate(batch.completed_at ?? batch.started_at)}
+          </strong>
+          <p className="batch-caption">
+            {batch.processed_rows === null
+              ? "처리 행 수 미상"
+              : `${formatNumber(batch.processed_rows)}명 분석 완료`}
+          </p>
+          <div className="batch-models">
+            {batch.runs.map((run) => (
+              <span key={run.id}>{run.task} · {run.model_version}</span>
+            ))}
+          </div>
+        </>
+      )}
+    </article>
   );
 }
 
@@ -795,7 +715,7 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   const [detailLoading, setDetailLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
-  const [demographics, setDemographics] = useState<DemographicBreakdown | null>(null);
+  const [batch, setBatch] = useState<LatestBatch | null>(null);
   const [campaignTargets, setCampaignTargets] = useState<CampaignTarget[]>([]);
   const [campaignDrafts, setCampaignDrafts] = useState<Record<number, CampaignDraft>>({});
   const [campaignLoading, setCampaignLoading] = useState(true);
@@ -849,20 +769,19 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
   useEffect(() => {
     let isActive = true;
-    // 인구통계는 전체 고객 기준 집계라 목록 필터와 무관하게 한 번만 조회한다.
-    const loadDemographics = async () => {
+    const loadBatch = async () => {
       try {
-        const response = await getDemographicBreakdown();
+        const response = await getLatestBatch();
         if (isActive) {
-          setDemographics(response);
+          setBatch(response);
         }
       } catch {
         if (isActive) {
-          setDemographics(null);
+          setBatch(null);
         }
       }
     };
-    void loadDemographics();
+    void loadBatch();
     return () => {
       isActive = false;
     };
@@ -1074,47 +993,63 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
       {data !== null && error === "" && (
         <section className="bento-grid" aria-label="고객 분석 대시보드">
-          {/* 숫자 3개는 한 줄 KPI로 압축한다 — 카드마다 부제·아이콘을 두면
-              정작 중요한 값이 묻힌다. */}
-          <section className="kpi-row" aria-label="핵심 지표">
-            <article className="kpi-tile">
-              <span className="kpi-tile__label">분석 대상 고객</span>
-              <strong className="kpi-tile__value">{formatNumber(data.stats.total)}</strong>
-            </article>
-            <article className="kpi-tile">
-              <span className="kpi-tile__label">평균 이탈 확률</span>
-              <strong className="kpi-tile__value">
-                {formatPercent(data.stats.average_churn_probability)}
-              </strong>
-            </article>
-            <button
-              className="kpi-tile kpi-tile--action"
-              type="button"
-              onClick={focusHighRisk}
-              aria-label="높은 이탈 위험 고객만 보기"
-            >
-              <span className="kpi-tile__label">우선 관리 고객</span>
-              <strong className="kpi-tile__value kpi-tile__value--risk">
-                {formatNumber(highRiskCount)}
-              </strong>
-              <span className="kpi-tile__hint">클릭하면 고위험만 필터링</span>
-            </button>
-            <article className="kpi-tile">
-              <span className="kpi-tile__label">주요 고객 군집</span>
-              <strong className="kpi-tile__value kpi-tile__value--text">
-                {dominantCluster === null ? "-" : dominantCluster[0]}
-              </strong>
-              {dominantCluster !== null && (
-                <span className="kpi-tile__hint">
-                  {formatNumber(dominantCluster[1])}명 · 최다
-                </span>
-              )}
-            </article>
-          </section>
+          <article className="bento-card bento-card--hero">
+            <div className="bento-card__heading">
+              <div>
+                <p className="card-kicker">CUSTOMER HEALTH</p>
+                <h2>분석 대상 고객</h2>
+              </div>
+              <span className="card-icon card-icon--spark" aria-hidden="true">✦</span>
+            </div>
+            <strong className="hero-number">{formatNumber(data.stats.total)}</strong>
+            <p className="hero-caption">현재 필터 조건에 해당하는 최신 분석 스냅샷</p>
+            <div className="hero-meta">
+              <span><i className="status-pulse" /> 데이터 연결됨</span>
+            </div>
+          </article>
+
+          <article className="bento-card bento-card--average">
+            <p className="card-kicker">CHURN PROBABILITY</p>
+            <span className="metric-label">평균 이탈 확률</span>
+            <strong className="metric-number">{formatPercent(data.stats.average_churn_probability)}</strong>
+            <div className="metric-footnote"><span className="metric-trend">●</span> 최신 분석 기준</div>
+          </article>
+
+          <button
+            className="bento-card bento-card--priority"
+            type="button"
+            onClick={focusHighRisk}
+            aria-label="높은 이탈 위험 고객만 보기"
+          >
+            <div className="priority-visual"><span>{formatNumber(highRiskCount)}</span><small>HIGH</small></div>
+            <div>
+              <p className="card-kicker">ACTION PRIORITY</p>
+              <h2>우선 관리 고객</h2>
+              <p>높은 이탈 위험으로 분류된 고객입니다. 클릭해서 바로 확인하세요.</p>
+            </div>
+          </button>
 
           <RiskOverview data={data} />
 
-          {demographics !== null && <DemographicCards breakdown={demographics} />}
+          <article className="bento-card bento-card--cluster">
+            <div className="bento-card__heading">
+              <div>
+                <p className="card-kicker">SEGMENTATION</p>
+                <h2>주요 고객 군집</h2>
+              </div>
+              <span className="card-icon card-icon--cluster" aria-hidden="true">◌</span>
+            </div>
+            {dominantCluster === null ? (
+              <p className="empty-copy">군집 데이터가 없습니다.</p>
+            ) : (
+              <>
+                <strong className="cluster-name">{dominantCluster[0]}</strong>
+                <p className="cluster-count">{formatNumber(dominantCluster[1])}명 · 전체 군집 중 최다</p>
+              </>
+            )}
+          </article>
+
+          <BatchOverview batch={batch} />
 
           <article className="bento-card bento-card--table">
             <div className="table-card__header">
