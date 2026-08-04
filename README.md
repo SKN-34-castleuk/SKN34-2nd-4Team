@@ -206,7 +206,7 @@ docker compose exec backend python -m backend.scripts.import_customers
 ```bash
 docker compose exec backend python -m backend.scripts.generate_synthetic_customers
 docker compose exec backend python -m backend.scripts.import_customers \
-  --data-path /app/data/synthetic/synthetic_customers.csv --replace
+  --data-path //app/data/synthetic/synthetic_customers.csv --replace
 ```
 
 `import_customers`는 `CLIENTNUM` 기준 upsert 방식이므로 다시 실행해도 고객이
