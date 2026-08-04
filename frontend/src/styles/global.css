@@ -2853,8 +2853,7 @@ button {
 }
 
 .campaign-performance-card span,
-.campaign-performance-card small,
-.campaign-performance-substats {
+.campaign-performance-card small {
   color: var(--muted);
   font-size: 9px;
 }
@@ -2870,10 +2869,13 @@ button {
   flex-wrap: wrap;
   gap: 8px 18px;
   margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .campaign-performance-substats strong {
   color: var(--navy);
+  font-size: 12px;
 }
 
 .campaign-performance-comparisons {
