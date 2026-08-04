@@ -51,6 +51,21 @@ def get_auth_cookie_secure() -> bool:
     }
 
 
+def get_cors_origins() -> list[str]:
+    """쉼표로 구분한 허용 Origin 목록을 반환합니다.
+
+    기본값은 빈 목록이므로 로컬 Compose 실행에서는 CORS 미들웨어가
+    추가되지 않습니다. 프론트엔드와 백엔드를 서로 다른 운영 도메인에
+    배포할 때만 ``CORS_ORIGINS`` 환경변수를 설정합니다.
+    """
+    configured_origins = os.getenv("CORS_ORIGINS", "")
+    return [
+        origin.strip().rstrip("/")
+        for origin in configured_origins.split(",")
+        if origin.strip()
+    ]
+
+
 def get_app_env() -> str:
     """실행 환경을 안전한 기본값(production)으로 정규화합니다."""
     return os.getenv("APP_ENV", "production").strip().lower()

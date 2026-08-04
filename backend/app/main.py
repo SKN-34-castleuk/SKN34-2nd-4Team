@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .config import APP_NAME, APP_VERSION, get_model_dir
-from .config import get_database_url, get_jwt_secret
+from .config import get_cors_origins, get_database_url, get_jwt_secret
 from .database import initialize_database
 from .model_registry import ModelRegistry
 from .api.router import api_router
@@ -64,6 +65,17 @@ def create_app(
         ),
         lifespan=lifespan,
     )
+
+    cors_origins = get_cors_origins()
+    if cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     application.include_router(api_router)
     return application
 
