@@ -51,6 +51,21 @@ def get_auth_cookie_secure() -> bool:
     }
 
 
+def get_cors_origins() -> list[str]:
+    """쉼표로 구분한 허용 Origin 목록을 반환합니다.
+
+    기본값은 빈 목록이므로 로컬 Compose 실행에서는 CORS 미들웨어가
+    추가되지 않습니다. 프론트엔드와 백엔드를 서로 다른 운영 도메인에
+    배포할 때만 ``CORS_ORIGINS`` 환경변수를 설정합니다.
+    """
+    configured_origins = os.getenv("CORS_ORIGINS", "")
+    return [
+        origin.strip().rstrip("/")
+        for origin in configured_origins.split(",")
+        if origin.strip()
+    ]
+
+
 def get_app_env() -> str:
     """실행 환경을 안전한 기본값(production)으로 정규화합니다."""
     return os.getenv("APP_ENV", "production").strip().lower()
@@ -67,6 +82,16 @@ def get_login_rate_limit() -> tuple[int, int, int]:
 def get_allow_test_user_seeding() -> bool:
     """로컬 테스트 계정 생성 허용 여부를 반환합니다."""
     return os.getenv("ALLOW_TEST_USER_SEEDING", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def get_poc_seed_enabled() -> bool:
+    """명시적으로 활성화한 POC 원격 시드 여부를 반환합니다."""
+    return os.getenv("POC_SEED_ON_START", "false").strip().lower() in {
         "1",
         "true",
         "yes",

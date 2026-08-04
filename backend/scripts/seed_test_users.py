@@ -14,6 +14,7 @@ from backend.app.config import (
     get_allow_test_user_seeding,
     get_app_env,
     get_database_url,
+    get_poc_seed_enabled,
 )
 from backend.app.database import initialize_database
 from backend.app.enums import UserRole
@@ -60,6 +61,8 @@ TEST_USER_SPECS = (
 
 def _validate_local_seeding(database_url: str) -> None:
     """운영 환경이나 원격 DB에 테스트 계정이 생성되지 않도록 차단합니다."""
+    if get_poc_seed_enabled():
+        return
     if not get_allow_test_user_seeding():
         raise RuntimeError(
             "Test user seeding is disabled. Set ALLOW_TEST_USER_SEEDING=true "

@@ -8,11 +8,13 @@ type ErrorPayload = {
   detail?: string | Array<{ msg?: string }>;
 };
 
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+
 export async function request<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: "include",
     headers: {
