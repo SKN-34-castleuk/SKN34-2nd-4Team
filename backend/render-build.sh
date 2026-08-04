@@ -11,7 +11,11 @@ mkdir -p outputs/models outputs/reports
 
 if [ "${RENDER_BUILD_MODELS:-true}" = "true" ] && {
     [ ! -f outputs/models/classification_manifest.json ] ||
-    [ ! -f outputs/models/classification_lightgbm_final.joblib ];
+    [ ! -f outputs/models/classification_lightgbm_final.joblib ] ||
+    [ ! -f outputs/models/regression_model.joblib ] ||
+    [ ! -f outputs/models/clustering_activity_gap.joblib ];
 }; then
     python src/final/classification_final.py
+    python src/final/regression_final.py
+    python src/final/clustering_final.py
 fi
