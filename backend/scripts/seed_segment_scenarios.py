@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
@@ -56,6 +56,12 @@ from backend.scripts.db_safety import validate_local_database
 
 SCENARIO_PREFIX = "[시나리오]"
 NOW = datetime.now(timezone.utc)
+# 기본적으로 "집행 후 넉넉히 시간이 지난" 스냅샷을 만듭니다. 가장 긴 관측기간
+# (안정 우량 90일)보다 커야 네 캠페인 모두 유지율·ROI가 집계됩니다.
+DEFAULT_ELAPSED_DAYS = 120
+# 대조군은 20%입니다. 100명이면 대조군 20명이라 유지율 정원의 반올림 단위가
+# 5%p로 줄어, 설계한 증분 효과가 실행마다 부호를 바꾸지 않습니다.
+DEFAULT_TARGETS_PER_CAMPAIGN = 100
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,9 @@ class ScenarioSpec:
     control_conversion_rate: float
     retention_rate: float
     control_retention_rate: float
+    # 집행 후 시간이 꽤 지난 진행 중 캠페인인지. True면 대부분 처리가 끝나고
+    # 일부만 잔여 물량으로 남은 모습으로 만듭니다(_advance가 설정).
+    aged: bool = False
 
 
 SCENARIOS = (
@@ -95,10 +104,14 @@ SCENARIOS = (
         fixed_cost=150_000,
         cost_per_contact=800,
         revenue_per_conversion=60_000,
-        conversion_rate=0.0,
-        control_conversion_rate=0.0,
-        retention_rate=0.0,
-        control_retention_rate=0.0,
+        # 원본 데이터 기준 이탈률 12%인 우량군입니다. 캠페인이 없어도 대부분
+        # 남으므로 대조군 유지율이 이미 높고, 그만큼 증분 효과는 작습니다.
+        # 다만 격차가 대조군 정원의 반올림 단위보다 작으면 증분이 음수로
+        # 뒤집히므로(대조군 20명 기준 5%p), 최소 8%p는 벌려 둡니다.
+        conversion_rate=0.22,
+        control_conversion_rate=0.10,
+        retention_rate=0.90,
+        control_retention_rate=0.82,
     ),
     ScenarioSpec(
         segment=BulkTargetingSegment.SMALL_BALANCE_DECLINE,
@@ -113,10 +126,12 @@ SCENARIOS = (
         fixed_cost=200_000,
         cost_per_contact=4_500,
         revenue_per_conversion=110_000,
+        # 이탈률 약 90%로 가장 위험한 군입니다. 컨택해도 상당수가 이탈하므로
+        # 유지율 자체는 낮지만, 방치했을 때(대조군)와의 격차는 가장 큽니다.
         conversion_rate=0.30,
         control_conversion_rate=0.08,
-        retention_rate=0.0,
-        control_retention_rate=0.0,
+        retention_rate=0.38,
+        control_retention_rate=0.14,
     ),
     ScenarioSpec(
         segment=BulkTargetingSegment.STABLE_PRIME,
@@ -131,10 +146,15 @@ SCENARIOS = (
         fixed_cost=120_000,
         cost_per_contact=1_200,
         revenue_per_conversion=140_000,
+        # 이탈률 4.6%로 가장 안정적인 군입니다. 유지율은 양쪽 모두 높아
+        # 리텐션 목적보다 업셀 매출로 성과를 판단해야 합니다.
+        # 대조군은 20%뿐이라 정원 반올림이 거칩니다. 0.93을 주면 7명 기준
+        # round(6.51)=7로 100%가 되어 증분 유지가 음수로 뒤집히므로, 반올림이
+        # 한 명 아래로 떨어지는 값을 씁니다.
         conversion_rate=0.28,
         control_conversion_rate=0.11,
-        retention_rate=0.0,
-        control_retention_rate=0.0,
+        retention_rate=0.95,
+        control_retention_rate=0.86,
     ),
     ScenarioSpec(
         segment=BulkTargetingSegment.DORMANT_FULL_PAYER,
@@ -149,10 +169,12 @@ SCENARIOS = (
         fixed_cost=180_000,
         cost_per_contact=3_500,
         revenue_per_conversion=95_000,
+        # 이탈률 72%입니다. 방치하면 대부분 이탈하므로(대조군 유지율 0.30)
+        # 리텐션 캠페인의 증분 효과가 뚜렷하게 드러납니다.
         conversion_rate=0.26,
         control_conversion_rate=0.09,
         retention_rate=0.62,
-        control_retention_rate=0.41,
+        control_retention_rate=0.30,
     ),
 )
 
@@ -163,9 +185,42 @@ def build_parser() -> argparse.ArgumentParser:
         "--targets-per-campaign",
         type=int,
         default=None,
-        help="캠페인별 대상 수를 조정합니다(기본 40, 최소 5).",
+        help=(
+            f"캠페인별 대상 수를 조정합니다(기본 {DEFAULT_TARGETS_PER_CAMPAIGN}, 최소 5)."
+            " 대조군은 20%라 이 값이 작으면 유지율 정원의 반올림 단위가 커져"
+            " 증분 효과가 실행마다 흔들립니다."
+        ),
+    )
+    parser.add_argument(
+        "--elapsed-days",
+        type=int,
+        default=DEFAULT_ELAPSED_DAYS,
+        help=(
+            f"캠페인 집행 후 며칠이 지난 시점으로 만들지 정합니다"
+            f"(기본 {DEFAULT_ELAPSED_DAYS}). 0을 주면 초안·처리중·관측대기·측정완료"
+            " 4단계가 섞인 진행 중 스냅샷을 만듭니다."
+        ),
     )
     return parser
+
+
+def _advance(spec: ScenarioSpec, elapsed_days: int) -> ScenarioSpec:
+    """캠페인을 `elapsed_days`만큼 과거로 옮겨 관측이 끝난 상태로 만듭니다.
+
+    유지 관측 자격은 `대상 완료일 + 관측기간 <= 현재`로 판정하므로(대조군은
+    캠페인 시작일 기준), 시작일을 과거로 밀면 유지율과 ROI가 집계됩니다.
+    0이면 원래의 진행 단계를 그대로 둡니다.
+
+    다만 `in_progress` 캠페인 하나는 단계를 바꾸지 않고 날짜만 밉니다. 운영이
+    지금 처리 중인 캠페인이 화면에 하나는 있어야 대기·배정·접촉·완료가 섞인
+    목록과 미처리 병목을 확인할 수 있기 때문입니다.
+    """
+    if elapsed_days <= 0:
+        return spec
+    started_days_ago = spec.started_days_ago + elapsed_days
+    if spec.stage == "in_progress":
+        return replace(spec, started_days_ago=started_days_ago, aged=True)
+    return replace(spec, stage="measured", started_days_ago=started_days_ago)
 
 
 def _segment_filter(segment: BulkTargetingSegment):
@@ -355,21 +410,30 @@ def _target_plan(
         }
 
     if spec.stage == "in_progress":
-        # 운영팀이 처리 중인 모습 — 4단계가 고르게 섞이도록 나눕니다.
-        bucket = position % 4
-        if bucket == 0:
+        # 갓 시작한 캠페인은 4단계가 고르게 섞이지만(각 25%), 집행 후 시간이 지난
+        # 캠페인은 대부분 처리가 끝나고 잔여 물량만 남습니다(완료 70%). 진척을
+        # 실제 경과와 맞추지 않으면 미처리 대상이 치료군 전환율을 끌어내려
+        # 대조군보다 낮아지고, 증분 효과가 음수로 뒤집힙니다.
+        slots, completed_slots = (10, 7) if spec.aged else (4, 1)
+        bucket = position % slots
+        if bucket >= completed_slots:
+            remainder = bucket - completed_slots
+            if remainder == 0:
+                return {
+                    "status": CampaignStatus.CONTACTED,
+                    "result_code": CampaignResultCode.CONTACTED,
+                    "converted": False,
+                }
+            if remainder == 1:
+                return {
+                    "status": CampaignStatus.ASSIGNED,
+                    "result_code": None,
+                    "converted": False,
+                }
             return {"status": CampaignStatus.PENDING, "result_code": None, "converted": False}
-        if bucket == 1:
-            return {"status": CampaignStatus.ASSIGNED, "result_code": None, "converted": False}
-        if bucket == 2:
-            return {
-                "status": CampaignStatus.CONTACTED,
-                "result_code": CampaignResultCode.CONTACTED,
-                "converted": False,
-            }
         # 완료된 대상 중 지정 비율만 전환 처리합니다.
-        completed_position = position // 4
-        completed_total = max(group_size // 4, 1)
+        completed_position = (position // slots) * completed_slots + bucket
+        completed_total = max(group_size * completed_slots // slots, 1)
         converted = completed_position < _quota(spec.conversion_rate, completed_total)
         return {
             "status": CampaignStatus.COMPLETED,
@@ -433,10 +497,20 @@ def _create_targets(
         is_completed = status is CampaignStatus.COMPLETED
         converted = bool(plan["converted"])
 
-        # 유지 여부는 관측 기간이 지난 캠페인에서만 입력합니다.
+        # 유지 여부는 관측 기간이 지난 대상에만 입력합니다. 진행 중 캠페인도
+        # 시작한 지 오래됐다면 이미 완료된 대상은 관측이 끝나므로 입력하고,
+        # 아직 대기·배정·접촉 단계인 대상은 비워 둡니다(운영 잔여 물량).
+        # 대조군은 캠페인 시작일이 기준이라 처리 상태와 무관하게 관측됩니다.
         retained: bool | None = None
-        if spec.stage == "measured":
+        observation_done = spec.stage == "measured" or (
+            # aged가 아닌 진행 중 캠페인은 아직 관측 기간이 지나지 않았으므로
+            # 유지값을 남기지 않습니다(성과 API도 집계 대상에서 제외합니다).
+            spec.stage == "in_progress" and spec.aged and (is_control or is_completed)
+        )
+        if observation_done:
             rate = spec.control_retention_rate if is_control else spec.retention_rate
+            # 완료 대상은 그룹 안에 고르게 흩어져 있어(위치 % 4 == 3), 그룹 전체
+            # 기준 정원을 그대로 써도 부분집합에서 목표 비율이 유지됩니다.
             retained = position < _quota(rate, group_size)
             if retained:
                 counts["retained"] += 1
@@ -518,7 +592,9 @@ def _create_targets(
     return counts
 
 
-def seed(session: Session, *, targets_per_campaign: int) -> list[dict]:
+def seed(
+    session: Session, *, targets_per_campaign: int, elapsed_days: int = DEFAULT_ELAPSED_DAYS
+) -> list[dict]:
     """시나리오 캠페인 4종을 생성합니다."""
     removed = _remove_existing(session)
     if removed:
@@ -538,7 +614,8 @@ def seed(session: Session, *, targets_per_campaign: int) -> list[dict]:
 
     used: set[int] = set()
     summaries: list[dict] = []
-    for spec in SCENARIOS:
+    for base_spec in SCENARIOS:
+        spec = _advance(base_spec, elapsed_days)
         candidates = session.scalars(
             select(Customer).where(*_segment_filter(spec.segment)).order_by(Customer.customer_id)
         ).all()
@@ -582,9 +659,12 @@ def seed(session: Session, *, targets_per_campaign: int) -> list[dict]:
 
 def main() -> None:
     args = build_parser().parse_args()
-    count = args.targets_per_campaign or 40
+    count = args.targets_per_campaign or DEFAULT_TARGETS_PER_CAMPAIGN
     if count < 5:
         raise ValueError("--targets-per-campaign must be at least 5.")
+    elapsed_days = args.elapsed_days
+    if elapsed_days < 0:
+        raise ValueError("--elapsed-days must be zero or greater.")
 
     database_url = get_database_url()
     if not database_url:
@@ -594,14 +674,20 @@ def main() -> None:
     engine, session_factory = initialize_database(database_url)
     try:
         with session_factory() as session:
-            summaries = seed(session, targets_per_campaign=count)
+            summaries = seed(
+                session, targets_per_campaign=count, elapsed_days=elapsed_days
+            )
     finally:
         engine.dispose()
 
     if not summaries:
         print("생성된 시나리오가 없습니다.")
         return
-    print("\n시나리오 캠페인 생성 완료:")
+    if elapsed_days > 0:
+        print(f"\n집행 후 {elapsed_days}일이 지난 시점으로 생성했습니다(유지율·ROI 집계 가능).")
+    else:
+        print("\n진행 단계가 섞인 스냅샷으로 생성했습니다(일부 캠페인은 유지율이 비어 있습니다).")
+    print("시나리오 캠페인 생성 완료:")
     for row in summaries:
         print(
             f"- [{row['stage']:18s}] {row['campaign']}\n"
