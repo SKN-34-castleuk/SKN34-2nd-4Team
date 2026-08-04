@@ -581,6 +581,15 @@ button {
   background: #ededff;
 }
 
+/* AppShell의 워크스페이스 전환 버튼(현재 위치 표시) */
+.dashboard-nav-button.is-active {
+  color: #ffffff;
+  border-color: var(--navy);
+  background: var(--navy);
+  cursor: default;
+}
+
+/* 분석 대시보드 내부 탭 — 고객 인사이트 / EDA 차트 */
 .dashboard-tabs {
   display: flex;
   width: min(1280px, 100%);
