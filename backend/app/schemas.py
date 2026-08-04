@@ -205,6 +205,9 @@ class CustomerInsightResponse(BaseModel):
     risk_level: RiskLevel
     expected_transaction_count: float = Field(ge=0.0)
     activity_gap: float
+    total_trans_amt: int = Field(ge=0)
+    card_category: str
+    contacts_count_12_mon: int = Field(ge=0)
     cluster_name: str
     cluster_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     recommended_action: str
@@ -220,6 +223,52 @@ class CustomerInsightStats(BaseModel):
     risk_counts: dict[str, int]
     cluster_counts: dict[str, int]
     cluster_options: dict[str, int]
+
+
+class CategoricalChurnRateItem(BaseModel):
+    """범주형 변수 한 그룹의 이탈률 요약입니다."""
+
+    group: str
+    churn_rate: float = Field(ge=0.0, le=1.0)
+    count: int
+
+
+class CategoricalChurnRateResponse(BaseModel):
+    """범주형 변수별 이탈률 분포입니다."""
+
+    field: str
+    items: list[CategoricalChurnRateItem]
+
+
+class NumericDistributionBucket(BaseModel):
+    """이탈 여부 한쪽 그룹의 수치형 변수 사분위 요약(박스플롯 입력)입니다."""
+
+    min: float
+    q1: float
+    median: float
+    q3: float
+    max: float
+    count: int
+
+
+class NumericDistributionResponse(BaseModel):
+    """이탈 여부(0/1)별 수치형 변수 분포입니다."""
+
+    field: str
+    by_target: dict[str, NumericDistributionBucket]
+
+
+class FeatureCorrelationItem(BaseModel):
+    """단일 변수와 이탈(Target) 간 상관계수입니다."""
+
+    feature: str
+    correlation: float = Field(ge=-1.0, le=1.0)
+
+
+class FeatureCorrelationResponse(BaseModel):
+    """수치형 변수와 이탈 간 상관계수 목록(절댓값 내림차순)입니다."""
+
+    items: list[FeatureCorrelationItem]
 
 
 class CustomerInsightHistoryResponse(BaseModel):

@@ -1217,6 +1217,7 @@ def fetch_campaign_targets(
     converted: bool | None,
     page: int,
     page_size: int,
+    sort_by_priority: bool = False,
 ) -> CampaignTargetPage:
     """캠페인 대상의 서버 필터·페이지네이션·집계를 반환합니다."""
     conditions = _target_conditions(

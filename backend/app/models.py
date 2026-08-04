@@ -540,6 +540,22 @@ class CustomerInsight(Base):
     scoring_batch: Mapped[ScoringBatch | None] = relationship(
         back_populates="insights",
     )
+
+    @property
+    def total_trans_amt(self) -> int:
+        """고객의 총 거래 금액입니다 (customers 테이블 위임)."""
+        return self.customer.total_trans_amt
+
+    @property
+    def card_category(self) -> str:
+        """고객의 카드 등급입니다 (customers 테이블 위임)."""
+        return self.customer.card_category
+
+    @property
+    def contacts_count_12_mon(self) -> int:
+        """최근 12개월 문의 횟수입니다 (customers 테이블 위임)."""
+        return self.customer.contacts_count_12_mon
+
     classification_run: Mapped[ModelRun] = relationship(
         foreign_keys=[classification_run_id],
     )

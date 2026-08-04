@@ -1337,6 +1337,12 @@ export interface components {
             expected_transaction_count: number;
             /** Activity Gap */
             activity_gap: number;
+            /** Total Trans Amt */
+            total_trans_amt: number;
+            /** Card Category */
+            card_category: string;
+            /** Contacts Count 12 Mon */
+            contacts_count_12_mon: number;
             /** Cluster Name */
             cluster_name: string;
             /** Cluster Confidence */
@@ -1410,6 +1416,12 @@ export interface components {
             expected_transaction_count: number;
             /** Activity Gap */
             activity_gap: number;
+            /** Total Trans Amt */
+            total_trans_amt: number;
+            /** Card Category */
+            card_category: string;
+            /** Contacts Count 12 Mon */
+            contacts_count_12_mon: number;
             /** Cluster Name */
             cluster_name: string;
             /** Cluster Confidence */
