@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_database_url
@@ -715,21 +715,58 @@ def _create_campaigns(
     return campaign_count
 
 
-def seed_demo_data(session: Session, *, limit: int) -> dict[str, int]:
-    """합성 시계열과 A/B 캠페인을 한 트랜잭션으로 생성합니다."""
-    demo_names = {f"{DEMO_PREFIX} {spec.title}" for spec in CAMPAIGN_SPECS}
-    existing_names = set(
+def _remove_existing_demo_data(session: Session) -> int:
+    """이전 시연 데이터를 지웁니다(재실행 가능하게).
+
+    `import_customers --replace`는 customers와 그 자식만 지우고 campaigns와
+    scoring_batches는 남깁니다. 그대로 두면 대상이 0명인 빈 캠페인이 남는데,
+    예전에는 이 상태에서 재실행해도 "이미 있음"으로 건너뛰어 복구가 되지
+    않았습니다. batch_key_sha256 유일 제약 때문에 시연용 배치도 함께 지워야
+    다시 만들 수 있습니다.
+    """
+    demo_names = [f"{DEMO_PREFIX} {spec.title}" for spec in CAMPAIGN_SPECS]
+    campaign_ids = list(
+        session.scalars(select(Campaign.id).where(Campaign.name.in_(demo_names))).all()
+    )
+    if campaign_ids:
+        session.execute(
+            delete(CampaignEvent).where(CampaignEvent.campaign_id.in_(campaign_ids))
+        )
+        session.execute(
+            delete(CampaignTarget).where(CampaignTarget.campaign_id.in_(campaign_ids))
+        )
+        session.execute(delete(Campaign).where(Campaign.id.in_(campaign_ids)))
+
+    batch_ids = list(
         session.scalars(
-            select(Campaign.name).where(Campaign.name.in_(demo_names))
+            select(ScoringBatch.id).where(
+                ScoringBatch.dataset_sha256 == DEMO_SOURCE_HASH
+            )
         ).all()
     )
-    if existing_names:
-        if existing_names == demo_names:
-            return {"already_seeded": 1}
-        raise RuntimeError(
-            "A partial demo dataset already exists. Remove the local demo records "
-            "before retrying."
+    if batch_ids:
+        # insights는 snapshots를 참조하므로 자식 → 부모 순서를 지킵니다.
+        session.execute(
+            delete(CustomerInsight).where(
+                CustomerInsight.scoring_batch_id.in_(batch_ids)
+            )
         )
+        session.execute(
+            delete(ModelRun).where(ModelRun.scoring_batch_id.in_(batch_ids))
+        )
+        session.execute(delete(ScoringBatch).where(ScoringBatch.id.in_(batch_ids)))
+    session.execute(
+        delete(CustomerFeatureSnapshot).where(
+            CustomerFeatureSnapshot.source_dataset_sha256 == DEMO_SOURCE_HASH
+        )
+    )
+    session.flush()
+    return len(campaign_ids)
+
+
+def seed_demo_data(session: Session, *, limit: int) -> dict[str, int]:
+    """합성 시계열과 A/B 캠페인을 한 트랜잭션으로 생성합니다."""
+    removed_campaigns = _remove_existing_demo_data(session)
 
     admin = session.scalar(
         select(User)
@@ -758,6 +795,7 @@ def seed_demo_data(session: Session, *, limit: int) -> dict[str, int]:
     )
     session.commit()
     return {
+        "removed_campaigns": removed_campaigns,
         "campaigns": campaign_count,
         "customers": limit * len(CAMPAIGN_SPECS),
         "snapshots": limit * len(CAMPAIGN_SPECS) * len(DEMO_DATES),
@@ -784,9 +822,8 @@ def main() -> None:
     finally:
         engine.dispose()
 
-    if summary.get("already_seeded"):
-        print("Demo data already exists; no duplicate rows were created.")
-        return
+    if summary.get("removed_campaigns"):
+        print(f"기존 [DEMO] 캠페인 {summary['removed_campaigns']}개를 제거하고 다시 만듭니다.")
     print("Demo data seeded:")
     for key, value in summary.items():
         print(f"- {key}: {value}")

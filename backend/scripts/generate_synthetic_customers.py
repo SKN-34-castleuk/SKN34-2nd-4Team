@@ -25,9 +25,12 @@ from backend.app.model_registry import ModelRegistry
 from backend.app.schemas import PREDICTION_FIELD_MAP
 
 RISK_LEVEL_ORDER = ("low", "medium", "high")
-# backend/data 밑에 씁니다. compose.yaml의 backend 서비스는 저장소 최상위
-# ./data를 :ro로 마운트하므로, 그 경로 밖(=backend 소스 트리 안, 쓰기 가능)을 씁니다.
-DEFAULT_OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "synthetic" / "synthetic_customers.csv"
+# 원본 BankChurners.csv와 나란히 저장소의 data/ 밑에 남깁니다. compose.yaml이
+# ./data/synthetic만 쓰기 가능하게 덮어써 두었으므로 컨테이너에서 실행해도
+# 결과 CSV가 호스트 저장소에 그대로 남습니다(컨테이너를 다시 만들어도 유지).
+DEFAULT_OUTPUT_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "synthetic" / "synthetic_customers.csv"
+)
 
 # 모델(`PredictionRequest`, backend/app/schemas.py)이 허용하는 유효 범위입니다.
 FEATURE_BOUNDS: dict[str, tuple[float, float]] = {
@@ -241,6 +244,8 @@ def build_synthetic_customers(
 
     profiles = {level: RiskProfile(level) for level in RISK_LEVEL_ORDER}
     selected: dict[str, pd.DataFrame] = {level: pd.DataFrame() for level in RISK_LEVEL_ORDER}
+    # 목표 버킷을 채우지 못했을 때 총량을 맞추는 데 쓰는 미선택 후보입니다.
+    leftovers: list[pd.DataFrame] = []
 
     for _attempt in range(1, max_attempts + 1):
         pools = []
@@ -262,6 +267,7 @@ def build_synthetic_customers(
             for probability in pool["churn_probability"]
         ]
 
+        taken_index: set[int] = set()
         for level in RISK_LEVEL_ORDER:
             needed = target_counts[level] - len(selected[level])
             if needed <= 0:
@@ -272,7 +278,9 @@ def build_synthetic_customers(
                 continue
             seed_for_sample = int(rng.integers(0, 2**32 - 1))
             take = available.sample(n=take_n, random_state=seed_for_sample)
+            taken_index.update(take.index.tolist())
             selected[level] = pd.concat([selected[level], take], ignore_index=True)
+        leftovers.append(pool.drop(index=list(taken_index)))
 
         if all(len(selected[level]) >= target_counts[level] for level in RISK_LEVEL_ORDER):
             break
@@ -280,15 +288,37 @@ def build_synthetic_customers(
             if len(selected[level]) < target_counts[level]:
                 profile.extremity += 0.5
 
+    band_midpoints = {
+        "low": medium_threshold / 2,
+        "medium": (medium_threshold + high_threshold) / 2,
+        "high": (high_threshold + 1.0) / 2,
+    }
+    fillers: list[pd.DataFrame] = []
+    leftover_pool = (
+        pd.concat(leftovers, ignore_index=True) if leftovers else pd.DataFrame()
+    )
     for level in RISK_LEVEL_ORDER:
         shortfall = target_counts[level] - len(selected[level])
-        if shortfall > 0:
-            print(
-                f"[WARN] '{level}' 위험군 목표({target_counts[level]}건) 중 "
-                f"{shortfall}건을 채우지 못했습니다."
-            )
+        if shortfall <= 0:
+            continue
+        print(
+            f"[WARN] '{level}' 위험군 목표({target_counts[level]}건) 중 "
+            f"{shortfall}건을 채우지 못했습니다."
+        )
+        # 요청한 총량(--count)은 맞춰야 하므로, 해당 구간에 가장 가까운
+        # 미선택 후보로 채웁니다. 위험도는 실제 채점값을 그대로 유지하므로
+        # 아래 분포 출력은 부풀려지지 않습니다.
+        if leftover_pool.empty:
+            continue
+        distance = (leftover_pool["churn_probability"] - band_midpoints[level]).abs()
+        take = leftover_pool.loc[distance.nsmallest(shortfall).index]
+        fillers.append(take)
+        leftover_pool = leftover_pool.drop(index=take.index)
+        print(f"       총량을 맞추기 위해 가장 가까운 후보 {len(take)}건으로 채웠습니다.")
 
-    final = pd.concat([selected[level] for level in RISK_LEVEL_ORDER], ignore_index=True)
+    final = pd.concat(
+        [selected[level] for level in RISK_LEVEL_ORDER] + fillers, ignore_index=True
+    )
     shuffle_seed = int(rng.integers(0, 2**32 - 1))
     final = final.sample(frac=1, random_state=shuffle_seed).reset_index(drop=True)
     return final, target_counts
