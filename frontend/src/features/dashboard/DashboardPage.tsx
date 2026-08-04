@@ -45,6 +45,28 @@ const campaignStatusLabels: Record<CampaignStatus, string> = {
   cancelled: "취소",
 };
 
+const taskLabels: Record<string, string> = {
+  classification: "분류모델",
+  clustering: "군집모델",
+  regression: "회귀모델",
+};
+
+function getTaskLabel(task: string): string {
+  return taskLabels[task] ?? task;
+}
+
+function isHashLike(value: string): boolean {
+  return /^[a-f0-9]{32,}$/i.test(value);
+}
+
+function isTimestampLike(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function isRawVersionValue(value: string): boolean {
+  return isHashLike(value) || isTimestampLike(value);
+}
+
 const campaignStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
   pending: ["pending", "assigned", "cancelled"],
   assigned: ["assigned", "contacted", "cancelled"],
@@ -215,7 +237,6 @@ function RiskOverview({ data }: { data: CustomerInsightList }) {
     <article className="bento-card bento-card--risk">
       <div className="bento-card__heading">
         <div>
-          <p className="card-kicker">RISK MONITOR</p>
           <h2>위험도 분포</h2>
         </div>
         <span className="card-icon card-icon--alert" aria-hidden="true">!</span>
@@ -315,10 +336,9 @@ function BatchOverview({ batch }: { batch: LatestBatch | null }) {
     <article className="bento-card bento-card--batch">
       <div className="bento-card__heading">
         <div>
-          <p className="card-kicker">DATA FRESHNESS</p>
           <h2>최근 배치 상태</h2>
         </div>
-        <span className="batch-status">{batch === null ? "확인 중" : "SYNCED"}</span>
+        <span className="batch-status">{batch === null ? "확인 중" : "동기화 완료"}</span>
       </div>
       {batch === null ? (
         <p className="empty-copy">배치 실행 정보를 불러오는 중입니다.</p>
@@ -334,7 +354,12 @@ function BatchOverview({ batch }: { batch: LatestBatch | null }) {
           </p>
           <div className="batch-models">
             {batch.runs.map((run) => (
-              <span key={run.id}>{run.task} · {run.model_version}</span>
+              <span key={run.id}>
+                {getTaskLabel(run.task)}
+                {run.model_version !== null && run.model_version !== "" && !isRawVersionValue(run.model_version)
+                  ? ` · ${run.model_version}`
+                  : null}
+              </span>
             ))}
           </div>
         </>
@@ -382,7 +407,6 @@ function CampaignFeedback({
     <article className="bento-card bento-card--campaign campaign-feedback">
       <div className="table-card__header">
         <div>
-          <p className="card-kicker">CAMPAIGN FEEDBACK</p>
           <h2>캠페인 실행 피드백</h2>
         </div>
         <div className="campaign-feedback__header-actions">
@@ -415,7 +439,6 @@ function CampaignFeedback({
           >
             <div className="campaign-feedback-help-dialog__header">
               <div>
-                <p className="card-kicker">METRIC GUIDE</p>
                 <h3 id="campaign-feedback-metric-help-title">캠페인 지표 설명</h3>
               </div>
               <button
@@ -553,7 +576,6 @@ function CampaignQueue({
     <article className="bento-card bento-card--campaign">
       <div className="table-card__header">
         <div>
-          <p className="card-kicker">WORK QUEUE</p>
           <h2>캠페인 처리 현황</h2>
         </div>
         <span className="table-count">{formatNumber(targets.length)}건</span>
@@ -677,7 +699,6 @@ function CustomerDetailPanel({
     <aside className="insight-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title">
       <div className="insight-drawer__header">
         <div>
-          <p className="card-kicker">CUSTOMER PROFILE</p>
           <h2 id="detail-title">
             {detail === null ? "고객 상세 정보" : `고객 ${detail.customer_id}`}
           </h2>
@@ -809,7 +830,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
-  // 로그아웃 상태는 AppShell이 소유합니다(헤더가 그쪽으로 옮겨졌기 때문).
   const [activeTab, setActiveTab] = useState<DashboardTab>("insights");
 
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
@@ -1076,7 +1096,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
   return (
     <>
-      {/* 헤더·로그아웃·워크스페이스 전환은 AppShell이 담당합니다. */}
       <nav className="dashboard-tabs" aria-label="대시보드 탭">
         <button
           type="button"
@@ -1115,7 +1134,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
           <article className="bento-card bento-card--hero">
             <div className="bento-card__heading">
               <div>
-                <p className="card-kicker">CUSTOMER HEALTH</p>
                 <h2>분석 대상 고객</h2>
               </div>
               <span className="card-icon card-icon--spark" aria-hidden="true">✦</span>
@@ -1128,7 +1146,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
           </article>
 
           <article className="bento-card bento-card--average">
-            <p className="card-kicker">CHURN PROBABILITY</p>
             <span className="metric-label">평균 이탈 확률</span>
             <strong className="metric-number">{formatPercent(data.stats.average_churn_probability)}</strong>
             <div className="metric-footnote"><span className="metric-trend">●</span> 최신 분석 기준</div>
@@ -1140,9 +1157,8 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
             onClick={focusHighRisk}
             aria-label="높은 이탈 위험 고객만 보기"
           >
-            <div className="priority-visual"><span>{formatNumber(highRiskCount)}</span><small>HIGH</small></div>
+            <div className="priority-visual"><span>{formatNumber(highRiskCount)}</span><small>위험</small></div>
             <div>
-              <p className="card-kicker">ACTION PRIORITY</p>
               <h2>우선 관리 고객</h2>
               <p>높은 이탈 위험으로 분류된 고객입니다. 클릭해서 바로 확인하세요.</p>
             </div>
@@ -1153,7 +1169,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
           <article className="bento-card bento-card--cluster">
             <div className="bento-card__heading">
               <div>
-                <p className="card-kicker">SEGMENTATION</p>
                 <h2>주요 고객 군집</h2>
               </div>
               <span className="card-icon card-icon--cluster" aria-hidden="true">◌</span>
@@ -1173,7 +1188,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
           <article className="bento-card bento-card--table">
             <div className="table-card__header">
               <div>
-                <p className="card-kicker">CUSTOMER INSIGHTS</p>
                 <h2>고객별 분석 결과</h2>
               </div>
               <div className="table-card__actions">

@@ -1123,13 +1123,12 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const roleContent = user.role === "operations" ? (
     <>
       <section className="department-stats">
-        <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 상담 대상" tone="pink" />
-        <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="처리 대기 캠페인" tone="orange" />
-        <StatCard label="AVERAGE CHURN" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} caption="고위험 고객 기준" tone="purple" />
+        <StatCard label="우선 상담 대상" value={formatNumber(highRiskCount)} tone="pink" />
+        <StatCard label="처리 대기 캠페인" value={formatNumber(pendingCount)}  tone="orange" />
+        <StatCard label="고위험 고객 기준" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} tone="purple" />
         <BatchCard batch={batch} />
       </section>
       <InsightPriorityTable
-        kicker="CUSTOMER PRIORITY"
         heading="우선 관리 고객"
         insights={insights?.items ?? []}
         targets={targets}
@@ -1158,9 +1157,9 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   ) : user.role === "marketing" ? (
     <>
       <section className="department-stats">
-        <StatCard label="TARGETS" value={formatNumber(campaignTargetTotal)} caption="등록된 캠페인 대상" tone="purple" />
-        <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="실행 대기 대상" tone="orange" />
-        <StatCard label="COMPLETED" value={formatNumber(completedCount)} caption="처리 완료 캠페인" tone="green" />
+        <StatCard label="등록된 캠페인 대상" value={formatNumber(campaignTargetTotal)}  tone="purple" />
+        <StatCard label="실행 대기 대상" value={formatNumber(pendingCount)}  tone="orange" />
+        <StatCard label="처리 완료 캠페인" value={formatNumber(completedCount)}  tone="green" />
         <BatchCard batch={batch} />
       </section>
       <section className="department-panel department-panel--wide">
@@ -1191,7 +1190,6 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         </div>
       </section>
       <InsightPriorityTable
-        kicker="CAMPAIGN CANDIDATES"
         heading="캠페인 후보 고객"
         toolbar={(
           <MarketingCandidateFilters

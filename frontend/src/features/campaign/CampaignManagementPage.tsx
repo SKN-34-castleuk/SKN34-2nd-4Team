@@ -293,24 +293,20 @@ function CampaignStats({ campaign }: { campaign: Campaign }) {
   return (
     <section className="campaign-management-stats" aria-label="캠페인 통계">
       <article className="campaign-stat campaign-stat--purple">
-        <span>ALL TARGETS</span>
+        <span>전체 대상 고객</span>
         <strong>{formatNumber(stats.total_targets)}</strong>
-        <small>전체 대상 고객</small>
       </article>
       <article className="campaign-stat campaign-stat--orange">
-        <span>OPEN QUEUE</span>
+        <span>미처리 고객</span>
         <strong>{formatNumber(stats.unprocessed_targets)}</strong>
-        <small>미처리 대상</small>
       </article>
       <article className="campaign-stat campaign-stat--blue">
-        <span>CONTACTED</span>
+        <span>접촉 시작 고객</span>
         <strong>{formatNumber(stats.contacted_targets)}</strong>
-        <small>접촉 시작 대상</small>
       </article>
       <article className="campaign-stat campaign-stat--green">
-        <span>CONVERTED</span>
+        <span>전환 완료 고객</span>
         <strong>{formatNumber(stats.converted_targets)}</strong>
-        <small>전환 완료 대상</small>
       </article>
     </section>
   );
