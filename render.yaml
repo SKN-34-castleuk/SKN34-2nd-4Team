@@ -28,6 +28,20 @@ services:
         value: "true"
       - key: ALLOW_TEST_USER_SEEDING
         value: "false"
+      - key: POC_SEED_ON_START
+        sync: true
+      - key: POC_SEED_CAMPAIGNS
+        value: "true"
+      - key: POC_SEED_LIMIT
+        value: "40"
+      - key: TEST_ADMIN_PASSWORD
+        sync: false
+      - key: TEST_ANALYST_PASSWORD
+        sync: false
+      - key: TEST_OPERATIONS_PASSWORD
+        sync: false
+      - key: TEST_MARKETING_PASSWORD
+        sync: false
 
   - type: web
     runtime: static

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from sqlalchemy.engine import make_url
 
-from backend.app.config import get_app_env
+from backend.app.config import get_app_env, get_poc_seed_enabled
 
 
 def validate_local_database(database_url: str) -> None:
     """합성 데이터 작업이 로컬 DB에서만 실행되도록 제한합니다."""
+    if get_poc_seed_enabled():
+        return
     if get_app_env() not in {"local", "development", "test"}:
         raise RuntimeError(
             "This script can only run when APP_ENV is local, development, or test."

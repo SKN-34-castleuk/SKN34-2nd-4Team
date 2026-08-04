@@ -87,3 +87,13 @@ def get_allow_test_user_seeding() -> bool:
         "yes",
         "on",
     }
+
+
+def get_poc_seed_enabled() -> bool:
+    """명시적으로 활성화한 POC 원격 시드 여부를 반환합니다."""
+    return os.getenv("POC_SEED_ON_START", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
