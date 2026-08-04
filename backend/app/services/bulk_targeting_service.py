@@ -99,15 +99,15 @@ DEFAULT_CAMPAIGN_DESCRIPTIONS = {
     BulkTargetingSegment.SMALL_BALANCE_DECLINE.value: (
         f"선정 근거: 리볼빙 잔액이 1~{SMALL_BALANCE_LIMIT - 1}원으로 소액인데 분기 거래건수가 "
         f"{TRANSACTION_DECLINE_RATIO}배 미만으로 급감한 고객입니다. "
-        "원본 10,127명 검증에서 이 조건의 실제 이탈률은 약 90%로(train 91.1%/test 88.5%) "
-        "전체 평균 16.1%의 5배가 넘습니다. 대상 수는 적지만 이탈이 임박한 신호이므로 "
+        "이 조건의 실제 이탈률은 약 90% 전체 평균 16.1%의 5배가 넘습니다."
+        " 대상 수는 적지만 이탈이 임박한 신호이므로 "
         "가장 먼저 컨택합니다."
     ),
     BulkTargetingSegment.DORMANT_FULL_PAYER.value: (
         f"선정 근거: 리볼빙 잔액이 0원(완납)이면서 연간 거래가 "
         f"{FULL_PAYER_ACTIVE_TRANSACTIONS}건 미만인 고객입니다. "
         "완납 고객 전체의 실제 이탈률은 36.2%인데, 그중 거래가 저조한 이 그룹만 보면 "
-        "72.0%로 치솟습니다(train 72.6%/test 70.5%). 잔액이 없어 전환 비용이 없고 "
+        "72.0%로 치솟습니다 잔액이 없어 전환 비용이 없고 "
         "카드 사용도 줄어든 상태라 이탈 직전으로 판단합니다."
     ),
     BulkTargetingSegment.ACTIVE_FULL_PAYER.value: (

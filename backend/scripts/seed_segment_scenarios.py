@@ -102,7 +102,7 @@ SCENARIOS = (
     ),
     ScenarioSpec(
         segment=BulkTargetingSegment.SMALL_BALANCE_DECLINE,
-        title="소액 잔액·거래 급감 긴급 컨택",
+        title="소액 잔액·거래 급감 컨택",
         # 운영팀이 지금 처리 중 — 대기/배정/접촉/완료가 섞여 있습니다.
         stage="in_progress",
         channel="전화",
