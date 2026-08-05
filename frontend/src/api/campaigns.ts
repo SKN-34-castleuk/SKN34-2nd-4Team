@@ -23,6 +23,16 @@ export type BulkTargetingSegment =
 export type BulkTargetingRun =
   components["schemas"]["BulkTargetingRunResponse"];
 
+export const SEGMENT_LABELS: Record<BulkTargetingSegment, string> = {
+  small_balance_decline: "소액 잔액·거래 급감 (긴급)",
+  dormant_full_payer: "완납형 저활동 (이탈 임박)",
+  high_risk_retention: "고위험 고객 리텐션",
+  medium_reactivation: "중위험·활동성 하락 재활성화",
+  active_full_payer: "완납형 우량 (거래 활성화)",
+  low_risk_upsell: "저위험·우량군 업셀링",
+  stable_prime: "안정 우량 (업셀링)",
+};
+
 function toQueryString(query: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {

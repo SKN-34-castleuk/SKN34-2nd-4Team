@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { listTeamMembers, updateTeamMember, type TeamMember } from "../../api/team";
 import type { ApiError } from "../../api/client";
@@ -384,21 +384,7 @@ function OperationsTopNav() {
   );
 }
 
-type ModelName = "분류" | "회귀" | "군집";
-
-const MODEL_BADGE_TONE: Record<ModelName, string> = {
-  "분류": "department-model-badge--classification",
-  "회귀": "department-model-badge--regression",
-  "군집": "department-model-badge--cluster",
-};
-
-function ModelBadge({ model }: { model: ModelName }) {
-  return (
-    <span className={`department-model-badge ${MODEL_BADGE_TONE[model]}`}>{model}</span>
-  );
-}
-
-function CampaignRevenueHero({ performance }: { performance: CampaignPerformance | null }) {
+function MarketingRoiPanel({ performance }: { performance: CampaignPerformance | null }) {
   if (performance === null) {
     return null;
   }
@@ -406,24 +392,32 @@ function CampaignRevenueHero({ performance }: { performance: CampaignPerformance
   const netResult = metrics.incremental_revenue - metrics.total_cost;
   const isLoss = netResult < 0;
   return (
-    <section className="department-hero-metric" aria-label="캠페인 방어 매출 요약">
+    <section className="department-panel department-panel--sidebar" aria-label="캠페인 방어 매출 요약">
       <div className="department-panel__heading-with-guide">
-        <p className="card-kicker">REVENUE DEFENDED</p>
+        <p className="card-kicker">근거 — 방어매출 · ROI</p>
         <InfoBtn guideKey="방어한 매출" />
       </div>
-      <strong>{formatCurrency(metrics.incremental_revenue)}</strong>
-      <small>비개입군의 자연 전환을 제외하고, 캠페인 덕분에 순수하게 늘어난 매출입니다.</small>
-      <div className="department-hero-metric__roi">
-        <span>ROI <strong>{formatSignedPercent(metrics.roi)}</strong></span>
-        <span>증분 전환효과 <strong>{formatSignedPercent(metrics.incremental_conversion_effect)}</strong></span>
-        <span>증분 유지효과 <strong>{formatSignedPercent(metrics.incremental_retention_effect)}</strong></span>
-        <span>
-          {isLoss ? "손실비용" : "순이익"}{" "}
-          <strong className={isLoss ? "department-hero-metric__loss" : undefined}>
-            {formatCurrency(Math.abs(netResult))}
-          </strong>
-        </span>
+      <div className="department-sidebar-metrics">
+        <div>
+          <p>방어매출</p>
+          <strong>{formatCurrency(metrics.incremental_revenue)}</strong>
+        </div>
+        <div>
+          <p>ROI</p>
+          <strong>{formatSignedPercent(metrics.roi)}</strong>
+        </div>
+        <div>
+          <p>증분 전환효과</p>
+          <strong>{formatSignedPercent(metrics.incremental_conversion_effect)}</strong>
+        </div>
+        <div>
+          <p>증분 유지효과</p>
+          <strong>{formatSignedPercent(metrics.incremental_retention_effect)}</strong>
+        </div>
       </div>
+      <p className="department-panel__caption">
+        {isLoss ? "손실비용" : "순이익"} {formatCurrency(Math.abs(netResult))} · 비개입군의 자연 전환을 제외한 순수 증분입니다.
+      </p>
     </section>
   );
 }
@@ -492,16 +486,37 @@ const VERDICT_SEVERITY_LABEL: Record<AdminVerdict["severity"], string> = {
   good: "양호",
 };
 
-function AdminVerdictHero({
-  coverage,
-  performance,
+const RISK_TERM_PATTERN = /(고위험|저위험|주의\(중위험\)|중위험|\d+(?:\.\d+)?%)/g;
+
+function highlightRiskTerms(text: string): ReactNode[] {
+  return text.split(RISK_TERM_PATTERN).map((part, index) => (
+    RISK_TERM_PATTERN.test(part) && part !== ""
+      ? <span key={index} style={{ color: "#dc2626" }}>{part}</span>
+      : part
+  ));
+}
+
+function VerdictHero({
+  verdict,
+  emphasize = false,
+  labelPill = false,
+  highlightHeadline = false,
+  anchor,
 }: {
-  coverage: HighRiskCoverage | null;
-  performance: CampaignPerformance | null;
+  verdict: AdminVerdict | null;
+  emphasize?: boolean;
+  labelPill?: boolean;
+  highlightHeadline?: boolean;
+  anchor?: ReactNode;
 }) {
-  const verdict = buildAdminVerdict(coverage, performance);
-  return (
-    <section className={`department-verdict department-verdict--${verdict === null ? "loading" : verdict.severity}`} aria-label="핵심 결론">
+  const shouldHighlight = emphasize || highlightHeadline;
+  const labelClassName = emphasize
+    ? "department-verdict__severity"
+    : labelPill
+    ? "department-verdict__label department-verdict__label--pill"
+    : "department-verdict__label";
+  const body = (
+    <div className={anchor ? "department-verdict__body" : undefined}>
       <div className="department-verdict__eyebrow">
         {verdict !== null && (
           <span className="department-verdict__severity">
@@ -509,18 +524,48 @@ function AdminVerdictHero({
             {VERDICT_SEVERITY_LABEL[verdict.severity]}
           </span>
         )}
-        <span className="department-verdict__label">핵심 결론</span>
+        <span className={labelClassName}>핵심 결론</span>
+        {emphasize && verdict !== null && (
+          <span className="department-verdict__label" style={{ marginLeft: 8 }}>CRITICAL DIRECTIVE</span>
+        )}
       </div>
       {verdict === null ? (
         <p className="department-verdict__loading">데이터를 불러오는 중입니다.</p>
       ) : (
         <>
-          <h2>{verdict.headline}</h2>
-          <p>{verdict.body}</p>
-          <div className="department-verdict__action">{verdict.action}</div>
+          <h2>{shouldHighlight ? highlightRiskTerms(verdict.headline) : verdict.headline}</h2>
+          <p style={{ whiteSpace: "pre-line" }}>{verdict.body}</p>
+          {!emphasize && <div className="department-verdict__action">{verdict.action}</div>}
         </>
       )}
+    </div>
+  );
+  return (
+    <section className={`department-verdict department-verdict--${verdict === null ? "loading" : verdict.severity}`} aria-label="핵심 결론">
+      {body}
+      {anchor}
     </section>
+  );
+}
+
+function AdminVerdictHero({
+  coverage,
+  performance,
+}: {
+  coverage: HighRiskCoverage | null;
+  performance: CampaignPerformance | null;
+}) {
+  return (
+    <VerdictHero
+      verdict={buildAdminVerdict(coverage, performance)}
+      emphasize
+      anchor={
+        <div className="department-verdict__anchor">
+          <CoverageGauge rate={coverage === null ? null : coverage.coverage_rate} valueColor="#1e293b" />
+          <span className="department-verdict__anchor-target">목표 {Math.round(COVERAGE_TARGET * 100)}% 대비</span>
+        </div>
+      }
+    />
   );
 }
 
@@ -541,9 +586,9 @@ function buildOperationsVerdict(
   }
   return {
     severity: "danger",
-    headline: `이중신호 고위험 고객 ${formatNumber(dualSignal.count)}명 — 즉시 상담이 필요합니다`,
-    body: `고위험(risk_level) 판정과 활동성 갭 하위 20%에 동시에 해당하는 ${formatNumber(dualSignal.count)}명은 두 모델이 함께 위험 신호를 보내는 최우선 상담 대상입니다. 현재 미처리 대기열은 ${formatNumber(pendingCount)}건으로, 우선 배정이 필요합니다.`,
-    action: `→ 이중신호 ${formatNumber(dualSignal.count)}명 우선 배정 · 대기열 ${formatNumber(pendingCount)}건 처리 가속화`,
+    headline: `이중신호 고위험 고객 ${formatNumber(dualSignal.count)}명 — 즉시 관리가 필요합니다`,
+    body: `고위험(risk_level) 판정과 활동성 갭 하위 20%에 동시에 해당하는 ${formatNumber(dualSignal.count)}명은 두 모델이 함께 위험 신호를 보내는 최우선 관리 대상입니다.\n미처리 대기열 처리도 함께 서둘러야 합니다.`,
+    action: `→ 이중신호 고객 우선 배정 · 미처리 대기열 처리 가속화`,
   };
 }
 
@@ -554,28 +599,75 @@ function OperationsVerdictHero({
   dualSignal: DualSignalSummary | null;
   pendingCount: number;
 }) {
-  const verdict = buildOperationsVerdict(dualSignal, pendingCount);
   return (
-    <section className={`department-verdict department-verdict--${verdict === null ? "loading" : verdict.severity}`} aria-label="핵심 결론">
-      <div className="department-verdict__eyebrow">
-        {verdict !== null && (
-          <span className="department-verdict__severity">
-            <i aria-hidden="true" />
-            {VERDICT_SEVERITY_LABEL[verdict.severity]}
-          </span>
-        )}
-        <span className="department-verdict__label">핵심 결론</span>
-      </div>
-      {verdict === null ? (
-        <p className="department-verdict__loading">데이터를 불러오는 중입니다.</p>
-      ) : (
-        <>
-          <h2>{verdict.headline}</h2>
-          <p>{verdict.body}</p>
-          <div className="department-verdict__action">{verdict.action}</div>
-        </>
-      )}
-    </section>
+    <VerdictHero
+      verdict={buildOperationsVerdict(dualSignal, pendingCount)}
+      labelPill
+      highlightHeadline
+    />
+  );
+}
+
+function findClusterExtremes(
+  performance: CampaignPerformance | null,
+): { best: CampaignPerformance["by_cluster"][number]; worst: CampaignPerformance["by_cluster"][number] } | null {
+  if (performance === null) {
+    return null;
+  }
+  const withRoi = performance.by_cluster.filter((item) => item.roi !== null);
+  if (withRoi.length === 0) {
+    return null;
+  }
+  const best = withRoi.reduce((max, item) => (item.roi! > max.roi! ? item : max));
+  const worst = withRoi.reduce((min, item) => (item.roi! < min.roi! ? item : min));
+  return best.key === worst.key ? null : { best, worst };
+}
+
+function buildMarketingVerdict(performance: CampaignPerformance | null): AdminVerdict | null {
+  if (performance === null) {
+    return null;
+  }
+  const { roi, incremental_revenue: incrementalRevenue } = performance.summary;
+  const extremes = findClusterExtremes(performance);
+  const clusterClause = extremes === null
+    ? ""
+    : `\n군집별로는 "${extremes.best.label}" 그룹이 ROI ${formatSignedPercent(extremes.best.roi)}로 가장 효율이 높고, "${extremes.worst.label}" 그룹은 ${formatSignedPercent(extremes.worst.roi)}로 상대적으로 낮습니다.`;
+
+  if (roi === null) {
+    return {
+      severity: "warn",
+      headline: "아직 ROI를 계산할 수 있는 캠페인 실적이 없습니다",
+      body: "캠페인 비용·전환 데이터가 쌓이면 방어매출과 ROI가 표시됩니다.",
+      action: "→ 캠페인 등록 및 처리 현황을 확인하세요.",
+    };
+  }
+  if (roi < 0) {
+    return {
+      severity: "danger",
+      headline: `캠페인 ROI ${formatSignedPercent(roi)} — 비용 대비 방어매출이 부족합니다`,
+      body: `대조군 대비 증분매출이 ${formatCurrency(incrementalRevenue)}로, 캠페인 비용을 회수하지 못하고 있습니다.${clusterClause}`,
+      action: extremes === null
+        ? "→ 캠페인 타겟팅과 비용 구조를 재검토하세요."
+        : `→ "${extremes.worst.label}" 그룹 캠페인 재검토 · "${extremes.best.label}" 그룹 위주로 재배분`,
+    };
+  }
+  return {
+    severity: "good",
+    headline: `이번 캠페인으로 ${formatCurrency(incrementalRevenue)}의 매출을 방어했습니다 (ROI ${formatSignedPercent(roi)})`,
+    body: `대조군 대비 순수하게 늘어난 매출이 ${formatCurrency(incrementalRevenue)}, 캠페인 비용 대비 회수율은 ${formatSignedPercent(roi)}입니다.${clusterClause}`,
+    action: extremes === null
+      ? "→ 현재 캠페인 운영을 유지하세요."
+      : `→ 다음 캠페인 예산은 "${extremes.best.label}" 그룹에 우선 배분 검토`,
+  };
+}
+
+function MarketingVerdictHero({ performance }: { performance: CampaignPerformance | null }) {
+  return (
+    <VerdictHero
+      verdict={buildMarketingVerdict(performance)}
+      labelPill
+      highlightHeadline
+    />
   );
 }
 
@@ -605,38 +697,46 @@ function ReasonCodePanel({ data }: { data: ReasonCodeDistribution | null }) {
   );
 }
 
-function CoverageGauge({ rate }: { rate: number | null }) {
+function CoverageGauge({ rate, valueColor }: { rate: number | null; valueColor?: string }) {
   const percent = rate === null ? 0 : Math.round(rate * 100);
-  const arcLength = 131.9;
-  const color = rate === null ? "#9CA3AF" : rate >= 0.8 ? "#059669" : rate >= 0.5 ? "#d97706" : "#dc2626";
+  const size = 110;
+  const strokeWidth = 16;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const filled = (percent / 100) * circumference;
+  const color = rate === null ? "#9CA3AF" : "#1d4ed8";
   return (
     <div className="department-coverage-gauge">
-      <svg width="100" height="58" viewBox="0 0 100 58">
-        <path d="M 8 52 A 42 42 0 0 1 92 52" fill="none" stroke="#e5e8eb" strokeWidth="10" strokeLinecap="round" />
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e5ea" strokeWidth={strokeWidth} />
         {rate !== null && (
-          <path
-            d="M 8 52 A 42 42 0 0 1 92 52"
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
             fill="none"
             stroke={color}
-            strokeWidth="10"
+            strokeWidth={strokeWidth}
             strokeLinecap="round"
-            strokeDasharray={`${(percent / 100) * arcLength} ${arcLength}`}
+            strokeDasharray={`${filled} ${circumference}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />
         )}
       </svg>
-      <span className="department-coverage-gauge__value">{rate === null ? "—" : `${percent}%`}</span>
+      <span className="department-coverage-gauge__value" style={valueColor ? { color: valueColor } : undefined}>
+        {rate === null ? "—" : `${percent}%`}
+      </span>
     </div>
   );
 }
 
 const RISK_LEVEL_ORDER = ["high", "medium", "low"] as const;
-const RISK_LEVEL_COLOR: Record<string, string> = {
-  high: "#dc2626",
-  medium: "#d97706",
-  low: "#059669",
-};
 
-function RiskLevelRoiChart({ items }: { items: CampaignPerformance["by_risk_level"] }) {
+function formatCompactCurrency(value: number): string {
+  return `₩${(value / 1_000_000).toFixed(2)}M`;
+}
+
+function RiskLevelBarChart({ items }: { items: CampaignPerformance["by_risk_level"] }) {
   if (items.length === 0) {
     return <p className="department-empty">위험도별 데이터가 없습니다.</p>;
   }
@@ -644,104 +744,151 @@ function RiskLevelRoiChart({ items }: { items: CampaignPerformance["by_risk_leve
     (a, b) => RISK_LEVEL_ORDER.indexOf(a.key as typeof RISK_LEVEL_ORDER[number]) - RISK_LEVEL_ORDER.indexOf(b.key as typeof RISK_LEVEL_ORDER[number]),
   );
   const W = 320;
-  const H = 210;
-  const PAD = { top: 34, right: 16, bottom: 34, left: 16 };
+  const H = 160;
+  const PAD = { top: 16, right: 16, bottom: 40, left: 16 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
-  // 막대(방어매출)와 선(ROI)이 같은 높이대를 쓰면 숫자 라벨이 겹치므로,
-  // 아래쪽 65%는 막대 전용, 위쪽 35%는 ROI 선 전용으로 밴드를 분리한다.
-  const barBandHeight = plotH * 0.65;
-  const roiBandHeight = plotH * 0.35;
   const n = sorted.length;
   const slot = plotW / n;
-  const barWidth = Math.min(52, slot * 0.4);
+  const barWidth = Math.min(40, slot * 0.35);
   const maxRevenue = Math.max(...sorted.map((item) => item.incremental_revenue), 1);
-  const maxRoi = Math.max(...sorted.map((item) => item.roi ?? 0), 0.1);
   const baselineY = PAD.top + plotH;
   const xOf = (index: number) => PAD.left + slot * index + slot / 2;
-  const barTopY = (revenue: number) => baselineY - (revenue / maxRevenue) * barBandHeight;
-  const roiY = (roi: number) => (PAD.top + roiBandHeight) - (Math.max(roi, 0) / maxRoi) * roiBandHeight;
-  const linePoints = sorted.map((item, index) => `${xOf(index)},${roiY(item.roi ?? 0)}`).join(" ");
 
   return (
     <div className="department-combo-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="위험도별 방어매출·ROI 콤보차트">
-        <line x1={PAD.left} x2={W - PAD.right} y1={baselineY} y2={baselineY} stroke="var(--line)" strokeWidth={1} />
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="위험도별 방어매출 막대차트">
+        <line x1={PAD.left} x2={W - PAD.right} y1={baselineY} y2={baselineY} stroke="#e5e5ea" strokeWidth={1} />
         {sorted.map((item, index) => {
-          const color = RISK_LEVEL_COLOR[item.key] ?? "#9CA3AF";
           const x = xOf(index);
-          const topY = barTopY(item.incremental_revenue);
-          const barHeight = baselineY - topY;
+          const barHeight = (item.incremental_revenue / maxRevenue) * plotH;
+          const topY = baselineY - barHeight;
           return (
             <g key={item.key}>
-              <rect x={x - barWidth / 2} y={topY} width={barWidth} height={barHeight} fill={color} rx={4} />
-              <text x={x} y={topY - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--navy)">
-                {formatCurrency(item.incremental_revenue)}
+              <rect x={x - barWidth / 2} y={topY} width={barWidth} height={barHeight} rx={3} fill="#8b95a1" />
+              <text x={x} y={topY - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill="#2c2c2e">
+                {formatCompactCurrency(item.incremental_revenue)}
               </text>
-              <text x={x} y={baselineY + 15} textAnchor="middle" fontSize={9.5} fill="var(--muted)">{item.label}</text>
-              <text x={x} y={baselineY + 27} textAnchor="middle" fontSize={9} fill="var(--muted)">{formatNumber(item.target_count)}명</text>
+              <text x={x} y={baselineY + 15} textAnchor="middle" fontSize={11} fontWeight={700} fill="#2c2c2e">{item.label}</text>
             </g>
           );
         })}
-        <polyline points={linePoints} fill="none" stroke="var(--primary-dark)" strokeWidth={2} strokeLinejoin="round" />
-        {sorted.map((item, index) => (
-          <g key={`roi-${item.key}`}>
-            <circle cx={xOf(index)} cy={roiY(item.roi ?? 0)} r={3.5} fill="var(--primary-dark)" />
-            <text x={xOf(index)} y={roiY(item.roi ?? 0) - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--primary-dark)">
-              {item.roi === null ? "—" : formatSignedPercent(item.roi)}
-            </text>
-          </g>
-        ))}
       </svg>
-      <div className="department-combo-chart__legend">
-        <span><i className="department-combo-chart__swatch" />방어매출</span>
-        <span><i className="department-combo-chart__swatch department-combo-chart__swatch--line" />ROI</span>
-      </div>
     </div>
   );
 }
 
-function AdminDecisionPanel({
-  coverage,
-  performance,
-}: {
-  coverage: HighRiskCoverage | null;
-  performance: CampaignPerformance | null;
-}) {
+function RiskLevelLineChart({ items }: { items: CampaignPerformance["by_risk_level"] }) {
+  if (items.length === 0) {
+    return <p className="department-empty">위험도별 데이터가 없습니다.</p>;
+  }
+  const sorted = [...items].sort(
+    (a, b) => RISK_LEVEL_ORDER.indexOf(a.key as typeof RISK_LEVEL_ORDER[number]) - RISK_LEVEL_ORDER.indexOf(b.key as typeof RISK_LEVEL_ORDER[number]),
+  );
+  const W = 320;
+  const H = 160;
+  const PAD = { top: 16, right: 16, bottom: 40, left: 16 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+  const n = sorted.length;
+  const slot = plotW / n;
+  const maxRoi = Math.max(...sorted.map((item) => item.roi ?? 0), 0.1);
+  const baselineY = PAD.top + plotH;
+  const xOf = (index: number) => PAD.left + slot * index + slot / 2;
+  const yOf = (roi: number) => baselineY - (Math.max(roi, 0) / maxRoi) * plotH;
+  const linePoints = sorted.map((item, index) => `${xOf(index)},${yOf(item.roi ?? 0)}`).join(" ");
+
   return (
-    <div className="department-hero-grid" aria-label="경영 판단 지표">
-      <div className="department-hero-metric">
+    <div className="department-combo-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="위험도별 ROI 선그래프">
+        <line x1={PAD.left} x2={W - PAD.right} y1={baselineY} y2={baselineY} stroke="#e5e5ea" strokeWidth={1} />
+        <polyline points={linePoints} fill="none" stroke="#1d4ed8" strokeWidth={2} strokeLinejoin="round" />
+        {sorted.map((item, index) => {
+          const roi = item.roi ?? 0;
+          const y = yOf(roi);
+          const isLocalMin = index > 0 && index < sorted.length - 1
+            && roi < (sorted[index - 1].roi ?? 0)
+            && roi < (sorted[index + 1].roi ?? 0);
+          const labelY = isLocalMin ? y + 20 : y - 8;
+          return (
+            <g key={item.key}>
+              <circle cx={xOf(index)} cy={y} r={4} fill="#1d4ed8" />
+              <text x={xOf(index)} y={labelY} textAnchor="middle" fontSize={11} fontWeight={700} fill="#1d4ed8">
+                {item.roi === null ? "—" : formatSignedPercent(item.roi)}
+              </text>
+              <text x={xOf(index)} y={baselineY + 15} textAnchor="middle" fontSize={11} fontWeight={700} fill="#2c2c2e">{item.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function AdminDecisionPanel({ performance }: { performance: CampaignPerformance | null }) {
+  return (
+    <div className="department-hero-grid" aria-label="위험도별 방어매출 및 ROI">
+      <div className="department-panel">
         <div className="department-panel__heading-with-guide">
-          <p className="card-kicker">고위험 커버리지</p>
-          <ModelBadge model="분류" />
-          <InfoBtn guideKey="고위험 커버리지" />
+          <p className="card-kicker">위험도별 방어매출</p>
+          <InfoBtn guideKey="위험도별 방어매출 · ROI" />
         </div>
-        <div className="department-coverage-row">
-          <CoverageGauge rate={coverage === null ? null : coverage.coverage_rate} />
-          <div className="department-coverage-row__stats">
-            <strong>{coverage === null ? "—" : formatSignedPercent(coverage.coverage_rate)}</strong>
-            <small>
-              {coverage === null
-                ? "데이터를 불러오는 중입니다."
-                : `고위험 ${formatNumber(coverage.total_high_risk)}명 중 ${formatNumber(coverage.enrolled_high_risk)}명 캠페인 등록`}
-            </small>
-          </div>
-        </div>
+        <RiskLevelBarChart items={performance === null ? [] : performance.by_risk_level} />
       </div>
       <div className="department-panel">
         <div className="department-panel__heading-with-guide">
-          <p className="card-kicker">위험도별 방어매출 · ROI</p>
+          <p className="card-kicker">위험도별 ROI</p>
           <InfoBtn guideKey="위험도별 방어매출 · ROI" />
         </div>
-        <RiskLevelRoiChart items={performance === null ? [] : performance.by_risk_level} />
+        <RiskLevelLineChart items={performance === null ? [] : performance.by_risk_level} />
       </div>
     </div>
   );
 }
 
-function ClusterUpliftPanel({ performance }: { performance: CampaignPerformance | null }) {
+function ClusterUpliftPanel({
+  performance,
+  compact = false,
+}: {
+  performance: CampaignPerformance | null;
+  compact?: boolean;
+}) {
   if (performance === null || performance.by_cluster.length === 0) {
     return null;
+  }
+  const extremes = findClusterExtremes(performance);
+  if (compact) {
+    return (
+      <section className="department-panel department-panel--sidebar" aria-label="군집별 증분 유지효과">
+        <div className="department-panel__heading-with-guide">
+          <p className="card-kicker">근거 — 군집별 증분 효과</p>
+          <InfoBtn guideKey="군집별 증분 유지효과" />
+        </div>
+        <div className="campaign-performance-table-wrap">
+          <table className="campaign-performance-table campaign-performance-table--sidebar">
+            <thead>
+              <tr>
+                <th scope="col">군집</th>
+                <th scope="col">증분유지</th>
+                <th scope="col">ROI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {performance.by_cluster.map((item) => (
+                <tr key={item.key} className={extremes !== null && item.key === extremes.best.key ? "campaign-performance-row--best" : undefined}>
+                  <th scope="row">{item.label}</th>
+                  <td>{formatSignedPercent(item.incremental_retention_effect)}</td>
+                  <td>{formatSignedPercent(item.roi)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="department-panel__caption">
+          어떤 고객 유형에 캠페인이 더 잘 먹히는지 확인해 다음 예산 배분의 근거로 씁니다.
+        </p>
+      </section>
+    );
   }
   return (
     <section className="department-panel department-panel--wide" aria-label="군집별 증분 유지효과">
@@ -799,19 +946,88 @@ function DualSignalHero({
     <Wrapper
       type={onClick ? "button" : undefined}
       className={`department-hero-metric department-hero-metric--danger${onClick ? " department-hero-metric--clickable" : ""}${active ? " is-active" : ""}`}
-      aria-label="조기경보 이중 신호 고객"
+      aria-label="이중 신호 고위험 고객"
       onClick={onClick}
     >
-      <div className="department-panel__heading-with-guide">
-        <p className="card-kicker">조기경보 겹침 고객 (이중 신호)</p>
-        <InfoBtn guideKey="이중 신호 고객" />
+      <div className="department-hero-metric__body">
+        <div className="department-panel__heading-with-guide">
+          <span className="department-hero-metric__badge">우선순위</span>
+          <p className="card-kicker">이중 신호 고위험 고객</p>
+          <InfoBtn guideKey="이중 신호 고객" />
+        </div>
+        <strong>{dualSignal === null ? "—" : `${formatNumber(dualSignal.count)}명`}</strong>
+        <small>고위험(risk_level) + 활동성 갭 하위 20% 동시 해당</small>
       </div>
-      <strong>{dualSignal === null ? "—" : `${formatNumber(dualSignal.count)}명`}</strong>
-      <small>
-        고위험(risk_level) + 활동성 갭 하위 20% 동시 해당
-        {onClick && " · 클릭하면 우선 관리 고객 목록에서 바로 확인"}
-      </small>
+      {onClick && <span className="department-hero-metric__cta">우선 관리 고객 목록에서 확인 →</span>}
     </Wrapper>
+  );
+}
+
+function OperationsInsightDetail({ insight }: { insight: CustomerInsight | null }) {
+  if (insight === null) {
+    return (
+      <section className="department-panel">
+        <p className="card-kicker">선택 고객 상세</p>
+        <p className="department-empty">위 목록에서 고객을 클릭하면 상세 정보가 표시됩니다.</p>
+      </section>
+    );
+  }
+  const reasonCodes = Array.isArray(insight.reason_codes) ? insight.reason_codes : [];
+  return (
+    <section className="department-panel" aria-label="선택 고객 상세">
+      <p className="card-kicker">선택 고객 상세</p>
+      <h2>
+        {insight.customer_id} 상세{" "}
+        <span className="department-insight-detail__hint">— 위 리스트에서 다른 고객을 클릭해 전환해보세요</span>
+      </h2>
+      <div className="department-insight-detail__head">
+        <div className="department-insight-detail__id">
+          <strong>{insight.customer_id}</strong>
+          <DepartmentRiskBadge risk={insight.risk_level} />
+        </div>
+        <div className="department-insight-detail__metrics">
+          <div>
+            <p>이탈확률</p>
+            <strong>{formatPercent(insight.churn_probability)}</strong>
+          </div>
+          <div>
+            <p>활동성 갭</p>
+            <strong>{insight.activity_gap > 0 ? "+" : ""}{formatDecimal(insight.activity_gap)}</strong>
+          </div>
+          <div>
+            <p>총 거래액</p>
+            <strong>{formatCurrency(insight.total_trans_amt)}</strong>
+          </div>
+        </div>
+      </div>
+      <div className="department-insight-detail__cols">
+        <div>
+          <p className="department-insight-detail__title">이탈 위험 신호</p>
+          {reasonCodes.length === 0 ? (
+            <p className="department-empty">감지된 위험 신호 없음</p>
+          ) : (
+            <ul>
+              {reasonCodes.map((code) => (
+                <li key={code}>{getReasonCodeLabel(code)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <p className="department-insight-detail__title">추천 방어 전략</p>
+          <p className="department-insight-detail__action">{insight.recommended_action}</p>
+        </div>
+      </div>
+      <div className="department-quick-actions">
+        <button
+          type="button"
+          className="department-quick-actions__btn"
+          onClick={() => document.getElementById("operations-queue")?.scrollIntoView({ behavior: "smooth" })}
+        >
+          ✓ 처리 완료 표시
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -1111,6 +1327,8 @@ function InsightPriorityTable({
   onPageChange,
   compact = false,
   allowCustomName = false,
+  onSelectInsight,
+  selectedInsightId,
 }: {
   kicker: string;
   heading: string;
@@ -1127,6 +1345,8 @@ function InsightPriorityTable({
   onPageChange?: (page: number) => void;
   compact?: boolean;
   allowCustomName?: boolean;
+  onSelectInsight?: (insight: CustomerInsight) => void;
+  selectedInsightId?: number | null;
 }) {
   const [nameDrafts, setNameDrafts] = useState<Record<number, string>>({});
   const targetInsightIds = new Set(targets.map((target) => target.customer_insight_id));
@@ -1155,15 +1375,21 @@ function InsightPriorityTable({
             <span>이탈 확률</span>
             <span>활동성 갭</span>
             {!compact && <span>예상 거래</span>}
-            <span>군집</span>
+            {compact ? <span>사유코드</span> : <span>군집</span>}
             {!compact && <span>추천 액션</span>}
-            <span>캠페인</span>
+            {!compact && <span>캠페인</span>}
           </div>
           {insights.map((insight) => {
             const isRegistered = targetInsightIds.has(insight.id);
             const nameDraft = nameDrafts[insight.id] ?? "";
+            const isSelected = onSelectInsight !== undefined && selectedInsightId === insight.id;
             return (
-              <div className="department-insight-row" key={insight.id} role="listitem">
+              <div
+                className={`department-insight-row${onSelectInsight ? " department-insight-row--clickable" : ""}${isSelected ? " is-selected" : ""}`}
+                key={insight.id}
+                role="listitem"
+                onClick={onSelectInsight ? () => onSelectInsight(insight) : undefined}
+              >
                 <span className="department-insight-row__customer">
                   <strong>{insight.customer_id}</strong>
                   <small>{formatDate(insight.scored_at)}</small>
@@ -1185,14 +1411,22 @@ function InsightPriorityTable({
                     <small>예상 거래</small>
                   </span>
                 )}
-                <span className="department-insight-row__cluster">
-                  {insight.cluster_name}
-                  <small>
-                    신뢰도 {insight.cluster_confidence == null ? "-" : formatPercent(insight.cluster_confidence)}
-                  </small>
-                </span>
+                {compact ? (
+                  <span className="department-insight-row__reason">
+                    {Array.isArray(insight.reason_codes) && insight.reason_codes.length > 0
+                      ? getReasonCodeLabel(insight.reason_codes[0])
+                      : "—"}
+                  </span>
+                ) : (
+                  <span className="department-insight-row__cluster">
+                    {insight.cluster_name}
+                    <small>
+                      신뢰도 {insight.cluster_confidence == null ? "-" : formatPercent(insight.cluster_confidence)}
+                    </small>
+                  </span>
+                )}
                 {!compact && <span className="department-insight-row__action">{insight.recommended_action}</span>}
-                {onCreate ? (
+                {!compact && (onCreate ? (
                   allowCustomName ? (
                     <span className="department-register-inline">
                       <input
@@ -1224,7 +1458,7 @@ function InsightPriorityTable({
                   )
                 ) : (
                   <span className="department-campaign-result">마케팅팀 등록</span>
-                )}
+                ))}
               </div>
             );
           })}
@@ -1423,6 +1657,8 @@ function CampaignQueue({
   campaignOptions,
   onCampaignFilterChange,
   useDrawerEditing = false,
+  statusFilter,
+  onStatusFilterChange,
 }: {
   targets: CampaignTarget[];
   total: number;
@@ -1438,6 +1674,8 @@ function CampaignQueue({
   campaignOptions: Campaign[];
   onCampaignFilterChange: (value: number | "") => void;
   useDrawerEditing?: boolean;
+  statusFilter?: CampaignStatus | "";
+  onStatusFilterChange?: (value: CampaignStatus | "") => void;
 }) {
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -1485,11 +1723,25 @@ function CampaignQueue({
     <section className="department-panel department-panel--wide">
       <div className="department-panel__heading">
         <div>
-          <p className="card-kicker">WORK QUEUE</p>
+          <p className="card-kicker">CAMPAIGN QUEUE</p>
           <h2>캠페인 처리 현황</h2>
         </div>
         <span className="table-count">{formatNumber(total)}건</span>
       </div>
+      {onStatusFilterChange && (
+        <div className="department-risk-tabs">
+          {(["", "pending", "assigned", "contacted", "completed"] as const).map((status) => (
+            <button
+              key={status || "all"}
+              type="button"
+              className={`department-risk-tab${(statusFilter ?? "") === status ? " is-active" : ""}`}
+              onClick={() => onStatusFilterChange(status)}
+            >
+              {status === "" ? "전체" : campaignStatusLabels[status]}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="insight-filters department-insight-filters">
         <label className="filter-field filter-field--cluster">
           <span>캠페인</span>
@@ -1727,6 +1979,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [dualSignal, setDualSignal] = useState<DualSignalSummary | null>(null);
   const [dualSignalFilterActive, setDualSignalFilterActive] = useState(false);
   const [reasonCodes, setReasonCodes] = useState<ReasonCodeDistribution | null>(null);
+  const [highRiskTotal, setHighRiskTotal] = useState<number | null>(null);
   const [activeCampaignCount, setActiveCampaignCount] = useState<number | null>(null);
   const [adminDetailOpen, setAdminDetailOpen] = useState(false);
   const [activeGuideKey, setActiveGuideKey] = useState<string | null>(null);
@@ -1735,6 +1988,9 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState<number | null>(null);
   const [operationsInsightPage, setOperationsInsightPage] = useState(1);
+  const [operationsRiskFilter, setOperationsRiskFilter] = useState<"" | "high" | "medium" | "low">("high");
+  const [campaignQueueStatusFilter, setCampaignQueueStatusFilter] = useState<CampaignStatus | "">("");
+  const [selectedInsightId, setSelectedInsightId] = useState<number | null>(null);
   const [insightPage, setInsightPage] = useState(1);
   const [marketingRiskFilter, setMarketingRiskFilter] = useState<MarketingRiskFilter>("");
   const [marketingClusterFilter, setMarketingClusterFilter] = useState("");
@@ -1759,7 +2015,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         };
       }
       return {
-        risk_level: "high" as const,
+        risk_level: operationsRiskFilter || undefined,
         sort_by: "churn_probability" as const,
         sort_order: "desc" as const,
         page: operationsInsightPage,
@@ -1783,7 +2039,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
       page: 1,
       page_size: 100,
     };
-  }, [dualSignalFilterActive, insightPage, marketingClusterFilter, marketingRiskFilter, marketingSortBy, marketingSortOrder, operationsInsightPage, user.role]);
+  }, [dualSignalFilterActive, insightPage, marketingClusterFilter, marketingRiskFilter, marketingSortBy, marketingSortOrder, operationsInsightPage, operationsRiskFilter, user.role]);
 
   useEffect(() => {
     let isActive = true;
@@ -1791,7 +2047,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     const load = async () => {
     const [
       insightResult, insightExtraPagesResult, campaignResult, performanceResult, coverageResult,
-      dualSignalResult, activeCampaignResult, reasonCodeResult,
+      dualSignalResult, activeCampaignResult, reasonCodeResult, highRiskTotalResult,
     ] = await Promise.allSettled([
         listCustomerInsights(insightQuery),
         fetchDualSignalExtraPages
@@ -1806,12 +2062,14 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     page_size: CAMPAIGN_QUEUE_PAGE_SIZE,
     ...(user.role === "operations" ? { sort_by_priority: true } : {}),
     ...(campaignQueueFilter === "" ? {} : { campaign_id: campaignQueueFilter }),
+    ...(campaignQueueStatusFilter === "" ? {} : { status: campaignQueueStatusFilter }),
   }),
   user.role === "marketing" || user.role === "admin" || user.role === "operations" ? getCampaignPerformance() : Promise.resolve(null),
   user.role === "admin" ? getHighRiskCoverage() : Promise.resolve(null),
   user.role === "operations" ? getDualSignalCount() : Promise.resolve(null),
   user.role === "admin" ? listCampaigns({ status: "active", page_size: 1 }) : Promise.resolve(null),
   user.role === "operations" ? getReasonCodeDistribution({ risk_level: "high" }) : Promise.resolve(null),
+  user.role === "operations" ? listCustomerInsights({ risk_level: "high", page: 1, page_size: 1 }) : Promise.resolve(null),
 ]);
       if (!isActive) {
         return;
@@ -1847,13 +2105,16 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
       if (reasonCodeResult.status === "fulfilled" && reasonCodeResult.value !== null) {
         setReasonCodes(reasonCodeResult.value);
       }
+      if (highRiskTotalResult.status === "fulfilled" && highRiskTotalResult.value !== null) {
+        setHighRiskTotal(highRiskTotalResult.value.total);
+      }
       setIsLoading(false);
     };
     void load();
     return () => {
       isActive = false;
     };
-  }, [campaignQueueFilter, campaignQueuePage, insightQuery, insightRefreshKey, user.role]);
+  }, [campaignQueueFilter, campaignQueuePage, campaignQueueStatusFilter, insightQuery, insightRefreshKey, user.role]);
 
   // 처리 현황 필터의 선택지입니다. 대상 목록은 페이지 단위로 잘려 오므로,
   // 목록에 보이는 캠페인만 모아 만들면 다른 페이지의 캠페인이 빠집니다.
@@ -1980,7 +2241,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     setInsightPage(1);
   };
 
-  const highRiskCount = insights?.stats.risk_counts.high ?? 0;
+  const highRiskCount = highRiskTotal ?? insights?.stats.risk_counts.high ?? 0;
   const pendingCount = campaignQueueStats?.unprocessed_targets ?? 0;
   const completedCount = campaignQueueStats?.status_counts.completed ?? 0;
   const dualSignalInsights = dualSignal === null || dualSignal.activity_gap_threshold === null
@@ -2005,159 +2266,189 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const operationsCompletedRate = campaignStatusTotal > 0
     ? campaignStatusCounts.completed / campaignStatusTotal
     : null;
+  const selectedInsight = priorityInsights.find((item) => item.id === selectedInsightId)
+    ?? priorityInsights[0]
+    ?? null;
+  const selectedMarketingInsight = (insights?.items ?? []).find((item) => item.id === selectedInsightId)
+    ?? insights?.items[0]
+    ?? null;
 
   const roleContent = user.role === "operations" ? (
     <>
       <OperationsTopNav />
-      <div className="department-ops-layout">
-        <div className="department-ops-main">
-          <div id="operations-verdict">
-            <OperationsVerdictHero dualSignal={dualSignal} pendingCount={pendingCount} />
-          </div>
-          <section className="department-stats">
-            <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 상담 대상" tone="pink" />
-            <StatCard label="처리대기" value={formatNumber(pendingCount)} caption="대기중인 캠페인 대상" tone="orange" />
-            <StatCard label="완료" value={formatNumber(completedCount)} caption="처리 완료된 캠페인 대상" tone="green" />
-          </section>
-          <DualSignalHero
-            dualSignal={dualSignal}
-            active={dualSignalFilterActive}
-            onClick={() => {
-              setDualSignalFilterActive((current) => !current);
-              document.getElementById("operations-priority")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          />
-          <div id="operations-priority">
-            <InsightPriorityTable
-              kicker="PRIORITY INSIGHTS"
-              heading="우선 관리 고객"
-              toolbar={dualSignalFilterActive ? (
-                <div className="department-filter-chip is-active">
-                  조기경보 겹침 고객만 보는 중
-                  <button type="button" onClick={() => setDualSignalFilterActive(false)}>✕ 해제</button>
-                </div>
-              ) : undefined}
-              insights={priorityInsights}
-              targets={targets}
-              campaignName="리텐션 등록"
-              onCreate={canCreateCampaignTargets ? (item, name) => void createCampaign(item, name) : undefined}
-              allowCustomName
-              compact
-              isCreating={isCreating}
-              total={priorityTotal}
-              page={dualSignalFilterActive ? 1 : operationsInsightPage}
-              pageSize={dualSignalFilterActive ? DUAL_SIGNAL_PAGE_SIZE * DUAL_SIGNAL_FETCH_PAGES : OPERATIONS_INSIGHT_PAGE_SIZE}
-              totalPages={priorityTotalPages}
-              onPageChange={dualSignalFilterActive ? undefined : setOperationsInsightPage}
-            />
-          </div>
-          <div id="operations-queue">
-            <CampaignQueue
-              targets={targets}
-              total={campaignTargetTotal}
-              page={campaignQueuePage}
-              pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
-              totalPages={campaignQueueTotalPages}
-              onPageChange={setCampaignQueuePage}
-              canManage={canProcessTargets}
-              assignees={members.filter((member) => member.role === "operations" && member.is_active)}
-              user={user}
-              onUpdated={handleCampaignQueueUpdated}
-              campaignFilter={campaignQueueFilter}
-              campaignOptions={campaignQueueOptions}
-              onCampaignFilterChange={updateCampaignQueueFilter}
-              useDrawerEditing
-            />
-          </div>
+      <div id="operations-verdict">
+        <OperationsVerdictHero dualSignal={dualSignal} pendingCount={pendingCount} />
+      </div>
+      <section className="department-stats">
+        <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 관리 대상" tone="pink" />
+        <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="대기중인 캠페인 대상" tone="orange" />
+        <StatCard label="COMPLETED" value={formatNumber(completedCount)} caption="처리 완료된 캠페인 대상" tone="green" />
+      </section>
+      <DualSignalHero
+        dualSignal={dualSignal}
+        active={dualSignalFilterActive}
+        onClick={() => {
+          setDualSignalFilterActive((current) => !current);
+          document.getElementById("operations-priority")?.scrollIntoView({ behavior: "smooth" });
+        }}
+      />
+      <div id="operations-priority">
+        <InsightPriorityTable
+          kicker="PRIORITY INSIGHTS"
+          heading="우선 관리 고객"
+          toolbar={dualSignalFilterActive ? (
+            <div className="department-filter-chip is-active">
+              이중 신호 고위험 고객만 보는 중
+              <button type="button" onClick={() => setDualSignalFilterActive(false)}>✕ 해제</button>
+            </div>
+          ) : (
+            <div className="department-risk-tabs">
+              {(["", "high", "medium", "low"] as const).map((level) => (
+                <button
+                  key={level || "all"}
+                  type="button"
+                  className={`department-risk-tab${operationsRiskFilter === level ? " is-active" : ""}`}
+                  onClick={() => {
+                    setOperationsRiskFilter(level);
+                    setOperationsInsightPage(1);
+                  }}
+                >
+                  {level === "" ? "전체" : riskLabels[level]}
+                </button>
+              ))}
+            </div>
+          )}
+          insights={priorityInsights}
+          targets={targets}
+          campaignName="리텐션 등록"
+          onCreate={canCreateCampaignTargets ? (item, name) => void createCampaign(item, name) : undefined}
+          allowCustomName
+          compact
+          isCreating={isCreating}
+          total={priorityTotal}
+          page={dualSignalFilterActive ? 1 : operationsInsightPage}
+          pageSize={dualSignalFilterActive ? DUAL_SIGNAL_PAGE_SIZE * DUAL_SIGNAL_FETCH_PAGES : OPERATIONS_INSIGHT_PAGE_SIZE}
+          totalPages={priorityTotalPages}
+          onPageChange={dualSignalFilterActive ? undefined : setOperationsInsightPage}
+          onSelectInsight={(insight) => setSelectedInsightId(insight.id)}
+          selectedInsightId={selectedInsightId ?? priorityInsights[0]?.id ?? null}
+        />
+      </div>
+      <OperationsInsightDetail insight={selectedInsight} />
+      <div id="operations-queue">
+        <CampaignQueue
+          targets={targets}
+          total={campaignTargetTotal}
+          page={campaignQueuePage}
+          pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
+          totalPages={campaignQueueTotalPages}
+          onPageChange={setCampaignQueuePage}
+          canManage={canProcessTargets}
+          assignees={members.filter((member) => member.role === "operations" && member.is_active)}
+          user={user}
+          onUpdated={handleCampaignQueueUpdated}
+          campaignFilter={campaignQueueFilter}
+          campaignOptions={campaignQueueOptions}
+          onCampaignFilterChange={updateCampaignQueueFilter}
+          useDrawerEditing
+          statusFilter={campaignQueueStatusFilter}
+          onStatusFilterChange={(value) => {
+            setCampaignQueueStatusFilter(value);
+            setCampaignQueuePage(1);
+          }}
+        />
+      </div>
+      <section className="department-panel">
+        <div className="department-panel__heading-with-guide">
+          <p className="card-kicker">PROCESS FUNNEL</p>
+          <InfoBtn guideKey="캠페인 상태 퍼널" />
         </div>
-        <aside className="department-ops-sidebar">
-          <section className="department-panel department-panel--sidebar">
-            <div className="department-panel__heading-with-guide">
-              <p className="card-kicker">근거 — 접촉률 / 전환율 / 완료율</p>
-              <InfoBtn guideKey="접촉률 / 전환율" />
+        <h2>캠페인 대상 처리 퍼널</h2>
+        <div className="department-process-funnel">
+          {(["pending", "assigned", "contacted", "completed"] as const).map((status, index) => {
+            const count = campaignStatusCounts[status];
+            const sharePct = campaignStatusTotal > 0
+              ? Math.round((count / campaignStatusTotal) * 100)
+              : null;
+            return (
+              <Fragment key={status}>
+                {index > 0 && <div className="department-process-funnel__arrow">→</div>}
+                <div className={`department-process-funnel__stage${status === "completed" ? " is-done" : ""}`}>
+                  <p>{campaignStatusLabels[status]}</p>
+                  <strong>{formatNumber(count)}건</strong>
+                  {sharePct !== null && <small>전체의 {sharePct}%</small>}
+                </div>
+              </Fragment>
+            );
+          })}
+        </div>
+        <p className="department-panel__caption">
+          각 단계는 현재 시점의 상태별 건수 스냅샷입니다(순차 전환율이 아닙니다) · %는 전체 대상 대비 비중 · CampaignStatus(pending→assigned→contacted→completed) 기준
+        </p>
+      </section>
+      <div className="department-evidence-grid">
+        <section className="department-panel">
+          <div className="department-panel__heading-with-guide">
+            <p className="card-kicker">근거 — 접촉률 / 전환율 / 완료율</p>
+            <InfoBtn guideKey="접촉률 / 전환율" />
+          </div>
+          <div className="department-sidebar-metrics">
+            <div>
+              <p>접촉률<br />(개입군)</p>
+              <strong>{operationsContactRate === null ? "—" : formatPercent(operationsContactRate)}</strong>
             </div>
-            <div className="department-sidebar-metrics">
-              <div>
-                <p>접촉률 (개입군)</p>
-                <strong>{operationsContactRate === null ? "—" : formatPercent(operationsContactRate)}</strong>
-              </div>
-              <div>
-                <p>전환율 †</p>
-                <strong>{operationsConversionRate === null ? "—" : formatPercent(operationsConversionRate)}</strong>
-              </div>
-              <div>
-                <p>완료율</p>
-                <strong>{operationsCompletedRate === null ? "—" : formatPercent(operationsCompletedRate)}</strong>
-              </div>
+            <div>
+              <p>전환율 †</p>
+              <strong>{operationsConversionRate === null ? "—" : formatPercent(operationsConversionRate)}</strong>
             </div>
-            <p className="department-panel__caption">† 전환율·완료율은 담당자가 화면에서 직접 입력한 값입니다.</p>
-          </section>
-          <section className="department-panel department-panel--sidebar">
-            <p className="card-kicker">이탈 사유코드 분포 (고위험 기준)</p>
-            <ReasonCodePanel data={reasonCodes} />
-          </section>
-          <section className="department-panel department-panel--sidebar">
-            <div className="department-panel__heading-with-guide">
-              <p className="card-kicker">담당자별 처리 현황</p>
-              <InfoBtn guideKey="담당자별 처리 현황" />
+            <div>
+              <p>완료율</p>
+              <strong>{operationsCompletedRate === null ? "—" : formatPercent(operationsCompletedRate)}</strong>
             </div>
-            {performance === null || performance.by_assignee.length === 0 ? (
-              <p className="department-empty">담당자별 데이터가 없습니다.</p>
-            ) : (
-              <div className="campaign-performance-table-wrap">
-                <table className="campaign-performance-table campaign-performance-table--sidebar">
-                  <thead>
-                    <tr>
-                      <th scope="col">담당자</th>
-                      <th scope="col">배정</th>
-                      <th scope="col">접촉률</th>
-                      <th scope="col">전환율</th>
+          </div>
+          <p className="department-panel__caption">† 전환율·완료율은 담당자가 화면에서 직접 입력한 값입니다.</p>
+        </section>
+        <section className="department-panel">
+          <p className="card-kicker">이탈 사유코드 분포 (고위험 기준)</p>
+          <ReasonCodePanel data={reasonCodes} />
+        </section>
+        <section className="department-panel">
+          <div className="department-panel__heading-with-guide">
+            <p className="card-kicker">담당자별 처리 현황</p>
+            <InfoBtn guideKey="담당자별 처리 현황" />
+          </div>
+          {performance === null || performance.by_assignee.length === 0 ? (
+            <p className="department-empty">담당자별 데이터가 없습니다.</p>
+          ) : (
+            <div className="campaign-performance-table-wrap">
+              <table className="campaign-performance-table campaign-performance-table--sidebar">
+                <thead>
+                  <tr>
+                    <th scope="col">담당자</th>
+                    <th scope="col">배정</th>
+                    <th scope="col">접촉률</th>
+                    <th scope="col">전환율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performance.by_assignee.map((item) => (
+                    <tr key={item.key}>
+                      <th scope="row">{item.label}</th>
+                      <td>{formatNumber(item.target_count)}</td>
+                      <td>{item.treatment_contact_rate === null ? "—" : formatPercent(item.treatment_contact_rate)}</td>
+                      <td>{item.treatment_conversion_rate === null ? "—" : formatPercent(item.treatment_conversion_rate)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {performance.by_assignee.map((item) => (
-                      <tr key={item.key}>
-                        <th scope="row">{item.label}</th>
-                        <td>{formatNumber(item.target_count)}</td>
-                        <td>{item.treatment_contact_rate === null ? "—" : formatPercent(item.treatment_contact_rate)}</td>
-                        <td>{item.treatment_conversion_rate === null ? "—" : formatPercent(item.treatment_conversion_rate)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-          <section className="department-panel department-panel--sidebar">
-            <div className="department-panel__heading-with-guide">
-              <p className="card-kicker">미처리 대기열</p>
-              <InfoBtn guideKey="미처리 대기열" />
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="department-sidebar-metrics">
-              <div>
-                <p>전체 백로그</p>
-                <strong>{formatNumber(pendingCount)}건</strong>
-              </div>
-              <div>
-                <p>대기</p>
-                <strong>{formatNumber(campaignStatusCounts.pending)}건</strong>
-              </div>
-              <div>
-                <p>담당 배정</p>
-                <strong>{formatNumber(campaignStatusCounts.assigned)}건</strong>
-              </div>
-              <div>
-                <p>처리 완료</p>
-                <strong>{formatNumber(campaignStatusCounts.completed)}건</strong>
-              </div>
-            </div>
-          </section>
-        </aside>
+          )}
+        </section>
       </div>
     </>
   ) : user.role === "marketing" ? (
     <>
-      <CampaignRevenueHero performance={performance} />
+      <MarketingVerdictHero performance={performance} />
       <section className="department-stats">
         <StatCard label="TARGETS" value={formatNumber(campaignTargetTotal)} caption="등록된 캠페인 대상" tone="purple" />
         <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="실행 대기 대상" tone="orange" />
@@ -2166,84 +2457,108 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
           label="ROI"
           value={performance === null ? "—" : formatSignedPercent(performance.summary.roi)}
           caption="증분매출 대비 캠페인 비용 회수율"
-          tone="gold"
+          tone={performance !== null && performance.summary.roi !== null && performance.summary.roi < 0 ? "pink" : "gold"}
           guideKey="ROI"
         />
       </section>
-      <ClusterUpliftPanel performance={performance} />
-      <section className="department-panel department-panel--wide">
-        <div className="department-panel__heading">
-          <div>
-            <p className="card-kicker">CAMPAIGN FUNNEL</p>
-            <h2>캠페인 상태 분포 <InfoBtn guideKey="캠페인 상태 퍼널" /></h2>
+      <div className="department-split-layout">
+        <div className="department-split-main">
+          <InsightPriorityTable
+            kicker="CAMPAIGN CANDIDATES"
+            heading="캠페인 후보 고객"
+            toolbar={(
+              <MarketingCandidateFilters
+                riskLevel={marketingRiskFilter}
+                clusterName={marketingClusterFilter}
+                sortBy={marketingSortBy}
+                sortOrder={marketingSortOrder}
+                clusterOptions={insights?.stats.cluster_options ?? {}}
+                onRiskLevelChange={updateMarketingRiskFilter}
+                onClusterNameChange={updateMarketingClusterFilter}
+                onSortByChange={updateMarketingSortBy}
+                onSortOrderChange={updateMarketingSortOrder}
+                onReset={resetMarketingFilters}
+              />
+            )}
+            insights={insights?.items ?? []}
+            targets={targets}
+            campaignName="캠페인 등록"
+            onCreate={undefined}
+            isCreating={isCreating}
+            total={insights?.total ?? 0}
+            page={insightPage}
+            pageSize={MARKETING_INSIGHT_PAGE_SIZE}
+            totalPages={insights?.total_pages ?? 0}
+            onPageChange={setInsightPage}
+            onSelectInsight={(insight) => setSelectedInsightId(insight.id)}
+            selectedInsightId={selectedInsightId ?? insights?.items[0]?.id ?? null}
+          />
+          <OperationsInsightDetail insight={selectedMarketingInsight} />
+          <div id="operations-queue">
+          <CampaignQueue
+            targets={targets}
+            total={campaignTargetTotal}
+            page={campaignQueuePage}
+            pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
+            totalPages={campaignQueueTotalPages}
+            onPageChange={setCampaignQueuePage}
+            canManage={canProcessTargets}
+            assignees={members.filter((member) => member.role === "operations" && member.is_active)}
+            user={user}
+            onUpdated={handleCampaignQueueUpdated}
+            campaignFilter={campaignQueueFilter}
+            campaignOptions={campaignQueueOptions}
+            onCampaignFilterChange={updateCampaignQueueFilter}
+            statusFilter={campaignQueueStatusFilter}
+            onStatusFilterChange={(value) => {
+              setCampaignQueueStatusFilter(value);
+              setCampaignQueuePage(1);
+            }}
+          />
           </div>
         </div>
-        <div className="department-funnel">
-          {Object.entries(campaignStatusLabels).map(([status, label]) => (
-            <div key={status}>
-              <span>{label}</span>
-              <strong>{campaignStatusCounts[status as CampaignStatus]}</strong>
-              <i
-                style={{
-                  width: `${Math.min(
-                    Math.max(
-                      (campaignStatusCounts[status as CampaignStatus] / campaignStatusTotal) * 100,
-                      campaignStatusCounts[status as CampaignStatus] > 0 ? 8 : 0,
-                    ),
-                    100,
-                  )}%`,
-                }}
-              />
-            </div>
-          ))}
+        <aside className="department-split-sidebar">
+          <MarketingRoiPanel performance={performance} />
+          <ClusterUpliftPanel performance={performance} compact />
+        </aside>
+      </div>
+      <section className="department-panel">
+        <div className="department-panel__heading-with-guide">
+          <p className="card-kicker">PROCESS FUNNEL</p>
+          <InfoBtn guideKey="캠페인 상태 퍼널" />
         </div>
+        <h2>캠페인 대상 처리 퍼널</h2>
+        <div className="department-process-funnel">
+          {(["pending", "assigned", "contacted", "completed"] as const).map((status, index) => {
+            const count = campaignStatusCounts[status];
+            const sharePct = campaignStatusTotal > 0
+              ? Math.round((count / campaignStatusTotal) * 100)
+              : null;
+            return (
+              <Fragment key={status}>
+                {index > 0 && <div className="department-process-funnel__arrow">→</div>}
+                <div className={`department-process-funnel__stage${status === "completed" ? " is-done" : ""}`}>
+                  <p>{campaignStatusLabels[status]}</p>
+                  <strong>{formatNumber(count)}건</strong>
+                  {sharePct !== null && <small>전체의 {sharePct}%</small>}
+                </div>
+              </Fragment>
+            );
+          })}
+        </div>
+        <p className="department-panel__caption">
+          각 단계는 현재 시점의 상태별 건수 스냅샷입니다(순차 전환율이 아닙니다) · %는 전체 대상 대비 비중 · CampaignStatus(pending→assigned→contacted→completed) 기준
+        </p>
       </section>
-      <InsightPriorityTable
-        kicker="CAMPAIGN CANDIDATES"
-        heading="캠페인 후보 고객"
-        toolbar={(
-          <MarketingCandidateFilters
-            riskLevel={marketingRiskFilter}
-            clusterName={marketingClusterFilter}
-            sortBy={marketingSortBy}
-            sortOrder={marketingSortOrder}
-            clusterOptions={insights?.stats.cluster_options ?? {}}
-            onRiskLevelChange={updateMarketingRiskFilter}
-            onClusterNameChange={updateMarketingClusterFilter}
-            onSortByChange={updateMarketingSortBy}
-            onSortOrderChange={updateMarketingSortOrder}
-            onReset={resetMarketingFilters}
-          />
-        )}
-        insights={insights?.items ?? []}
-        targets={targets}
-        campaignName="캠페인 등록"
-        onCreate={undefined}
-        isCreating={isCreating}
-        total={insights?.total ?? 0}
-        page={insightPage}
-        pageSize={MARKETING_INSIGHT_PAGE_SIZE}
-        totalPages={insights?.total_pages ?? 0}
-        onPageChange={setInsightPage}
-      />
-      <CampaignQueue
-        targets={targets}
-        total={campaignTargetTotal}
-        page={campaignQueuePage}
-        pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
-        totalPages={campaignQueueTotalPages}
-        onPageChange={setCampaignQueuePage}
-        canManage={canProcessTargets}
-        assignees={members.filter((member) => member.role === "operations" && member.is_active)}
-        user={user}
-        onUpdated={handleCampaignQueueUpdated}
-        campaignFilter={campaignQueueFilter}
-        campaignOptions={campaignQueueOptions}
-        onCampaignFilterChange={updateCampaignQueueFilter}
-      />
     </>
   ) : (
     <>
+      <div className="department-admin-title-row">
+        <div>
+          <p className="department-admin-title-row__eyebrow">FINANCIAL CUSTOMER RISK ANALYTICS</p>
+          <h1 className="department-admin-title-row__heading">고객 이탈 방어 성과</h1>
+        </div>
+      </div>
       <AdminVerdictHero coverage={coverage} performance={performance} />
       <section className="department-stats">
         <StatCard label="CUSTOMERS" value={formatNumber(insights?.stats.total ?? 0)} caption="분석 대상 고객" tone="purple" />
@@ -2256,7 +2571,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         <StatCard
           label="AVERAGE ROI"
           value={performance === null ? "—" : formatSignedPercent(performance.summary.roi)}
-          caption="증분매출 대비 비용 회수율"
+          caption="마케팅 투입비용 대비 회수율"
           tone="green"
         />
         <StatCard
@@ -2266,8 +2581,8 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
           tone="orange"
         />
       </section>
-      <SectionHeader>근거 — 위 결론이 나온 이유</SectionHeader>
-      <AdminDecisionPanel coverage={coverage} performance={performance} />
+      <SectionHeader>근거 — 위험도별 방어매출·ROI</SectionHeader>
+      <AdminDecisionPanel performance={performance} />
       <SectionHeader>상세 — 실행</SectionHeader>
       <div className="department-accordion">
         <DetailAccordionRow

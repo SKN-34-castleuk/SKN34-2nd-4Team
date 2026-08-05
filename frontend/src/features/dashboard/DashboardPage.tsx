@@ -157,7 +157,8 @@ function getNumericFieldLabel(field: string): string {
   return NUMERIC_FIELD_LABELS[field] ?? field;
 }
 
-const CHART_BAR_COLOR = "#4141c9";
+const CHART_BAR_COLOR = "#1d4ed8";
+const CHART_LINE_COLOR = "#1d4ed8";
 
 function formatEdaPercent(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits)}%`;
@@ -268,13 +269,13 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
           <LineChart data={orderedItems} margin={{ left: 4, right: 16, top: 20, bottom: 0 }}>
             <XAxis
               dataKey="group"
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 10.5 }}
               tickFormatter={(value: string) => getCategoricalGroupLabel(field, value)}
               interval={0}
             />
             <YAxis
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 11 }}
               tickFormatter={(value: number) => formatEdaPercent(value)}
               width={40}
@@ -292,16 +293,16 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
             />
             <ReferenceLine
               y={average}
-              stroke="#898781"
+              stroke="#64748b"
               strokeDasharray="4 4"
-              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "right", fontSize: 11, fill: "#898781" }}
+              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "right", fontSize: 11, fill: "#64748b" }}
             />
             <Line
               type="monotone"
               dataKey="churn_rate"
-              stroke={CHART_BAR_COLOR}
+              stroke={CHART_LINE_COLOR}
               strokeWidth={2}
-              dot={{ r: 4, fill: CHART_BAR_COLOR }}
+              dot={{ r: 4, fill: CHART_LINE_COLOR }}
               activeDot={{ r: 6 }}
             >
               <LabelList
@@ -309,7 +310,7 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
                 position="top"
                 formatter={(value: unknown) => formatEdaPercent(toNumber(value), 1)}
                 fontSize={10.5}
-                fill="#4b4b57"
+                fill="#2c2c2e"
               />
             </Line>
           </LineChart>
@@ -320,14 +321,14 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
             <XAxis
               type="number"
               tickFormatter={(value: number) => formatEdaPercent(value)}
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 11 }}
             />
             <YAxis
               type="category"
               dataKey="group"
               width={90}
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 11 }}
               tickFormatter={(value: string) => getCategoricalGroupLabel(field, value)}
             />
@@ -344,9 +345,9 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
             />
             <ReferenceLine
               x={average}
-              stroke="#898781"
+              stroke="#64748b"
               strokeDasharray="4 4"
-              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "top", fontSize: 11, fill: "#898781" }}
+              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "top", fontSize: 11, fill: "#64748b" }}
             />
             <Bar dataKey="churn_rate" radius={[0, 4, 4, 0]} maxBarSize={22} fill={CHART_BAR_COLOR}>
               <LabelList
@@ -354,7 +355,7 @@ function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
                 position="right"
                 formatter={(value: unknown) => formatEdaPercent(toNumber(value), 1)}
                 fontSize={11}
-                fill="#4b4b57"
+                fill="#2c2c2e"
               />
             </Bar>
           </BarChart>
@@ -446,8 +447,8 @@ function NumericDistributionChart({ filters }: { filters: AnalyticsFilters }) {
       ) : (
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={chartData} margin={{ left: 12, right: 12, top: 20 }}>
-            <XAxis dataKey="name" stroke="#c3c2b7" tick={{ fontSize: 11 }} />
-            <YAxis stroke="#c3c2b7" tick={{ fontSize: 11 }} tickFormatter={formatCompactNumber} />
+            <XAxis dataKey="name" stroke="#94a3b8" tick={{ fontSize: 11 }} />
+            <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} tickFormatter={formatCompactNumber} />
             <Tooltip
               content={({ payload }) => {
                 const entry = payload?.[0]?.payload as (typeof chartData)[number] | undefined;
@@ -472,7 +473,7 @@ function NumericDistributionChart({ filters }: { filters: AnalyticsFilters }) {
                 position="top"
                 formatter={(value: unknown) => formatCompactNumber(toNumber(value))}
                 fontSize={11}
-                fill="#4b4b57"
+                fill="#2c2c2e"
               />
             </Bar>
           </BarChart>
@@ -525,14 +526,14 @@ function FeatureCorrelationChart({ filters }: { filters: AnalyticsFilters }) {
               type="number"
               domain={[-0.5, 0.5]}
               tickFormatter={(value: number) => value.toFixed(1)}
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 11 }}
             />
             <YAxis
               type="category"
               dataKey="feature"
               width={140}
-              stroke="#c3c2b7"
+              stroke="#94a3b8"
               tick={{ fontSize: 10 }}
               tickFormatter={(value: string) => getNumericFieldLabel(value)}
             />
@@ -540,14 +541,14 @@ function FeatureCorrelationChart({ filters }: { filters: AnalyticsFilters }) {
               formatter={(value: unknown) => [toNumber(value).toFixed(3), "상관계수"]}
               labelFormatter={(label: unknown) => getNumericFieldLabel(String(label))}
             />
-            <ReferenceLine x={0} stroke="#898781" />
+            <ReferenceLine x={0} stroke="#64748b" />
             <Bar dataKey="correlation" maxBarSize={16} fill={CHART_BAR_COLOR}>
               <LabelList
                 dataKey="correlation"
                 position="right"
                 formatter={(value: unknown) => toNumber(value).toFixed(2)}
                 fontSize={10.5}
-                fill="#4b4b57"
+                fill="#2c2c2e"
               />
             </Bar>
           </BarChart>
@@ -566,9 +567,9 @@ const riskLabels: Record<CustomerInsight["risk_level"], string> = {
 };
 
 const riskColors: Record<CustomerInsight["risk_level"], string> = {
-  low: "#50b88b",
-  medium: "#e8a34f",
-  high: "#e66c78",
+  low: "#15803d",
+  medium: "#f59e0b",
+  high: "#dc2626",
 };
 
 const campaignStatusLabels: Record<CampaignStatus, string> = {
@@ -926,7 +927,7 @@ function CampaignFeedback({
         </div>
       </div>
       <p className="campaign-feedback__intro">
-        실행 결과를 바탕으로 타기팅 품질과 운영 병목을 확인합니다. 개별 고객 처리는 운영팀이 담당합니다.
+        실행 결과를 바탕으로 타겟팅 품질과 운영 병목을 확인합니다. 개별 고객 처리는 운영팀이 담당합니다.
       </p>
       {isLoading ? (
         <p className="queue-state">캠페인 성과를 집계하는 중입니다.</p>
@@ -978,7 +979,7 @@ function CampaignFeedback({
             </div>
           </div>
           <p className="campaign-feedback__note">
-            미처리 대상은 실행 병목, 치료군과 대조군의 차이는 타기팅의 실제 효과를 나타냅니다.
+            미처리 대상은 실행 병목, 치료군과 대조군의 차이는 타겟팅의 실제 효과를 나타냅니다.
           </p>
         </>
       )}
@@ -1317,22 +1318,22 @@ function ClusterProfilePanel({ filters }: { filters: AnalyticsFilters }) {
           <div className="mini-panel-chart__header">
             <p className="mini-panel-chart__title">군집별 평균 이탈확률·활동갭 추이</p>
             <div className="mini-panel-chart__legend">
-              <span><i style={{ backgroundColor: CHART_BAR_COLOR }} /> 이탈확률</span>
-              <span><i style={{ backgroundColor: "#1a8f6b" }} /> 활동갭</span>
+              <span><i style={{ backgroundColor: CHART_LINE_COLOR }} /> 이탈확률</span>
+              <span><i style={{ backgroundColor: "#15803d" }} /> 활동갭</span>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={items} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <XAxis
                 dataKey="cluster_name"
-                stroke="#c3c2b7"
+                stroke="#94a3b8"
                 tick={{ fontSize: 9.5 }}
                 interval={0}
                 tickFormatter={(value: string) => (value.length > 6 ? `${value.slice(0, 6)}…` : value)}
               />
               <YAxis
                 yAxisId="left"
-                stroke="#c3c2b7"
+                stroke="#94a3b8"
                 tick={{ fontSize: 9.5 }}
                 tickFormatter={(value: number) => formatPercent(value)}
                 width={34}
@@ -1340,7 +1341,7 @@ function ClusterProfilePanel({ filters }: { filters: AnalyticsFilters }) {
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                stroke="#c3c2b7"
+                stroke="#94a3b8"
                 tick={{ fontSize: 9.5 }}
                 tickFormatter={(value: number) => formatDecimal(value)}
                 width={34}
@@ -1358,18 +1359,18 @@ function ClusterProfilePanel({ filters }: { filters: AnalyticsFilters }) {
                 yAxisId="left"
                 type="monotone"
                 dataKey="avg_churn_probability"
-                stroke={CHART_BAR_COLOR}
+                stroke={CHART_LINE_COLOR}
                 strokeWidth={2}
-                dot={{ r: 3, fill: CHART_BAR_COLOR }}
+                dot={{ r: 3, fill: CHART_LINE_COLOR }}
                 activeDot={{ r: 5 }}
               />
               <Line
                 yAxisId="right"
                 type="monotone"
                 dataKey="avg_activity_gap"
-                stroke="#1a8f6b"
+                stroke="#15803d"
                 strokeWidth={2}
-                dot={{ r: 3, fill: "#1a8f6b" }}
+                dot={{ r: 3, fill: "#15803d" }}
                 activeDot={{ r: 5 }}
               />
             </LineChart>
@@ -1445,8 +1446,8 @@ function RiskClusterHeatmap({ filters }: { filters: AnalyticsFilters }) {
                           className="heatmap__cell"
                           key={`${riskLevel}-${cluster}`}
                           style={{
-                            backgroundColor: `rgba(65, 65, 201, ${intensity})`,
-                            color: intensity > 0.55 ? "#ffffff" : "var(--navy)",
+                            backgroundColor: `rgba(29, 78, 216, ${intensity})`,
+                            color: intensity > 0.55 ? "#ffffff" : "#2c2c2e",
                           }}
                         >
                           {formatNumber(count)}
@@ -1910,7 +1911,9 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
-  const [activeView, setActiveView] = useState<"dashboard" | "insights">("dashboard");
+  const [activeView, setActiveView] = useState<"dashboard" | "insights">(
+    user.role === "analyst" ? "insights" : "dashboard",
+  );
 
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
   const canProcessCampaignTargets = user.role === "admin" || user.role === "operations";
@@ -2181,20 +2184,19 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   return (
     <>
       <nav className="dashboard-tabs" aria-label="대시보드 탭">
-        <button
-          type="button"
-          className={`dashboard-tab${activeView === "dashboard" ? " dashboard-tab--active" : ""}`}
-          onClick={() => setActiveView("dashboard")}
-        >
-          대시보드
-        </button>
-        <button
-          type="button"
-          className={`dashboard-tab${activeView === "insights" ? " dashboard-tab--active" : ""}`}
-          onClick={() => setActiveView("insights")}
-        >
-          인사이트
-        </button>
+        {(user.role === "analyst"
+          ? (["insights", "dashboard"] as const)
+          : (["dashboard", "insights"] as const)
+        ).map((view) => (
+          <button
+            key={view}
+            type="button"
+            className={`dashboard-tab${activeView === view ? " dashboard-tab--active" : ""}`}
+            onClick={() => setActiveView(view)}
+          >
+            {view === "dashboard" ? "대시보드" : "인사이트"}
+          </button>
+        ))}
       </nav>
 
       {activeView === "insights" && (
