@@ -9,6 +9,10 @@ python -m pip install -r backend/requirements.txt
 # the build. Local Docker Compose continues to use the existing model-builder.
 mkdir -p outputs/models outputs/reports
 
+# Face login needs the InsightFace ONNX files and their checksum manifest at
+# runtime. The downloader is idempotent, so existing files are reused.
+python -m backend.scripts.download_face_models
+
 if [ "${RENDER_BUILD_MODELS:-true}" = "true" ] && {
     [ ! -f outputs/models/classification_manifest.json ] ||
     [ ! -f outputs/models/classification_lightgbm_final.joblib ] ||
