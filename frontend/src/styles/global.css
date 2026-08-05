@@ -3422,6 +3422,81 @@ button {
   margin: 24px auto 0;
 }
 
+.department-ops-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+.department-ops-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.department-ops-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 68px;
+}
+
+.department-panel--sidebar {
+  padding: 16px 18px;
+}
+
+.department-panel--sidebar .card-kicker {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.department-sidebar-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.department-sidebar-metrics > div {
+  padding: 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+}
+
+.department-sidebar-metrics p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.department-sidebar-metrics strong {
+  color: var(--navy);
+  font-size: 15px;
+}
+
+.campaign-performance-table--sidebar {
+  min-width: 0;
+  font-size: 10px;
+}
+
+.campaign-performance-table--sidebar th,
+.campaign-performance-table--sidebar td {
+  padding: 6px 3px;
+}
+
+@media (max-width: 980px) {
+  .department-ops-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .department-ops-sidebar {
+    position: static;
+  }
+}
+
 .department-panel,
 .department-stat {
   min-width: 0;
