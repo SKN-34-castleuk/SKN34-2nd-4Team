@@ -27,6 +27,15 @@ def fetch_latest_scoring_batch(db: Session) -> ScoringBatch | None:
     )
 
 
+def fetch_scoring_batch_history(db: Session, *, limit: int = 20) -> list[ScoringBatch]:
+    """상태와 무관하게 최근 scoring batch 이력을 최신순으로 반환합니다."""
+    return db.scalars(
+        select(ScoringBatch)
+        .order_by(ScoringBatch.started_at.desc(), ScoringBatch.id.desc())
+        .limit(limit)
+    ).all()
+
+
 def fetch_latest_successful_batch(db: Session) -> list[ModelRun]:
     """분류·회귀·군집별 가장 최근 성공 실행을 반환합니다."""
     runs = db.scalars(

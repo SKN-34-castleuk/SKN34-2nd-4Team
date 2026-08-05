@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { listTeamMembers, updateTeamMember, type TeamMember } from "../../api/team";
 import type { ApiError } from "../../api/client";
@@ -14,13 +14,25 @@ import {
   type CampaignTargetList,
   type CampaignResultCode,
 } from "../../api/campaigns";
+
+import {
+  getCampaignPerformance,
+  getSlaSummary,
+  type CampaignPerformance,
+  type SlaSummary,
+} from "../../api/campaigns";
 import {
   listCustomerInsights,
+  getHighRiskCoverage,
+  getDualSignalCount,
   type CustomerInsight,
   type CustomerInsightList,
+  type DualSignalSummary,
+  type HighRiskCoverage,
   type InsightQuery,
 } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
+
 
 const roleLabels: Record<AuthUser["role"], string> = {
   admin: "관리자",
@@ -77,6 +89,118 @@ const roleDescriptions: Record<AuthUser["role"], string> = {
   marketing: "고객 세그먼트와 캠페인 실행 결과를 관리합니다.",
 };
 
+type GuideEntry = { desc: string };
+
+const GUIDE_CONTENT: Record<string, GuideEntry> = {
+  "위험도별 SLA": {
+    desc: "목표 응대시간 대비 준수율을 위험 등급별로 보여줍니다. 고위험일수록 더 짧은 목표 시간이 적용됩니다.",
+  },
+  "이중 신호 고객": {
+    desc: "분류모델 고위험(risk_level=high)과 회귀모델 활동성 갭 하위 20%에 동시 해당하는 고객입니다. 한쪽 모델만 볼 때보다 놓치는 고객이 줄어들어 최우선 상담 대상이 됩니다.",
+  },
+  "미처리 대기열": {
+    desc: "전체 백로그 크기와 처리 상태별 건수입니다.",
+  },
+  "접촉률 / 전환율": {
+    desc: "접촉률은 개입군(캠페인을 받은 고객) 기준으로만 집계합니다. 비개입군을 포함하면 수치가 왜곡됩니다. 전환율은 담당자가 화면에서 직접 입력한 값입니다.",
+  },
+  "담당자별 처리 현황": {
+    desc: "팀원별 배정·접촉률·전환율을 비교합니다.",
+  },
+  "방어한 매출": {
+    desc: "비개입군의 자연 전환을 제외하고, 캠페인 덕분에 순수하게 늘어난 매출입니다. 개입군과 대조군의 전환·유지 차이를 매출로 환산해 계산합니다.",
+  },
+  "ROI": {
+    desc: "캠페인에 쓴 비용 대비 추가로 얻은 매출(방어한 매출)의 비율입니다. 100%보다 크면 비용보다 많은 추가 매출을 만들었다는 뜻입니다.",
+  },
+  "군집별 증분 유지효과": {
+    desc: "군집별로 캠페인 개입군과 대조군의 유지율 차이를 비교합니다. 어떤 고객 유형에 캠페인이 더 잘 먹히는지 확인해 다음 캠페인의 타겟팅 예산을 배분하는 근거로 씁니다.",
+  },
+  "캠페인 상태 퍼널": {
+    desc: "등록된 캠페인 대상이 대기 → 담당 배정 → 접촉 완료 → 처리 완료 단계 중 어디에 몰려 있는지 보여줍니다.",
+  },
+  "고위험 커버리지": {
+    desc: "고위험(risk_level=high) 고객 중 캠페인에 등록된 비율입니다. 목표 수준(80%) 미달 시 신규 캠페인 등록 대상 확대가 필요합니다.",
+  },
+  "위험도별 방어매출 · ROI": {
+    desc: "고객의 위험도(risk_level: 높음/주의/낮음)별로 방어매출과 ROI를 비교합니다. 어느 위험군에 캠페인 예산을 더 쓸지 판단하는 근거입니다.",
+  },
+  "한 줄 해석": {
+    desc: "숫자를 안 읽고도 판단 가능하게 하기 위한 요약 해석입니다.",
+  },
+};
+
+const GuideContext = createContext<(key: string | null) => void>(() => {});
+
+function InfoBtn({ guideKey }: { guideKey: string }) {
+  const open = useContext(GuideContext);
+  if (!GUIDE_CONTENT[guideKey]) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      className="department-guide-btn"
+      aria-label={`${guideKey} 설명 보기`}
+      onClick={(event) => {
+        event.stopPropagation();
+        open(guideKey);
+      }}
+    >
+      ?
+    </button>
+  );
+}
+
+function GuideDialog({ guideKey, onClose }: { guideKey: string | null; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  if (guideKey === null) {
+    return null;
+  }
+  const entry = GUIDE_CONTENT[guideKey];
+  if (!entry) {
+    return null;
+  }
+  return (
+    <div className="campaign-feedback-help-backdrop">
+      <section
+        className="campaign-feedback-help-dialog campaign-conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guide-dialog-title"
+      >
+        <div className="campaign-feedback-help-dialog__header">
+          <div>
+            <p className="card-kicker">구현 가이드</p>
+            <h3 id="guide-dialog-title">{guideKey}</h3>
+          </div>
+          <button
+            className="campaign-feedback-help-close"
+            type="button"
+            aria-label="설명 닫기"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <p className="campaign-conflict-dialog__message">{entry.desc}</p>
+        <button className="department-action-button campaign-conflict-dialog__confirm" type="button" onClick={onClose}>
+          확인
+        </button>
+      </section>
+    </div>
+  );
+}
+
 const MARKETING_INSIGHT_PAGE_SIZE = 8;
 const OPERATIONS_INSIGHT_PAGE_SIZE = 8;
 const CAMPAIGN_QUEUE_PAGE_SIZE = 8;
@@ -114,6 +238,21 @@ function formatPercent(value: number): string {
 
 function formatDecimal(value: number): string {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(value);
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency: "KRW",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatSignedPercent(value: number | null): string {
+  if (value === null) {
+    return "—";
+  }
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatDate(value: string | null): string {
@@ -169,6 +308,377 @@ function DepartmentRiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) 
       <span aria-hidden="true" />
       {riskLabels[risk]}
     </span>
+  );
+}
+
+function StatCard({ label, value, caption, tone = "purple", guideKey }: {
+  label: string;
+  value: string;
+  caption: string;
+  tone?: "purple" | "orange" | "green" | "pink" | "gold";
+  guideKey?: string;
+}) {
+  return (
+    <article className={`department-stat department-stat--${tone}`}>
+      <span>{label}{guideKey && <InfoBtn guideKey={guideKey} />}</span>
+      <strong>{value}</strong>
+      <small>{caption}</small>
+    </article>
+  );
+}
+
+function SectionHeader({ children }: { children: ReactNode }) {
+  return (
+    <div className="department-section-header">
+      <span className="department-section-header__bar" aria-hidden="true" />
+      <span className="department-section-header__label">{children}</span>
+      <span className="department-section-header__line" aria-hidden="true" />
+    </div>
+  );
+}
+
+type ModelName = "분류" | "회귀" | "군집";
+
+const MODEL_BADGE_TONE: Record<ModelName, string> = {
+  "분류": "department-model-badge--classification",
+  "회귀": "department-model-badge--regression",
+  "군집": "department-model-badge--cluster",
+};
+
+function ModelBadge({ model }: { model: ModelName }) {
+  return (
+    <span className={`department-model-badge ${MODEL_BADGE_TONE[model]}`}>{model}</span>
+  );
+}
+
+function CampaignRevenueHero({ performance }: { performance: CampaignPerformance | null }) {
+  if (performance === null) {
+    return null;
+  }
+  const metrics = performance.summary;
+  const netResult = metrics.incremental_revenue - metrics.total_cost;
+  const isLoss = netResult < 0;
+  return (
+    <section className="department-hero-metric" aria-label="캠페인 방어 매출 요약">
+      <div className="department-panel__heading-with-guide">
+        <p className="card-kicker">REVENUE DEFENDED</p>
+        <InfoBtn guideKey="방어한 매출" />
+      </div>
+      <strong>{formatCurrency(metrics.incremental_revenue)}</strong>
+      <small>비개입군의 자연 전환을 제외하고, 캠페인 덕분에 순수하게 늘어난 매출입니다.</small>
+      <div className="department-hero-metric__roi">
+        <span>ROI <strong>{formatSignedPercent(metrics.roi)}</strong></span>
+        <span>증분 전환효과 <strong>{formatSignedPercent(metrics.incremental_conversion_effect)}</strong></span>
+        <span>증분 유지효과 <strong>{formatSignedPercent(metrics.incremental_retention_effect)}</strong></span>
+        <span>
+          {isLoss ? "손실비용" : "순이익"}{" "}
+          <strong className={isLoss ? "department-hero-metric__loss" : undefined}>
+            {formatCurrency(Math.abs(netResult))}
+          </strong>
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function interpretCoverage(rate: number | null): string {
+  if (rate === null) {
+    return "고위험 고객이 없어 커버리지를 계산할 수 없습니다.";
+  }
+  const percent = Math.round(rate * 100);
+  if (rate >= 0.8) {
+    return `고위험 커버리지 ${percent}% — 목표 수준 충족. 현재 운영 체계를 유지하면 됩니다.`;
+  }
+  if (rate >= 0.5) {
+    return `고위험 커버리지 ${percent}% — 보통 수준입니다. 미등록 고위험 고객을 우선 확인해 보세요.`;
+  }
+  return `고위험 커버리지 ${percent}% — 목표 대비 낮습니다. 신규 캠페인 등록 대상 확대가 필요합니다.`;
+}
+
+function interpretWeakestRiskLevel(performance: CampaignPerformance | null): string {
+  if (performance === null || performance.by_risk_level.length === 0) {
+    return "위험도별 데이터가 없어 ROI를 비교할 수 없습니다.";
+  }
+  const weakest = performance.by_risk_level.reduce((min, item) =>
+    (item.roi ?? Infinity) < (min.roi ?? Infinity) ? item : min
+  );
+  if (weakest.roi === null) {
+    return `${weakest.label} 위험군은 아직 비용 집행이 없어 ROI를 계산할 수 없습니다.`;
+  }
+  return `${weakest.label} 위험군 ROI ${formatSignedPercent(weakest.roi)} — 위험도군 중 가장 낮습니다. 예산·전략 재검토가 필요합니다.`;
+}
+
+function AdminInsightCallout({
+  coverage,
+  performance,
+}: {
+  coverage: HighRiskCoverage | null;
+  performance: CampaignPerformance | null;
+}) {
+  return (
+    <section className="department-insight-callout" aria-label="한 줄 해석">
+      <div className="department-insight-callout__header">
+        <span className="department-insight-callout__title">핵심(문구) — 한 줄 해석</span>
+        <InfoBtn guideKey="한 줄 해석" />
+      </div>
+      <div className="department-insight-callout__grid">
+        <div>
+          <p className="department-insight-callout__label">커버리지 해석</p>
+          <p>{interpretCoverage(coverage === null ? null : coverage.coverage_rate)}</p>
+        </div>
+        <div>
+          <p className="department-insight-callout__label">ROI 해석</p>
+          <p>{interpretWeakestRiskLevel(performance)}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CoverageGauge({ rate }: { rate: number | null }) {
+  const percent = rate === null ? 0 : Math.round(rate * 100);
+  const arcLength = 131.9;
+  const color = rate === null ? "#9CA3AF" : rate >= 0.8 ? "#059669" : rate >= 0.5 ? "#d97706" : "#dc2626";
+  return (
+    <div className="department-coverage-gauge">
+      <svg width="100" height="58" viewBox="0 0 100 58">
+        <path d="M 8 52 A 42 42 0 0 1 92 52" fill="none" stroke="#e5e8eb" strokeWidth="10" strokeLinecap="round" />
+        {rate !== null && (
+          <path
+            d="M 8 52 A 42 42 0 0 1 92 52"
+            fill="none"
+            stroke={color}
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={`${(percent / 100) * arcLength} ${arcLength}`}
+          />
+        )}
+      </svg>
+      <span className="department-coverage-gauge__value">{rate === null ? "—" : `${percent}%`}</span>
+    </div>
+  );
+}
+
+const RISK_LEVEL_ORDER = ["high", "medium", "low"] as const;
+const RISK_LEVEL_COLOR: Record<string, string> = {
+  high: "#dc2626",
+  medium: "#d97706",
+  low: "#059669",
+};
+
+function RiskLevelRoiChart({ items }: { items: CampaignPerformance["by_risk_level"] }) {
+  if (items.length === 0) {
+    return <p className="department-empty">위험도별 데이터가 없습니다.</p>;
+  }
+  const sorted = [...items].sort(
+    (a, b) => RISK_LEVEL_ORDER.indexOf(a.key as typeof RISK_LEVEL_ORDER[number]) - RISK_LEVEL_ORDER.indexOf(b.key as typeof RISK_LEVEL_ORDER[number]),
+  );
+  const W = 320;
+  const H = 210;
+  const PAD = { top: 34, right: 16, bottom: 34, left: 16 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+  // 막대(방어매출)와 선(ROI)이 같은 높이대를 쓰면 숫자 라벨이 겹치므로,
+  // 아래쪽 65%는 막대 전용, 위쪽 35%는 ROI 선 전용으로 밴드를 분리한다.
+  const barBandHeight = plotH * 0.65;
+  const roiBandHeight = plotH * 0.35;
+  const n = sorted.length;
+  const slot = plotW / n;
+  const barWidth = Math.min(52, slot * 0.4);
+  const maxRevenue = Math.max(...sorted.map((item) => item.incremental_revenue), 1);
+  const maxRoi = Math.max(...sorted.map((item) => item.roi ?? 0), 0.1);
+  const baselineY = PAD.top + plotH;
+  const xOf = (index: number) => PAD.left + slot * index + slot / 2;
+  const barTopY = (revenue: number) => baselineY - (revenue / maxRevenue) * barBandHeight;
+  const roiY = (roi: number) => (PAD.top + roiBandHeight) - (Math.max(roi, 0) / maxRoi) * roiBandHeight;
+  const linePoints = sorted.map((item, index) => `${xOf(index)},${roiY(item.roi ?? 0)}`).join(" ");
+
+  return (
+    <div className="department-combo-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="위험도별 방어매출·ROI 콤보차트">
+        <line x1={PAD.left} x2={W - PAD.right} y1={baselineY} y2={baselineY} stroke="var(--line)" strokeWidth={1} />
+        {sorted.map((item, index) => {
+          const color = RISK_LEVEL_COLOR[item.key] ?? "#9CA3AF";
+          const x = xOf(index);
+          const topY = barTopY(item.incremental_revenue);
+          const barHeight = baselineY - topY;
+          return (
+            <g key={item.key}>
+              <rect x={x - barWidth / 2} y={topY} width={barWidth} height={barHeight} fill={color} rx={4} />
+              <text x={x} y={topY - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--navy)">
+                {formatCurrency(item.incremental_revenue)}
+              </text>
+              <text x={x} y={baselineY + 15} textAnchor="middle" fontSize={9.5} fill="var(--muted)">{item.label}</text>
+              <text x={x} y={baselineY + 27} textAnchor="middle" fontSize={9} fill="var(--muted)">{formatNumber(item.target_count)}명</text>
+            </g>
+          );
+        })}
+        <polyline points={linePoints} fill="none" stroke="var(--primary-dark)" strokeWidth={2} strokeLinejoin="round" />
+        {sorted.map((item, index) => (
+          <g key={`roi-${item.key}`}>
+            <circle cx={xOf(index)} cy={roiY(item.roi ?? 0)} r={3.5} fill="var(--primary-dark)" />
+            <text x={xOf(index)} y={roiY(item.roi ?? 0) - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--primary-dark)">
+              {item.roi === null ? "—" : formatSignedPercent(item.roi)}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <div className="department-combo-chart__legend">
+        <span><i className="department-combo-chart__swatch" />방어매출</span>
+        <span><i className="department-combo-chart__swatch department-combo-chart__swatch--line" />ROI</span>
+      </div>
+    </div>
+  );
+}
+
+function AdminDecisionPanel({
+  coverage,
+  performance,
+}: {
+  coverage: HighRiskCoverage | null;
+  performance: CampaignPerformance | null;
+}) {
+  return (
+    <div className="department-hero-grid" aria-label="경영 판단 지표">
+      <div className="department-hero-metric">
+        <div className="department-panel__heading-with-guide">
+          <p className="card-kicker">고위험 커버리지</p>
+          <ModelBadge model="분류" />
+          <InfoBtn guideKey="고위험 커버리지" />
+        </div>
+        <div className="department-coverage-row">
+          <CoverageGauge rate={coverage === null ? null : coverage.coverage_rate} />
+          <div className="department-coverage-row__stats">
+            <strong>{coverage === null ? "—" : formatSignedPercent(coverage.coverage_rate)}</strong>
+            <small>
+              {coverage === null
+                ? "데이터를 불러오는 중입니다."
+                : `고위험 ${formatNumber(coverage.total_high_risk)}명 중 ${formatNumber(coverage.enrolled_high_risk)}명 캠페인 등록`}
+            </small>
+          </div>
+        </div>
+        <p className="department-panel__caption">
+          {interpretCoverage(coverage === null ? null : coverage.coverage_rate)}
+        </p>
+      </div>
+      <div className="department-panel">
+        <div className="department-panel__heading-with-guide">
+          <p className="card-kicker">위험도별 방어매출 · ROI</p>
+          <InfoBtn guideKey="위험도별 방어매출 · ROI" />
+        </div>
+        <RiskLevelRoiChart items={performance === null ? [] : performance.by_risk_level} />
+      </div>
+    </div>
+  );
+}
+
+function ClusterUpliftPanel({ performance }: { performance: CampaignPerformance | null }) {
+  if (performance === null || performance.by_cluster.length === 0) {
+    return null;
+  }
+  return (
+    <section className="department-panel department-panel--wide" aria-label="군집별 증분 유지효과">
+      <div className="department-panel__heading">
+        <div>
+          <p className="card-kicker">CLUSTER UPLIFT</p>
+          <h2>군집별 증분 유지·전환 효과 <InfoBtn guideKey="군집별 증분 유지효과" /></h2>
+        </div>
+        <span className="table-count">{formatNumber(performance.by_cluster.length)}개 군집</span>
+      </div>
+      <div className="campaign-performance-table-wrap">
+        <table className="campaign-performance-table">
+          <thead>
+            <tr>
+              <th scope="col">군집</th>
+              <th scope="col">대상군 유지율</th>
+              <th scope="col">대조군 유지율</th>
+              <th scope="col">증분 유지효과</th>
+              <th scope="col">방어매출</th>
+              <th scope="col">ROI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {performance.by_cluster.map((item) => (
+              <tr key={item.key}>
+                <th scope="row">{item.label}</th>
+                <td>{formatSignedPercent(item.treatment_retention_rate)}</td>
+                <td>{formatSignedPercent(item.control_retention_rate)}</td>
+                <td>{formatSignedPercent(item.incremental_retention_effect)}</td>
+                <td>{formatCurrency(item.incremental_revenue)}</td>
+                <td>{formatSignedPercent(item.roi)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="department-panel__caption">
+        어떤 고객 유형에 캠페인이 더 잘 먹히는지 확인해, 다음 캠페인 타겟팅 예산을 배분하는 근거로 활용합니다.
+      </p>
+    </section>
+  );
+}
+
+function SlaGaugeCard({ sla }: { sla: SlaSummary | null }) {
+  return (
+    <section className="department-panel department-sla-card" aria-label="위험도별 SLA">
+      <div className="department-panel__heading-with-guide">
+        <p className="card-kicker">위험도별 SLA</p>
+        <InfoBtn guideKey="위험도별 SLA" />
+      </div>
+      {sla === null ? (
+        <p className="department-empty">SLA 데이터를 불러오는 중입니다.</p>
+      ) : (
+        <div className="department-sla-rows">
+          {sla.tiers.map((tier) => (
+            <div className="department-sla-row" key={tier.risk_level}>
+              <span className="department-sla-row__label">{riskLabels[tier.risk_level]}</span>
+              <div className="department-sla-row__bar">
+                <i style={{ width: `${Math.round((tier.met_rate ?? 0) * 100)}%` }} />
+              </div>
+              <span className="department-sla-row__value">
+                {tier.met_rate === null
+                  ? "접촉 이력 없음"
+                  : `${Math.round(tier.met_rate * 100)}% · 목표 ${tier.target_hours}시간`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="department-panel__caption">판단: 목표 응대시간(위험도별 상이) 대비 준수율 · 소스: created_at → contacted_at</p>
+    </section>
+  );
+}
+
+function DualSignalHero({ dualSignal }: { dualSignal: DualSignalSummary | null }) {
+  return (
+    <section className="department-hero-metric department-hero-metric--danger" aria-label="조기경보 이중 신호 고객">
+      <div className="department-panel__heading-with-guide">
+        <p className="card-kicker">조기경보 겹침 고객 (이중 신호)</p>
+        <InfoBtn guideKey="이중 신호 고객" />
+      </div>
+      <strong>{dualSignal === null ? "—" : `${formatNumber(dualSignal.count)}명`}</strong>
+      <small>고위험(risk_level) + 활동성 갭 하위 20% 동시 해당</small>
+    </section>
+  );
+}
+
+function DetailAccordionRow({
+  title, source, guideKey, isOpen, onToggle, children,
+}: {
+  title: string; source: string; guideKey?: string; isOpen: boolean; onToggle: () => void; children: ReactNode;
+}) {
+  return (
+    <div className="department-accordion-row">
+      <button type="button" className="department-accordion-row__header" onClick={onToggle}>
+        <span className="department-accordion-row__title">
+          <i className={`department-accordion-row__chevron${isOpen ? " is-open" : ""}`} aria-hidden="true" />
+          {title}
+          {guideKey && <InfoBtn guideKey={guideKey} />}
+        </span>
+        <span className="department-accordion-row__source">{source}</span>
+      </button>
+      {isOpen && <div className="department-accordion-row__panel">{children}</div>}
+    </div>
   );
 }
 
@@ -920,14 +1430,7 @@ function TeamRoster({
   };
 
   return (
-    <section className="department-panel department-panel--wide">
-      <div className="department-panel__heading">
-        <div>
-          <p className="card-kicker">TEAM ACCESS</p>
-          <h2>활성 팀 계정</h2>
-        </div>
-        <span className="table-count">{formatNumber(members.length)}명</span>
-      </div>
+    <>
       {error !== "" && <p className="department-inline-error" role="alert">{error}</p>}
       <div className="department-team-list">
         {members.map((member) => {
@@ -972,7 +1475,7 @@ function TeamRoster({
           );
         })}
       </div>
-    </section>
+    </>
   );
 }
 
@@ -986,6 +1489,16 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [campaignQueueFilter, setCampaignQueueFilter] = useState<number | "">("");
   const [campaignQueueOptions, setCampaignQueueOptions] = useState<Campaign[]>([]);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
+  const [performance, setPerformance] = useState<CampaignPerformance | null>(null);
+  const [coverage, setCoverage] = useState<HighRiskCoverage | null>(null);
+  const [slaSummary, setSlaSummary] = useState<SlaSummary | null>(null);
+  const [dualSignal, setDualSignal] = useState<DualSignalSummary | null>(null);
+  const [activeCampaignCount, setActiveCampaignCount] = useState<number | null>(null);
+  const [adminDetailOpen, setAdminDetailOpen] = useState(false);
+  const [activeGuideKey, setActiveGuideKey] = useState<string | null>(null);
+  const [operationsDetail, setOperationsDetail] = useState<
+    "접촉률 / 전환율" | "담당자별 처리 현황" | "미처리 대기열" | null
+  >(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -1035,7 +1548,10 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   useEffect(() => {
     let isActive = true;
     const load = async () => {
-    const [insightResult, campaignResult, batchResult] = await Promise.allSettled([
+    const [
+      insightResult, campaignResult, batchResult, performanceResult, coverageResult,
+      slaResult, dualSignalResult, activeCampaignResult,
+    ] = await Promise.allSettled([
         listCustomerInsights(insightQuery),
         listCampaignTargets({
     page: campaignQueuePage,
@@ -1044,6 +1560,11 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     ...(campaignQueueFilter === "" ? {} : { campaign_id: campaignQueueFilter }),
   }),
   getLatestBatch(),
+  user.role === "marketing" || user.role === "admin" || user.role === "operations" ? getCampaignPerformance() : Promise.resolve(null),
+  user.role === "admin" ? getHighRiskCoverage() : Promise.resolve(null),
+  user.role === "operations" ? getSlaSummary() : Promise.resolve(null),
+  user.role === "operations" ? getDualSignalCount() : Promise.resolve(null),
+  user.role === "admin" ? listCampaigns({ status: "active", page_size: 1 }) : Promise.resolve(null),
 ]);
       if (!isActive) {
         return;
@@ -1061,6 +1582,21 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
       }
       if (batchResult.status === "fulfilled") {
         setBatch(batchResult.value);
+      }
+      if (performanceResult.status === "fulfilled" && performanceResult.value !== null) {
+        setPerformance(performanceResult.value);
+      }
+      if (coverageResult.status === "fulfilled" && coverageResult.value !== null) {
+        setCoverage(coverageResult.value);
+      }
+      if (slaResult.status === "fulfilled" && slaResult.value !== null) {
+        setSlaSummary(slaResult.value);
+      }
+      if (dualSignalResult.status === "fulfilled" && dualSignalResult.value !== null) {
+        setDualSignal(dualSignalResult.value);
+      }
+      if (activeCampaignResult.status === "fulfilled" && activeCampaignResult.value !== null) {
+        setActiveCampaignCount(activeCampaignResult.value.total);
       }
       setIsLoading(false);
     };
@@ -1208,23 +1744,115 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     1,
   );
 
+  const operationsContactRate = performance?.summary.treatment_contact_rate ?? null;
+  const operationsConversionRate = performance?.summary.conversion_rate ?? null;
+  const operationsCompletedRate = campaignStatusTotal > 0
+    ? campaignStatusCounts.completed / campaignStatusTotal
+    : null;
+
   const roleContent = user.role === "operations" ? (
     <>
-      <div className="kpi-row">
-        <div className="kpi-item kpi-item--danger">
-          <strong>{formatNumber(highRiskCount)}</strong>
-          <span>우선 상담 대상</span>
-        </div>
-        <div className="kpi-item kpi-item--orange">
-          <strong>{formatNumber(pendingCount)}</strong>
-          <span>처리 대기 캠페인</span>
-        </div>
-        <div className="kpi-item kpi-item--purple">
-          <strong>{formatPercent(insights?.stats.average_churn_probability ?? 0)}</strong>
-          <span>고위험 고객 기준</span>
-        </div>
+      <div className="department-hero-grid">
+        <SlaGaugeCard sla={slaSummary} />
+        <DualSignalHero dualSignal={dualSignal} />
       </div>
-      <BatchCard batch={batch} />
+      <section className="department-stats">
+        <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 상담 대상" tone="pink" />
+        <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="처리 대기 캠페인" tone="orange" />
+        <StatCard label="AVERAGE CHURN" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} caption="고위험 고객 기준" tone="purple" />
+        <BatchCard batch={batch} />
+      </section>
+      <section className="department-panel department-panel--wide">
+        <div className="department-panel__heading">
+          <div>
+            <p className="card-kicker">상세</p>
+            <h2>운영 세부 지표</h2>
+          </div>
+        </div>
+        <div className="department-accordion">
+          <DetailAccordionRow
+            title="접촉률 / 전환율"
+            source="treatment_contact_rate · conversion_rate"
+            guideKey="접촉률 / 전환율"
+            isOpen={operationsDetail === "접촉률 / 전환율"}
+            onToggle={() => setOperationsDetail((current) => (current === "접촉률 / 전환율" ? null : "접촉률 / 전환율"))}
+          >
+            <div className="department-accordion-metrics">
+              <div>
+                <p>접촉률 (개입군)</p>
+                <strong>{operationsContactRate === null ? "—" : formatPercent(operationsContactRate)}</strong>
+              </div>
+              <div>
+                <p>전환율 †</p>
+                <strong>{operationsConversionRate === null ? "—" : formatPercent(operationsConversionRate)}</strong>
+              </div>
+              <div>
+                <p>완료율</p>
+                <strong>{operationsCompletedRate === null ? "—" : formatPercent(operationsCompletedRate)}</strong>
+              </div>
+            </div>
+            <p className="department-panel__caption">† 전환율·완료율은 담당자가 화면에서 직접 입력한 값입니다.</p>
+          </DetailAccordionRow>
+          <DetailAccordionRow
+            title="담당자별 처리 현황"
+            source="by_assignee breakdown"
+            guideKey="담당자별 처리 현황"
+            isOpen={operationsDetail === "담당자별 처리 현황"}
+            onToggle={() => setOperationsDetail((current) => (current === "담당자별 처리 현황" ? null : "담당자별 처리 현황"))}
+          >
+            {performance === null || performance.by_assignee.length === 0 ? (
+              <p className="department-empty">담당자별 데이터가 없습니다.</p>
+            ) : (
+              <table className="campaign-performance-table">
+                <thead>
+                  <tr>
+                    <th scope="col">담당자</th>
+                    <th scope="col">배정</th>
+                    <th scope="col">접촉률</th>
+                    <th scope="col">전환율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performance.by_assignee.map((item) => (
+                    <tr key={item.key}>
+                      <th scope="row">{item.label}</th>
+                      <td>{formatNumber(item.target_count)}</td>
+                      <td>{item.treatment_contact_rate === null ? "—" : formatPercent(item.treatment_contact_rate)}</td>
+                      <td>{item.treatment_conversion_rate === null ? "—" : formatPercent(item.treatment_conversion_rate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </DetailAccordionRow>
+          <DetailAccordionRow
+            title="미처리 대기열"
+            source="CampaignStats.unprocessed_targets"
+            guideKey="미처리 대기열"
+            isOpen={operationsDetail === "미처리 대기열"}
+            onToggle={() => setOperationsDetail((current) => (current === "미처리 대기열" ? null : "미처리 대기열"))}
+          >
+            <div className="department-accordion-metrics">
+              <div>
+                <p>전체 백로그</p>
+                <strong>{formatNumber(pendingCount)}건</strong>
+              </div>
+              <div>
+                <p>대기</p>
+                <strong>{formatNumber(campaignStatusCounts.pending)}건</strong>
+              </div>
+              <div>
+                <p>담당 배정</p>
+                <strong>{formatNumber(campaignStatusCounts.assigned)}건</strong>
+              </div>
+              <div>
+                <p>처리 완료</p>
+                <strong>{formatNumber(campaignStatusCounts.completed)}건</strong>
+              </div>
+            </div>
+          </DetailAccordionRow>
+        </div>
+      </section>
       <InsightPriorityTable
         kicker="PRIORITY INSIGHTS"  
         heading="우선 관리 고객"
@@ -1257,26 +1885,25 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     </>
   ) : user.role === "marketing" ? (
     <>
-      <div className="kpi-row">
-        <div className="kpi-item kpi-item--purple">
-          <strong>{formatNumber(campaignTargetTotal)}</strong>
-          <span>등록된 캠페인 대상</span>
-        </div>
-        <div className="kpi-item kpi-item--orange">
-          <strong>{formatNumber(pendingCount)}</strong>
-          <span>실행 대기 대상</span>
-        </div>
-        <div className="kpi-item kpi-item--green">
-          <strong>{formatNumber(completedCount)}</strong>
-          <span>처리 완료 캠페인</span>
-        </div>
-      </div>
-      <BatchCard batch={batch} />
+      <CampaignRevenueHero performance={performance} />
+      <section className="department-stats">
+        <StatCard label="TARGETS" value={formatNumber(campaignTargetTotal)} caption="등록된 캠페인 대상" tone="purple" />
+        <StatCard label="OPEN QUEUE" value={formatNumber(pendingCount)} caption="실행 대기 대상" tone="orange" />
+        <StatCard label="COMPLETED" value={formatNumber(completedCount)} caption="처리 완료 캠페인" tone="green" />
+        <StatCard
+          label="ROI"
+          value={performance === null ? "—" : formatSignedPercent(performance.summary.roi)}
+          caption="증분매출 대비 캠페인 비용 회수율"
+          tone="gold"
+          guideKey="ROI"
+        />
+      </section>
+      <ClusterUpliftPanel performance={performance} />
       <section className="department-panel department-panel--wide">
         <div className="department-panel__heading">
           <div>
             <p className="card-kicker">CAMPAIGN FUNNEL</p>
-            <h2>캠페인 상태 분포</h2>
+            <h2>캠페인 상태 분포 <InfoBtn guideKey="캠페인 상태 퍼널" /></h2>
           </div>
         </div>
         <div className="department-funnel">
@@ -1345,42 +1972,67 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     </>
   ) : (
     <>
-      <div className="kpi-row">
-        <div className="kpi-item kpi-item--purple">
-          <strong>{formatNumber(insights?.stats.total ?? 0)}</strong>
-          <span>분석 대상 고객</span>
-        </div>
-        <div className="kpi-item kpi-item--orange">
-          <strong>{formatNumber(campaignTargetTotal)}</strong>
-          <span>전체 업무 대상</span>
-        </div>
-        <div className="kpi-item kpi-item--danger">
-          <strong>{formatNumber(highRiskCount)}</strong>
-          <span>고위험 고객</span>
-        </div>
+      <SectionHeader>핵심 — 의사결정 지표</SectionHeader>
+      <AdminDecisionPanel coverage={coverage} performance={performance} />
+      <AdminInsightCallout coverage={coverage} performance={performance} />
+      <section className="department-stats">
+        <StatCard label="CUSTOMERS" value={formatNumber(insights?.stats.total ?? 0)} caption="분석 대상 고객" tone="purple" />
+        <StatCard
+          label="REVENUE DEFENDED"
+          value={performance === null ? "—" : formatCurrency(performance.summary.incremental_revenue)}
+          caption="전체 방어매출"
+          tone="gold"
+        />
+        <StatCard
+          label="AVERAGE ROI"
+          value={performance === null ? "—" : formatSignedPercent(performance.summary.roi)}
+          caption="증분매출 대비 비용 회수율"
+          tone="green"
+        />
+        <StatCard
+          label="ACTIVE CAMPAIGNS"
+          value={activeCampaignCount === null ? "—" : formatNumber(activeCampaignCount)}
+          caption="현재 진행중인 캠페인"
+          tone="orange"
+        />
+      </section>
+      <SectionHeader>상세 — 실행</SectionHeader>
+      <div className="department-accordion">
+        <DetailAccordionRow
+          title="팀 계정 관리 · 권한 설정 · 담당자 배정"
+          source={`TeamRoster · ${formatNumber(members.length)}명`}
+          isOpen={adminDetailOpen}
+          onToggle={() => setAdminDetailOpen((current) => !current)}
+        >
+          <TeamRoster
+            members={members}
+            onUpdated={(updated) => setMembers((current) => current.map((member) => member.id === updated.id ? updated : member))}
+          />
+        </DetailAccordionRow>
       </div>
-      <BatchCard batch={batch} />
-      <TeamRoster members={members} onUpdated={(updated) => setMembers((current) => current.map((member) => member.id === updated.id ? updated : member))} />
     </>
   );
 
   return (
-    <div className={`department-layout--${user.role}`}>
-      {isLoading && <section className="department-loading">부서별 업무 데이터를 불러오는 중입니다.</section>}
-      {!isLoading && error !== "" && <section className="department-error" role="alert">{error}</section>}
-      {!isLoading && error === "" && (
-        <div className="department-content">
-          <RoleSummary user={user} />
-          {createMessage !== "" && <p className="department-message" role="status">{createMessage}</p>}
-          {roleContent}
-        </div>
-      )}
-      {campaignConflictMessage !== "" && (
-        <CampaignConflictDialog
-          message={campaignConflictMessage}
-          onClose={() => setCampaignConflictMessage("")}
-        />
-      )}
-    </div>
+    <GuideContext.Provider value={setActiveGuideKey}>
+      <div className={`department-layout--${user.role}`}>
+        {isLoading && <section className="department-loading">부서별 업무 데이터를 불러오는 중입니다.</section>}
+        {!isLoading && error !== "" && <section className="department-error" role="alert">{error}</section>}
+        {!isLoading && error === "" && (
+          <div className="department-content">
+            <RoleSummary user={user} />
+            {createMessage !== "" && <p className="department-message" role="status">{createMessage}</p>}
+            {roleContent}
+          </div>
+        )}
+        {campaignConflictMessage !== "" && (
+          <CampaignConflictDialog
+            message={campaignConflictMessage}
+            onClose={() => setCampaignConflictMessage("")}
+          />
+        )}
+        <GuideDialog guideKey={activeGuideKey} onClose={() => setActiveGuideKey(null)} />
+      </div>
+    </GuideContext.Provider>
   );
 }

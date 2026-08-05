@@ -10,6 +10,12 @@ export type CustomerInsightList =
   components["schemas"]["CustomerInsightListResponse"];
 export type CustomerInsightHistory =
   components["schemas"]["CustomerInsightHistoryResponse"];
+export type HighRiskCoverage =
+  components["schemas"]["HighRiskCoverageResponse"];
+export type ReasonCodeDistribution =
+  components["schemas"]["ReasonCodeDistributionResponse"];
+export type DualSignalSummary =
+  components["schemas"]["DualSignalSummaryResponse"];
 
 export type InsightQuery = {
   risk_level?: "low" | "medium" | "high";
@@ -64,5 +70,21 @@ export function getCustomerInsightHistory(
 ): Promise<CustomerInsightHistory> {
   return request<CustomerInsightHistory>(
     `/api/v1/customer-insights/history/${customerId}?limit=${limit}`,
+  );
+}
+
+export function getHighRiskCoverage(): Promise<HighRiskCoverage> {
+  return request<HighRiskCoverage>("/api/v1/customer-insights/coverage/high-risk");
+}
+
+export function getDualSignalCount(): Promise<DualSignalSummary> {
+  return request<DualSignalSummary>("/api/v1/customer-insights/dual-signal-count");
+}
+
+export function getReasonCodeDistribution(
+  query: { risk_level?: "low" | "medium" | "high" } = {},
+): Promise<ReasonCodeDistribution> {
+  return request<ReasonCodeDistribution>(
+    `/api/v1/customer-insights/reason-codes${toQueryString(query)}`,
   );
 }

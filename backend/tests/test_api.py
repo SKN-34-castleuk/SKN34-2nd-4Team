@@ -729,6 +729,58 @@ def test_customer_insight_list_filters_and_detail(
         "clustering",
     }
 
+    coverage_response = auth_client.get(
+        "/api/v1/customer-insights/coverage/high-risk"
+    )
+    assert coverage_response.status_code == 200
+    coverage = coverage_response.json()
+    assert coverage["total_high_risk"] == 1
+    assert coverage["enrolled_high_risk"] == 0
+    assert coverage["coverage_rate"] == 0.0
+
+    reason_codes_response = auth_client.get(
+        "/api/v1/customer-insights/reason-codes"
+    )
+    assert reason_codes_response.status_code == 200
+    reason_codes = reason_codes_response.json()
+    assert reason_codes["total_customers"] == 2
+    assert reason_codes["counts"] == {
+        "stable_activity": 1,
+        "below_expected_activity": 1,
+    }
+
+    high_risk_reason_codes_response = auth_client.get(
+        "/api/v1/customer-insights/reason-codes",
+        params={"risk_level": "high"},
+    )
+    assert high_risk_reason_codes_response.status_code == 200
+    assert high_risk_reason_codes_response.json()["counts"] == {
+        "below_expected_activity": 1,
+    }
+
+    batch_history_response = auth_client.get("/api/v1/model-runs/history")
+    assert batch_history_response.status_code == 200
+    batch_history_items = batch_history_response.json()["items"]
+    assert {item["id"] for item in batch_history_items} == {
+        batch.id,
+        backfilled_batch.id,
+    }
+    assert all(item["status"] == "succeeded" for item in batch_history_items)
+
+    sla_response = auth_client.get("/api/v1/campaign-targets/sla-summary")
+    assert sla_response.status_code == 200
+    sla_tiers = {tier["risk_level"]: tier for tier in sla_response.json()["tiers"]}
+    assert set(sla_tiers) == {"low", "medium", "high"}
+    assert sla_tiers["high"]["target_hours"] == 4.0
+    assert sla_tiers["high"]["contacted_count"] == 0
+    assert sla_tiers["high"]["met_rate"] is None
+
+    dual_signal_response = auth_client.get("/api/v1/customer-insights/dual-signal-count")
+    assert dual_signal_response.status_code == 200
+    dual_signal = dual_signal_response.json()
+    assert dual_signal["count"] == 1
+    assert dual_signal["activity_gap_threshold"] == -25.0
+
     operations_campaign_create_response = auth_client.post(
         "/api/v1/campaigns",
         json={"name": "운영팀이 만들 수 없는 캠페인", "status": "draft"},

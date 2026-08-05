@@ -60,7 +60,7 @@ face_auth_router = APIRouter(prefix="/api/v1/auth/face", tags=["face-auth"])
 # 얼굴 로그인은 시도 시점에 사용자명이 없으므로, 레이트리밋의 사용자·IP
 # 조합 키로 이 센티널을 사용합니다. IP 전체 제한은 그대로 적용됩니다.
 FACE_LOGIN_RATE_KEY = "@face-login"
-MAX_SIGNUP_FRAMES = 8
+MAX_SIGNUP_FRAMES = 50
 
 
 class FaceLoginRequest(BaseModel):

@@ -18,12 +18,18 @@ from ...schemas import (
     CustomerInsightListResponse,
     CustomerInsightResponse,
     CustomerInsightStats,
+    DualSignalSummaryResponse,
+    HighRiskCoverageResponse,
+    ReasonCodeDistributionResponse,
 )
 from ...services.insight_service import (
     InsightFilters,
+    fetch_dual_signal_count,
+    fetch_high_risk_coverage,
     fetch_insight_page,
     fetch_customer_insight_history,
     fetch_latest_customer_insight,
+    fetch_reason_code_distribution,
 )
 
 
@@ -131,6 +137,62 @@ def list_customer_insights(
             cluster_counts=result.cluster_counts,
             cluster_options=result.cluster_options,
         ),
+    )
+
+
+@insights_router.get(
+    "/coverage/high-risk",
+    response_model=HighRiskCoverageResponse,
+    summary="고위험 고객 캠페인 커버리지 조회",
+)
+def get_high_risk_coverage(
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HighRiskCoverageResponse:
+    """고위험 고객 중 캠페인 대상으로 이미 등록된 비율을 반환합니다."""
+    coverage = fetch_high_risk_coverage(db)
+    return HighRiskCoverageResponse(
+        total_high_risk=coverage.total_high_risk,
+        enrolled_high_risk=coverage.enrolled_high_risk,
+        coverage_rate=coverage.coverage_rate,
+    )
+
+
+@insights_router.get(
+    "/reason-codes",
+    response_model=ReasonCodeDistributionResponse,
+    summary="위험 사유 코드 분포 집계",
+)
+def get_reason_code_distribution(
+    risk_level: RiskLevel | None = Query(
+        default=None,
+        description="집계 대상을 특정 위험 등급으로 제한",
+    ),
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReasonCodeDistributionResponse:
+    """최신 분석 결과의 reason_codes 등장 빈도를 집계합니다."""
+    distribution = fetch_reason_code_distribution(db, risk_level=risk_level)
+    return ReasonCodeDistributionResponse(
+        total_customers=distribution.total_customers,
+        counts=distribution.counts,
+    )
+
+
+@insights_router.get(
+    "/dual-signal-count",
+    response_model=DualSignalSummaryResponse,
+    summary="이중 신호(고위험+활동성 갭 하위 20%) 고객 수 조회",
+)
+def get_dual_signal_count(
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DualSignalSummaryResponse:
+    """분류모델 고위험과 회귀모델 조기경보가 동시에 뜨는 고객 수를 반환합니다."""
+    summary = fetch_dual_signal_count(db)
+    return DualSignalSummaryResponse(
+        count=summary.count,
+        activity_gap_threshold=summary.activity_gap_threshold,
     )
 
 
