@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 
 import { login, signup, type AuthUser } from "../../api/auth";
+import { FaceAuthLauncher } from "../faceauth/FaceAuthLauncher";
 
 type AuthMode = "login" | "signup";
 
@@ -322,6 +323,20 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                 {isSubmitting ? "처리 중..." : isSignup ? "회원가입" : "로그인"}
                 {!isSubmitting && <ArrowIcon />}
               </button>
+
+              {!isSignup ? (
+                <FaceAuthLauncher mode="login" onLoggedIn={(user) => onAuthenticated?.(user)} />
+              ) : (
+                <FaceAuthLauncher
+                  mode="signup"
+                  onSignedUp={() => {
+                    switchMode("login");
+                    setNotice(
+                      "얼굴 가입 신청이 접수되었습니다. 관리자 승인 후 '얼굴로 로그인'을 사용할 수 있습니다.",
+                    );
+                  }}
+                />
+              )}
 
               <button
                 className="signup-button"

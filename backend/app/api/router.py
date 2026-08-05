@@ -16,7 +16,10 @@ from .routes import (
 )
 
 
+from ..face.routes import face_auth_router
+
 api_router = APIRouter()
+api_router.include_router(face_auth_router)
 api_router.include_router(system.router)
 api_router.include_router(predictions.router)
 api_router.include_router(auth.auth_router)
