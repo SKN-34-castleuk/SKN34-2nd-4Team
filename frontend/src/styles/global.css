@@ -1453,11 +1453,8 @@ button {
 .insight-row__card,
 .insight-row__contacts,
 .insight-row__action {
-  overflow: hidden;
   color: #626b87;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .insight-row__gap,
@@ -1466,9 +1463,23 @@ button {
 .insight-row__amount,
 .insight-row__card,
 .insight-row__contacts {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insight-row__cluster,
+.insight-row__action {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow: visible;
+  white-space: normal;
+  word-break: keep-all;
 }
 
 .insight-row__gap--negative {
@@ -3799,7 +3810,6 @@ button {
   color: #626b87;
   font-size: 11px;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .department-insight-row__gap,
