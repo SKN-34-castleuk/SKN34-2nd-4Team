@@ -84,13 +84,17 @@ def _create_access_token(
 
 def _set_auth_cookie(response: Response, token: str, max_age: int) -> None:
     """브라우저 JavaScript에서 읽을 수 없는 인증 쿠키를 설정합니다."""
+    secure = get_auth_cookie_secure()
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
         max_age=max_age,
         httponly=True,
-        secure=get_auth_cookie_secure(),
-        samesite="lax",
+        secure=secure,
+        # Render 프론트/백엔드는 서로 다른 origin이므로 배포 HTTPS에서는
+        # cross-origin fetch에서도 인증 쿠키가 전달되도록 SameSite=None을 사용합니다.
+        # 로컬 HTTP에서는 Secure 쿠키가 동작하지 않으므로 기존 lax를 유지합니다.
+        samesite="none" if secure else "lax",
         path="/",
     )
 

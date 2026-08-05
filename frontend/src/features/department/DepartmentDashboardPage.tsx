@@ -5,8 +5,10 @@ import type { ApiError } from "../../api/client";
 import type { AuthUser } from "../../api/auth";
 import {
   createCampaignTarget,
+  listCampaigns,
   listCampaignTargets,
   updateCampaignTarget,
+  type Campaign,
   type CampaignStatus,
   type CampaignTarget,
   type CampaignTargetList,
@@ -78,6 +80,8 @@ const roleDescriptions: Record<AuthUser["role"], string> = {
 const MARKETING_INSIGHT_PAGE_SIZE = 8;
 const OPERATIONS_INSIGHT_PAGE_SIZE = 8;
 const CAMPAIGN_QUEUE_PAGE_SIZE = 8;
+// 캠페인 필터 선택지 상한입니다. 서버가 허용하는 page_size 최대값이기도 합니다.
+const CAMPAIGN_FILTER_PAGE_SIZE = 100;
 const PAGE_GROUP_SIZE = 10;
 
 type DepartmentDashboardPageProps = {
@@ -565,6 +569,9 @@ function CampaignQueue({
   assignees,
   user,
   onUpdated,
+  campaignFilter,
+  campaignOptions,
+  onCampaignFilterChange,
 }: {
   targets: CampaignTarget[];
   total: number;
@@ -576,6 +583,9 @@ function CampaignQueue({
   assignees: TeamMember[];
   user: AuthUser;
   onUpdated: (target: CampaignTarget) => void;
+  campaignFilter: number | "";
+  campaignOptions: Campaign[];
+  onCampaignFilterChange: (value: number | "") => void;
 }) {
   const [drafts, setDrafts] = useState<Record<number, CampaignDraft>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -629,10 +639,38 @@ function CampaignQueue({
         </div>
         <span className="table-count">{formatNumber(total)}건</span>
       </div>
+      <div className="insight-filters department-insight-filters">
+        <label className="filter-field filter-field--cluster">
+          <span>캠페인</span>
+          <select
+            aria-label="캠페인 처리 현황 캠페인"
+            value={campaignFilter === "" ? "" : String(campaignFilter)}
+            onChange={(event) => onCampaignFilterChange(
+              event.target.value === "" ? "" : Number(event.target.value),
+            )}
+          >
+            <option value="">전체 캠페인</option>
+            {campaignOptions.map((campaign) => (
+              <option key={campaign.id} value={campaign.id}>
+                {campaign.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {campaignFilter !== "" && (
+          <button className="reset-filter-button" type="button" onClick={() => onCampaignFilterChange("")}>
+            초기화
+          </button>
+        )}
+      </div>
       {error !== "" && <CampaignQueueFeedbackDialog message={error} variant="error" onClose={() => setError("")} />}
       {success !== "" && <CampaignQueueFeedbackDialog message={success} variant="success" onClose={() => setSuccess("")} />}
       {targets.length === 0 ? (
-        <p className="department-empty">등록된 캠페인 대상이 없습니다.</p>
+        <p className="department-empty">
+          {campaignFilter === ""
+            ? "등록된 캠페인 대상이 없습니다."
+            : "선택한 캠페인에 등록된 대상이 없습니다."}
+        </p>
       ) : (
         <div className="department-campaign-list">
           {targets.map((target) => {
@@ -913,6 +951,8 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [campaignQueuePage, setCampaignQueuePage] = useState(1);
   const [campaignQueueTotalPages, setCampaignQueueTotalPages] = useState(0);
   const [campaignQueueStats, setCampaignQueueStats] = useState<CampaignTargetStats | null>(null);
+  const [campaignQueueFilter, setCampaignQueueFilter] = useState<number | "">("");
+  const [campaignQueueOptions, setCampaignQueueOptions] = useState<Campaign[]>([]);
   const [batch, setBatch] = useState<LatestBatch | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
@@ -929,6 +969,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [insightRefreshKey, setInsightRefreshKey] = useState(0);
 
   const canProcessTargets = user.role === "admin" || user.role === "operations";
+  const showsCampaignQueue = user.role === "operations" || user.role === "marketing";
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
   const insightQuery = useMemo(() => {
     if (user.role === "operations") {
@@ -968,6 +1009,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     page: campaignQueuePage,
     page_size: CAMPAIGN_QUEUE_PAGE_SIZE,
     ...(user.role === "operations" ? { sort_by_priority: true } : {}),
+    ...(campaignQueueFilter === "" ? {} : { campaign_id: campaignQueueFilter }),
   }),
   getLatestBatch(),
 ]);
@@ -994,7 +1036,35 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     return () => {
       isActive = false;
     };
-  }, [campaignQueuePage, insightQuery, insightRefreshKey]);
+  }, [campaignQueueFilter, campaignQueuePage, insightQuery, insightRefreshKey, user.role]);
+
+  // 처리 현황 필터의 선택지입니다. 대상 목록은 페이지 단위로 잘려 오므로,
+  // 목록에 보이는 캠페인만 모아 만들면 다른 페이지의 캠페인이 빠집니다.
+  useEffect(() => {
+    if (!showsCampaignQueue) {
+      return;
+    }
+    let isActive = true;
+    void listCampaigns({ page: 1, page_size: CAMPAIGN_FILTER_PAGE_SIZE })
+      .then((response) => {
+        if (isActive) {
+          setCampaignQueueOptions(response.items);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setCampaignQueueOptions([]);
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [showsCampaignQueue]);
+
+  const updateCampaignQueueFilter = (value: number | "") => {
+    setCampaignQueueFilter(value);
+    setCampaignQueuePage(1);
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -1147,6 +1217,9 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         assignees={members.filter((member) => member.role === "operations" && member.is_active)}
         user={user}
         onUpdated={handleCampaignQueueUpdated}
+        campaignFilter={campaignQueueFilter}
+        campaignOptions={campaignQueueOptions}
+        onCampaignFilterChange={updateCampaignQueueFilter}
       />
     </>
   ) : user.role === "marketing" ? (
@@ -1231,6 +1304,9 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         assignees={members.filter((member) => member.role === "operations" && member.is_active)}
         user={user}
         onUpdated={handleCampaignQueueUpdated}
+        campaignFilter={campaignQueueFilter}
+        campaignOptions={campaignQueueOptions}
+        onCampaignFilterChange={updateCampaignQueueFilter}
       />
     </>
   ) : (
