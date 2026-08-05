@@ -239,8 +239,8 @@ export function CampaignCandidatePanel({
         <p className="campaign-empty-copy">먼저 캠페인을 선택하세요.</p>
       ) : (
         <>
-          <div className="insight-filters campaign-candidate-filters">
-            <label className="filter-field">
+          <div className="filter-bar">
+            <label className="filter-bar__field">
               <span>위험도</span>
               <select
                 aria-label="캠페인 관리 후보 위험도"
@@ -256,7 +256,7 @@ export function CampaignCandidatePanel({
                 <option value="low">낮음</option>
               </select>
             </label>
-            <label className="filter-field filter-field--cluster">
+            <label className="filter-bar__field filter-bar__field--cluster">
               <span>군집</span>
               <select
                 aria-label="캠페인 관리 후보 군집"
@@ -272,7 +272,7 @@ export function CampaignCandidatePanel({
                 ))}
               </select>
             </label>
-            <label className="filter-field">
+            <label className="filter-bar__field">
               <span>정렬 기준</span>
               <select
                 aria-label="캠페인 관리 후보 정렬 기준"
@@ -290,7 +290,7 @@ export function CampaignCandidatePanel({
                 <option value="scored_at">최근 분석 시각</option>
               </select>
             </label>
-            <label className="filter-field">
+            <label className="filter-bar__field">
               <span>정렬 순서</span>
               <select
                 aria-label="캠페인 관리 후보 정렬 순서"
@@ -304,7 +304,8 @@ export function CampaignCandidatePanel({
                 <option value="asc">낮은 값부터</option>
               </select>
             </label>
-            <button className="reset-filter-button" type="button" onClick={resetFilters}>초기화</button>
+            <span className="filter-bar__spacer" aria-hidden="true" />
+            <button className="filter-bar__reset" type="button" onClick={resetFilters}>초기화</button>
           </div>
           {!canRegister && (
             <p className="campaign-candidate-panel__notice">

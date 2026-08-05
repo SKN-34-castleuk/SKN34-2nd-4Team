@@ -172,20 +172,6 @@ function DepartmentRiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) 
   );
 }
 
-function StatCard({ label, value, caption, tone = "purple" }: {
-  label: string;
-  value: string;
-  caption: string;
-  tone?: "purple" | "orange" | "green" | "pink";
-}) {
-  return (
-    <article className={`department-stat department-stat--${tone}`}>
-      <h3 style={{marginTop:0}}>{caption}</h3>
-      <strong>{value}</strong>
-    </article>
-  );
-}
-
 function BatchCard({ batch }: { batch: LatestBatch | null }) {
   return (
     <article className="department-panel department-panel--batch">
@@ -247,8 +233,8 @@ function MarketingCandidateFilters({
 
   return (
     <>
-      <div className="insight-filters department-insight-filters">
-        <label className="filter-field">
+      <div className="filter-bar">
+        <label className="filter-bar__field">
           <span>위험도</span>
           <select
             aria-label="캠페인 후보 위험도"
@@ -261,7 +247,7 @@ function MarketingCandidateFilters({
             <option value="low">낮음</option>
           </select>
         </label>
-        <label className="filter-field filter-field--cluster">
+        <label className="filter-bar__field filter-bar__field--cluster">
           <span>군집</span>
           <select
             aria-label="캠페인 후보 군집"
@@ -276,7 +262,7 @@ function MarketingCandidateFilters({
             ))}
           </select>
         </label>
-        <label className="filter-field">
+        <label className="filter-bar__field">
           <span>정렬 기준</span>
           <select
             aria-label="캠페인 후보 정렬 기준"
@@ -289,7 +275,7 @@ function MarketingCandidateFilters({
             <option value="scored_at">최근 분석 시각</option>
           </select>
         </label>
-        <label className="filter-field">
+        <label className="filter-bar__field">
           <span>정렬 순서</span>
           <select
             aria-label="캠페인 후보 정렬 순서"
@@ -300,7 +286,8 @@ function MarketingCandidateFilters({
             <option value="asc">낮은 값부터</option>
           </select>
         </label>
-        <button className="reset-filter-button" type="button" onClick={onReset}>초기화</button>
+        <span className="filter-bar__spacer" aria-hidden="true" />
+        <button className="filter-bar__reset" type="button" onClick={onReset}>초기화</button>
       </div>
       <p className="department-panel__caption">
         분석 결과를 기준으로 후보를 좁힌 뒤, 정렬된 고객부터 캠페인에 등록할 수 있습니다.
@@ -1217,13 +1204,23 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
 
   const roleContent = user.role === "operations" ? (
     <>
-      <section className="department-stats">
-        <StatCard label="우선 상담 대상" value={formatNumber(highRiskCount)} tone="pink" />
-        <StatCard label="처리 대기 캠페인" value={formatNumber(pendingCount)}  tone="orange" />
-        <StatCard label="고위험 고객 기준" value={formatPercent(insights?.stats.average_churn_probability ?? 0)} tone="purple" />
-        <BatchCard batch={batch} />
-      </section>
+      <div className="kpi-row">
+        <div className="kpi-item kpi-item--danger">
+          <strong>{formatNumber(highRiskCount)}</strong>
+          <span>우선 상담 대상</span>
+        </div>
+        <div className="kpi-item kpi-item--orange">
+          <strong>{formatNumber(pendingCount)}</strong>
+          <span>처리 대기 캠페인</span>
+        </div>
+        <div className="kpi-item kpi-item--purple">
+          <strong>{formatPercent(insights?.stats.average_churn_probability ?? 0)}</strong>
+          <span>고위험 고객 기준</span>
+        </div>
+      </div>
+      <BatchCard batch={batch} />
       <InsightPriorityTable
+        kicker="PRIORITY INSIGHTS"
         heading="우선 관리 고객"
         insights={insights?.items ?? []}
         targets={targets}
@@ -1254,12 +1251,21 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     </>
   ) : user.role === "marketing" ? (
     <>
-      <section className="department-stats">
-        <StatCard label="등록된 캠페인 대상" value={formatNumber(campaignTargetTotal)}  tone="purple" />
-        <StatCard label="실행 대기 대상" value={formatNumber(pendingCount)}  tone="orange" />
-        <StatCard label="처리 완료 캠페인" value={formatNumber(completedCount)}  tone="green" />
-        <BatchCard batch={batch} />
-      </section>
+      <div className="kpi-row">
+        <div className="kpi-item kpi-item--purple">
+          <strong>{formatNumber(campaignTargetTotal)}</strong>
+          <span>등록된 캠페인 대상</span>
+        </div>
+        <div className="kpi-item kpi-item--orange">
+          <strong>{formatNumber(pendingCount)}</strong>
+          <span>실행 대기 대상</span>
+        </div>
+        <div className="kpi-item kpi-item--green">
+          <strong>{formatNumber(completedCount)}</strong>
+          <span>처리 완료 캠페인</span>
+        </div>
+      </div>
+      <BatchCard batch={batch} />
       <section className="department-panel department-panel--wide">
         <div className="department-panel__heading">
           <div>
@@ -1288,6 +1294,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         </div>
       </section>
       <InsightPriorityTable
+        kicker="CAMPAIGN CANDIDATES"
         heading="캠페인 후보 고객"
         toolbar={(
           <MarketingCandidateFilters
@@ -1332,12 +1339,21 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
     </>
   ) : (
     <>
-      <section className="department-stats">
-        <StatCard label="CUSTOMERS" value={formatNumber(insights?.stats.total ?? 0)} caption="분석 대상 고객" tone="purple" />
-        <StatCard label="CAMPAIGN QUEUE" value={formatNumber(campaignTargetTotal)} caption="전체 업무 대상" tone="orange" />
-        <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="고위험 고객" tone="pink" />
-        <BatchCard batch={batch} />
-      </section>
+      <div className="kpi-row">
+        <div className="kpi-item kpi-item--purple">
+          <strong>{formatNumber(insights?.stats.total ?? 0)}</strong>
+          <span>분석 대상 고객</span>
+        </div>
+        <div className="kpi-item kpi-item--orange">
+          <strong>{formatNumber(campaignTargetTotal)}</strong>
+          <span>전체 업무 대상</span>
+        </div>
+        <div className="kpi-item kpi-item--danger">
+          <strong>{formatNumber(highRiskCount)}</strong>
+          <span>고위험 고객</span>
+        </div>
+      </div>
+      <BatchCard batch={batch} />
       <TeamRoster members={members} onUpdated={(updated) => setMembers((current) => current.map((member) => member.id === updated.id ? updated : member))} />
     </>
   );
