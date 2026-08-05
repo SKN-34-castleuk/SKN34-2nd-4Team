@@ -7,6 +7,7 @@ import { CampaignManagementPage } from "../features/campaign/CampaignManagementP
 import { DepartmentDashboardPage } from "../features/department/DepartmentDashboardPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { AppShell, type ShellTab } from "./AppShell";
+import "./App.css";
 
 type AuthState =
   | { status: "checking" }

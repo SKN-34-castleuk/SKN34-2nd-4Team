@@ -1,4 +1,16 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  LabelList,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import type { AuthUser } from "../../api/auth";
 import {
@@ -21,7 +33,527 @@ import {
   type InsightQuery,
 } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
-import { EdaChartsSection } from "./EdaCharts";
+import {
+  getCategoricalChurnRate,
+  getClusterProfile,
+  getFeatureCorrelation,
+  getNumericDistribution,
+  getReasonCodeCooccurrence,
+  getRiskClusterCrosstab,
+  type AnalyticsFilters,
+  type CategoricalChurnRateItem,
+  type CategoricalField,
+  type ClusterProfileItem,
+  type FeatureCorrelationItem,
+  type NumericDistributionField,
+  type ReasonCodeCooccurrenceResponse,
+  type RiskClusterCrosstabResponse,
+} from "../../api/analytics";
+
+const CATEGORICAL_FIELD_OPTIONS: { value: CategoricalField; label: string }[] = [
+  { value: "Gender", label: "성별" },
+  { value: "Card_Category", label: "카드 등급" },
+  { value: "Income_Category", label: "소득 구간" },
+  { value: "Education_Level", label: "학력" },
+  { value: "Marital_Status", label: "결혼 상태" },
+];
+
+const CATEGORICAL_GROUP_LABELS: Record<CategoricalField, Record<string, string>> = {
+  Gender: {
+    F: "여성",
+    M: "남성",
+  },
+  Card_Category: {
+    Blue: "블루",
+    Silver: "실버",
+    Gold: "골드",
+    Platinum: "플래티넘",
+  },
+  Income_Category: {
+    "Less than $40K": "5,600만원 미만",
+    "$40K - $60K": "5,600만원~8,400만원",
+    "$60K - $80K": "8,400만원~1억 1,200만원",
+    "$80K - $120K": "1억 1,200만원~1억 6,800만원",
+    "$120K +": "1억 6,800만원 이상",
+    Unknown: "확인 불가",
+  },
+  Education_Level: {
+    Uneducated: "무학",
+    "High School": "고등학교 졸업",
+    College: "대학 재학",
+    Graduate: "대학교 졸업",
+    "Post-Graduate": "대학원 졸업",
+    Doctorate: "박사",
+    Unknown: "확인 불가",
+  },
+  Marital_Status: {
+    Married: "기혼",
+    Single: "미혼",
+    Divorced: "이혼",
+    Unknown: "확인 불가",
+  },
+};
+
+function getCategoricalGroupLabel(field: CategoricalField, group: string): string {
+  return CATEGORICAL_GROUP_LABELS[field]?.[group] ?? group;
+}
+
+const CATEGORICAL_GROUP_ORDER: Partial<Record<CategoricalField, string[]>> = {
+  Card_Category: ["Blue", "Silver", "Gold", "Platinum"],
+  Income_Category: [
+    "Less than $40K",
+    "$40K - $60K",
+    "$60K - $80K",
+    "$80K - $120K",
+    "$120K +",
+    "Unknown",
+  ],
+  Education_Level: [
+    "Uneducated",
+    "High School",
+    "College",
+    "Graduate",
+    "Post-Graduate",
+    "Doctorate",
+    "Unknown",
+  ],
+};
+
+function isOrdinalCategoricalField(field: CategoricalField): boolean {
+  return field in CATEGORICAL_GROUP_ORDER;
+}
+
+function sortByGroupOrder(
+  items: CategoricalChurnRateItem[],
+  field: CategoricalField,
+): CategoricalChurnRateItem[] {
+  const order = CATEGORICAL_GROUP_ORDER[field];
+  if (order === undefined) {
+    return items;
+  }
+  return [...items].sort((a, b) => {
+    const indexA = order.indexOf(a.group);
+    const indexB = order.indexOf(b.group);
+    return (indexA === -1 ? order.length : indexA) - (indexB === -1 ? order.length : indexB);
+  });
+}
+
+const NUMERIC_FIELD_OPTIONS: { value: NumericDistributionField; label: string }[] = [
+  { value: "Total_Trans_Ct", label: "거래 건수" },
+  { value: "Total_Trans_Amt", label: "거래 금액" },
+  { value: "Avg_Utilization_Ratio", label: "한도소진율" },
+  { value: "Months_Inactive_12_mon", label: "비활성 개월수" },
+  { value: "Contacts_Count_12_mon", label: "문의 횟수" },
+  { value: "Total_Relationship_Count", label: "보유 상품 수" },
+];
+
+const NUMERIC_FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  NUMERIC_FIELD_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+function getNumericFieldLabel(field: string): string {
+  return NUMERIC_FIELD_LABELS[field] ?? field;
+}
+
+const CHART_BAR_COLOR = "#4141c9";
+
+function formatEdaPercent(value: number, digits = 0): string {
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(value);
+}
+
+function toNumber(value: unknown): number {
+  return typeof value === "number" ? value : Number(value ?? 0);
+}
+
+function ChartCard({
+  title,
+  action,
+  wide = false,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <article className={`eda-chart-card${wide ? " eda-chart-card--wide" : ""}`}>
+      <div className="table-card__header eda-chart-card__header">
+        <div>
+          <h3>{title}</h3>
+        </div>
+        {action}
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function weightedAverage(items: CategoricalChurnRateItem[]): number {
+  const totalCount = items.reduce((sum, item) => sum + item.count, 0);
+  if (totalCount === 0) {
+    return 0;
+  }
+  return items.reduce((sum, item) => sum + item.churn_rate * item.count, 0) / totalCount;
+}
+
+function CategoricalChurnRateChart({ filters }: { filters: AnalyticsFilters }) {
+  const [field, setField] = useState<CategoricalField>("Gender");
+  const [result, setResult] = useState<{
+    field: CategoricalField;
+    items: CategoricalChurnRateItem[];
+  } | null>(null);
+  const [error, setError] = useState("");
+  const items = result?.field === field ? result.items : null;
+
+  useEffect(() => {
+    let isActive = true;
+    getCategoricalChurnRate(field, filters)
+      .then((response) => {
+        if (isActive) {
+          setResult({ field, items: response.items });
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "이탈률 데이터를 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [field, filters]);
+
+  const average = useMemo(() => (items === null ? 0 : weightedAverage(items)), [items]);
+  const isOrdinal = isOrdinalCategoricalField(field);
+  const orderedItems = useMemo(
+    () => (items === null ? null : sortByGroupOrder(items, field)),
+    [items, field],
+  );
+
+  return (
+    <ChartCard
+      title="범주형 변수별 평균 이탈 확률"
+      action={
+        <select
+          aria-label="범주형 변수 선택"
+          value={field}
+          onChange={(event) => setField(event.target.value as CategoricalField)}
+        >
+          {CATEGORICAL_FIELD_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      }
+    >
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : orderedItems === null ? (
+        <p className="empty-copy">불러오는 중입니다.</p>
+      ) : isOrdinal ? (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={orderedItems} margin={{ left: 4, right: 16, top: 20, bottom: 0 }}>
+            <XAxis
+              dataKey="group"
+              stroke="#c3c2b7"
+              tick={{ fontSize: 10.5 }}
+              tickFormatter={(value: string) => getCategoricalGroupLabel(field, value)}
+              interval={0}
+            />
+            <YAxis
+              stroke="#c3c2b7"
+              tick={{ fontSize: 11 }}
+              tickFormatter={(value: number) => formatEdaPercent(value)}
+              width={40}
+            />
+            <Tooltip
+              formatter={(value: unknown, _name: unknown, entry: unknown) => {
+                const payload = (entry as { payload?: CategoricalChurnRateItem } | undefined)
+                  ?.payload;
+                return [
+                  `${formatEdaPercent(toNumber(value), 1)} (${formatCompactNumber(payload?.count ?? 0)}명)`,
+                  "평균 이탈 확률",
+                ];
+              }}
+              labelFormatter={(label: unknown) => getCategoricalGroupLabel(field, String(label))}
+            />
+            <ReferenceLine
+              y={average}
+              stroke="#898781"
+              strokeDasharray="4 4"
+              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "right", fontSize: 11, fill: "#898781" }}
+            />
+            <Line
+              type="monotone"
+              dataKey="churn_rate"
+              stroke={CHART_BAR_COLOR}
+              strokeWidth={2}
+              dot={{ r: 4, fill: CHART_BAR_COLOR }}
+              activeDot={{ r: 6 }}
+            >
+              <LabelList
+                dataKey="churn_rate"
+                position="top"
+                formatter={(value: unknown) => formatEdaPercent(toNumber(value), 1)}
+                fontSize={10.5}
+                fill="#4b4b57"
+              />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={orderedItems} layout="vertical" margin={{ left: 12, right: 24 }}>
+            <XAxis
+              type="number"
+              tickFormatter={(value: number) => formatEdaPercent(value)}
+              stroke="#c3c2b7"
+              tick={{ fontSize: 11 }}
+            />
+            <YAxis
+              type="category"
+              dataKey="group"
+              width={90}
+              stroke="#c3c2b7"
+              tick={{ fontSize: 11 }}
+              tickFormatter={(value: string) => getCategoricalGroupLabel(field, value)}
+            />
+            <Tooltip
+              formatter={(value: unknown, _name: unknown, entry: unknown) => {
+                const payload = (entry as { payload?: CategoricalChurnRateItem } | undefined)
+                  ?.payload;
+                return [
+                  `${formatEdaPercent(toNumber(value), 1)} (${formatCompactNumber(payload?.count ?? 0)}명)`,
+                  "평균 이탈 확률",
+                ];
+              }}
+              labelFormatter={(label: unknown) => getCategoricalGroupLabel(field, String(label))}
+            />
+            <ReferenceLine
+              x={average}
+              stroke="#898781"
+              strokeDasharray="4 4"
+              label={{ value: `평균 ${formatEdaPercent(average, 1)}`, position: "top", fontSize: 11, fill: "#898781" }}
+            />
+            <Bar dataKey="churn_rate" radius={[0, 4, 4, 0]} maxBarSize={22} fill={CHART_BAR_COLOR}>
+              <LabelList
+                dataKey="churn_rate"
+                position="right"
+                formatter={(value: unknown) => formatEdaPercent(toNumber(value), 1)}
+                fontSize={11}
+                fill="#4b4b57"
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
+const BOX_GROUP_LABELS: Record<string, string> = {
+  low: "낮음",
+  medium: "주의",
+  high: "높음",
+};
+
+const BOX_GROUP_ORDER = ["low", "medium", "high"];
+
+type NumericDistributionBuckets = Record<
+  string,
+  { min: number; q1: number; median: number; q3: number; max: number; count: number }
+>;
+
+function NumericDistributionChart({ filters }: { filters: AnalyticsFilters }) {
+  const [field, setField] = useState<NumericDistributionField>("Total_Trans_Ct");
+  const [result, setResult] = useState<{
+    field: NumericDistributionField;
+    byTarget: NumericDistributionBuckets;
+  } | null>(null);
+  const [error, setError] = useState("");
+  const byTarget = result?.field === field ? result.byTarget : null;
+
+  useEffect(() => {
+    let isActive = true;
+    getNumericDistribution(field, filters)
+      .then((response) => {
+        if (isActive) {
+          setResult({ field, byTarget: response.by_target });
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "수치형 분포 데이터를 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [field, filters]);
+
+  const chartData = useMemo(() => {
+    if (byTarget === null) {
+      return [];
+    }
+    return Object.entries(byTarget)
+      .sort(([a], [b]) => BOX_GROUP_ORDER.indexOf(a) - BOX_GROUP_ORDER.indexOf(b))
+      .map(([target, bucket]) => ({
+        name: BOX_GROUP_LABELS[target] ?? target,
+        median: bucket.median,
+        raw: bucket,
+      }));
+  }, [byTarget]);
+
+  return (
+    <ChartCard
+      title="위험도별 중앙값 비교"
+      action={
+        <select
+          aria-label="수치형 변수 선택"
+          value={field}
+          onChange={(event) => setField(event.target.value as NumericDistributionField)}
+        >
+          {NUMERIC_FIELD_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      }
+    >
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : byTarget === null ? (
+        <p className="empty-copy">불러오는 중입니다.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ left: 12, right: 12, top: 20 }}>
+            <XAxis dataKey="name" stroke="#c3c2b7" tick={{ fontSize: 11 }} />
+            <YAxis stroke="#c3c2b7" tick={{ fontSize: 11 }} tickFormatter={formatCompactNumber} />
+            <Tooltip
+              content={({ payload }) => {
+                const entry = payload?.[0]?.payload as (typeof chartData)[number] | undefined;
+                if (entry === undefined) {
+                  return null;
+                }
+                return (
+                  <div className="eda-boxplot-tooltip">
+                    <strong>{entry.name}</strong>
+                    <span>최대 {formatCompactNumber(entry.raw.max)}</span>
+                    <span>Q3 {formatCompactNumber(entry.raw.q3)}</span>
+                    <span>중앙값 {formatCompactNumber(entry.raw.median)}</span>
+                    <span>Q1 {formatCompactNumber(entry.raw.q1)}</span>
+                    <span>최소 {formatCompactNumber(entry.raw.min)}</span>
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey="median" radius={[4, 4, 0, 0]} maxBarSize={64} fill={CHART_BAR_COLOR}>
+              <LabelList
+                dataKey="median"
+                position="top"
+                formatter={(value: unknown) => formatCompactNumber(toNumber(value))}
+                fontSize={11}
+                fill="#4b4b57"
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
+function FeatureCorrelationChart({ filters }: { filters: AnalyticsFilters }) {
+  const [items, setItems] = useState<FeatureCorrelationItem[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+    getFeatureCorrelation(filters)
+      .then((response) => {
+        if (isActive) {
+          setItems(response.items);
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "상관관계 데이터를 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [filters]);
+
+  return (
+    <ChartCard title="변수-예측 이탈 확률 상관관계" wide>
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : items === null ? (
+        <p className="empty-copy">불러오는 중입니다.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart
+            data={items}
+            layout="vertical"
+            margin={{ left: 12, right: 24 }}
+          >
+            <XAxis
+              type="number"
+              domain={[-0.5, 0.5]}
+              tickFormatter={(value: number) => value.toFixed(1)}
+              stroke="#c3c2b7"
+              tick={{ fontSize: 11 }}
+            />
+            <YAxis
+              type="category"
+              dataKey="feature"
+              width={140}
+              stroke="#c3c2b7"
+              tick={{ fontSize: 10 }}
+              tickFormatter={(value: string) => getNumericFieldLabel(value)}
+            />
+            <Tooltip
+              formatter={(value: unknown) => [toNumber(value).toFixed(3), "상관계수"]}
+              labelFormatter={(label: unknown) => getNumericFieldLabel(String(label))}
+            />
+            <ReferenceLine x={0} stroke="#898781" />
+            <Bar dataKey="correlation" maxBarSize={16} fill={CHART_BAR_COLOR}>
+              <LabelList
+                dataKey="correlation"
+                position="right"
+                formatter={(value: unknown) => toNumber(value).toFixed(2)}
+                fontSize={10.5}
+                fill="#4b4b57"
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
 
 const PAGE_SIZE = 8;
 
@@ -74,8 +606,6 @@ const campaignStatusTransitions: Record<CampaignStatus, CampaignStatus[]> = {
   completed: ["completed"],
   cancelled: ["cancelled"],
 };
-
-type DashboardTab = "insights" | "eda";
 
 type RiskFilter = "" | NonNullable<InsightQuery["risk_level"]>;
 type SortBy = NonNullable<InsightQuery["sort_by"]>;
@@ -164,13 +694,6 @@ function getCustomerIdFilter(value: string): number | undefined {
     : undefined;
 }
 
-function getDominantCluster(clusterCounts: Record<string, number>): [string, number] | null {
-  const [cluster] = Object.entries(clusterCounts).sort(
-    ([, countA], [, countB]) => countB - countA,
-  );
-  return cluster ?? null;
-}
-
 function getClusterOptions(clusterCounts: Record<string, number>): [string, number][] {
   return Object.entries(clusterCounts).sort(([clusterA], [clusterB]) =>
     clusterA.localeCompare(clusterB, "ko"),
@@ -234,42 +757,35 @@ function RiskOverview({ data }: { data: CustomerInsightList }) {
   const maxCount = Math.max(...riskEntries.map(({ count }) => count), 1);
 
   return (
-    <article className="bento-card bento-card--risk">
-      <div className="bento-card__heading">
+    <article className="eda-chart-card">
+      <div className="table-card__header eda-chart-card__header">
         <div>
-          <h2>위험도 분포</h2>
+          <h3>위험도별 고객 분포</h3>
         </div>
-        <span className="card-icon card-icon--alert" aria-hidden="true">!</span>
       </div>
-      <div className="risk-bars">
+      <div className="horiz-bar-list">
         {riskEntries.map(({ risk, count }) => (
-          <div className="risk-bar" key={risk}>
-            <div className="risk-bar__label">
-              <span>
-                <i
-                  className="risk-dot"
-                  style={{ backgroundColor: riskColors[risk] }}
-                />
-                {riskLabels[risk]}
-              </span>
-              <strong>
-                {formatNumber(count)} · {formatPercent(data.stats.total > 0 ? count / data.stats.total : 0)}
-              </strong>
-            </div>
-            <div className="risk-bar__track">
+          <div className="horiz-bar-row" key={risk}>
+            <span className="horiz-bar-row__label">{riskLabels[risk]}</span>
+            <div className="bar-track">
               <span
+                className="bar-fill"
                 style={{
-                  width: `${Math.max((count / maxCount) * 100, count > 0 ? 5 : 0)}%`,
+                  width: `${Math.max((count / maxCount) * 100, count > 0 ? 4 : 0)}%`,
                   backgroundColor: riskColors[risk],
                 }}
               />
             </div>
+            <span className="horiz-bar-row__value">
+              {formatNumber(count)}/{formatPercent(data.stats.total > 0 ? count / data.stats.total : 0)}
+            </span>
           </div>
         ))}
       </div>
     </article>
   );
 }
+
 
 function InsightRow({
   insight,
@@ -331,19 +847,19 @@ function InsightRow({
   );
 }
 
-function BatchOverview({ batch }: { batch: LatestBatch | null }) {
+function BatchOverview({ batch, wide = false }: { batch: LatestBatch | null; wide?: boolean }) {
   return (
-    <article className="bento-card bento-card--batch">
-      <div className="bento-card__heading">
+    <article className={`eda-chart-card${wide ? " eda-chart-card--wide batch-overview--wide" : ""}`}>
+      <div className="table-card__header eda-chart-card__header">
         <div>
-          <h2>최근 배치 상태</h2>
+          <h3>최근 배치 상태</h3>
         </div>
         <span className="batch-status">{batch === null ? "확인 중" : "동기화 완료"}</span>
       </div>
       {batch === null ? (
         <p className="empty-copy">배치 실행 정보를 불러오는 중입니다.</p>
       ) : (
-        <>
+        <div className="batch-overview__body">
           <strong className="batch-time">
             {formatDate(batch.completed_at ?? batch.started_at)}
           </strong>
@@ -362,18 +878,18 @@ function BatchOverview({ batch }: { batch: LatestBatch | null }) {
               </span>
             ))}
           </div>
-        </>
+        </div>
       )}
     </article>
   );
 }
 
-function signedPercentagePoints(value: number | null): string {
-  if (value === null) {
-    return "-";
-  }
-  return `${value > 0 ? "+" : ""}${Math.round(value * 100)}%p`;
-}
+type CampaignDraft = {
+  status: CampaignStatus;
+  result: string;
+  result_notes: string;
+  converted: boolean;
+};
 
 function CampaignFeedback({
   performance,
@@ -384,24 +900,10 @@ function CampaignFeedback({
   isLoading: boolean;
   error: string;
 }) {
-  const [showMetricHelp, setShowMetricHelp] = useState(false);
   const metrics = performance?.summary ?? null;
   const pendingCount = metrics === null
     ? 0
     : Math.max(metrics.target_count - metrics.contacted_count, 0);
-
-  useEffect(() => {
-    if (!showMetricHelp) {
-      return;
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setShowMetricHelp(false);
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [showMetricHelp]);
 
   return (
     <article className="bento-card bento-card--campaign campaign-feedback">
@@ -413,83 +915,17 @@ function CampaignFeedback({
           <span className="table-count">
             {metrics === null ? "전체 캠페인" : `${formatNumber(metrics.target_count)}명 대상`}
           </span>
-          <button
-            className="campaign-feedback-help"
-            type="button"
-            aria-expanded={showMetricHelp}
-            aria-controls="campaign-feedback-metric-help"
-            onClick={() => setShowMetricHelp((current) => !current)}
-          >
-            <span aria-hidden="true">?</span>
-            지표 설명
-          </button>
+          <MetricHelpButton
+            dialogId="campaign-feedback-metric-help"
+            title="캠페인 실행 피드백 지표 설명"
+            items={CAMPAIGN_FEEDBACK_HELP_ITEMS}
+            note="치료군과 대조군의 차이가 클수록 캠페인 자체의 효과가 높다고 볼 수 있지만, 충분한 대상 수와 관측 기간이 함께 확보되어야 신뢰할 수 있습니다."
+          />
         </div>
       </div>
       <p className="campaign-feedback__intro">
         실행 결과를 바탕으로 타기팅 품질과 운영 병목을 확인합니다. 개별 고객 처리는 운영팀이 담당합니다.
       </p>
-      {showMetricHelp && (
-        <div className="campaign-feedback-help-backdrop">
-          <section
-            className="campaign-feedback-help-dialog"
-            id="campaign-feedback-metric-help"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="campaign-feedback-metric-help-title"
-          >
-            <div className="campaign-feedback-help-dialog__header">
-              <div>
-                <h3 id="campaign-feedback-metric-help-title">캠페인 지표 설명</h3>
-              </div>
-              <button
-                className="campaign-feedback-help-close"
-                type="button"
-                aria-label="지표 설명 닫기"
-                onClick={() => setShowMetricHelp(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="campaign-feedback__help">
-              <div>
-                <strong>접촉률</strong>
-                <span>전체 대상 중 실제로 전화·문자·이메일 등 연락이 완료된 고객의 비율입니다. 100명 중 70명에게 연락했다면 70%입니다.</span>
-              </div>
-              <div>
-                <strong>미처리 대상</strong>
-                <span>아직 연락이 완료되지 않은 고객 수입니다. 숫자가 많으면 분석보다 운영팀의 실행이 지연되고 있을 수 있습니다.</span>
-              </div>
-              <div>
-                <strong>전환율</strong>
-                <span>캠페인 대상 중 신청·재이용·추가 거래 등 캠페인이 목표로 한 행동을 한 고객의 비율입니다.</span>
-              </div>
-              <div>
-                <strong>치료군 전환율</strong>
-                <span>캠페인 메시지·혜택·상담을 실제로 받은 그룹의 전환율입니다. 이 수치만으로는 캠페인 효과를 확정하지 않고 대조군과 비교합니다.</span>
-              </div>
-              <div>
-                <strong>대조군 전환율</strong>
-                <span>비슷한 고객 중 일부러 캠페인을 받지 않도록 남겨둔 비교 그룹의 전환율입니다. 캠페인이 없어도 자연스럽게 전환하는 비율을 보여줍니다.</span>
-              </div>
-              <div>
-                <strong>증분 전환 효과</strong>
-                <span>치료군 전환율에서 대조군 전환율을 뺀 값입니다. 예를 들어 치료군이 30%, 대조군이 10%이면 캠페인의 추가 효과는 +20%p로 해석합니다.</span>
-              </div>
-              <div>
-                <strong>ROI</strong>
-                <span>캠페인에 쓴 비용 대비 추가로 얻은 매출입니다. 0%보다 크면 비용보다 많은 추가 매출을 만들었다는 뜻입니다.</span>
-              </div>
-              <div>
-                <strong>유지율</strong>
-                <span>전환 후 설정된 관측 기간(예: 30일)이 지나도 계속 활동하거나 거래한 고객의 비율입니다. 아직 기간이 지나지 않은 고객은 계산에서 제외합니다.</span>
-              </div>
-            </div>
-            <p className="campaign-feedback__help-note">
-              치료군과 대조군의 차이가 클수록 캠페인 자체의 효과가 높다고 볼 수 있지만, 충분한 대상 수와 관측 기간이 함께 확보되어야 신뢰할 수 있습니다.
-            </p>
-          </section>
-        </div>
-      )}
       {isLoading ? (
         <p className="queue-state">캠페인 성과를 집계하는 중입니다.</p>
       ) : error !== "" ? (
@@ -516,7 +952,7 @@ function CampaignFeedback({
             </div>
             <div>
               <span>증분 전환 효과</span>
-              <strong>{signedPercentagePoints(metrics.incremental_conversion_effect)}</strong>
+              <strong>{signedPointsFromRatio(metrics.incremental_conversion_effect)}</strong>
               <small>치료군 − 대조군</small>
             </div>
             <div>
@@ -547,13 +983,6 @@ function CampaignFeedback({
     </article>
   );
 }
-
-type CampaignDraft = {
-  status: CampaignStatus;
-  result: string;
-  result_notes: string;
-  converted: boolean;
-};
 
 function CampaignQueue({
   targets,
@@ -803,6 +1232,583 @@ function CustomerDetailPanel({
   );
 }
 
+function signedPointsFromRatio(value: number | null): string {
+  if (value === null) {
+    return "-";
+  }
+  return `${value > 0 ? "+" : ""}${Math.round(value * 100)}%p`;
+}
+
+const REASON_CODE_LABELS: Record<string, string> = {
+  long_inactivity: "장기 미사용",
+  transaction_decline: "거래 감소",
+  low_transaction_activity: "낮은 거래 횟수",
+  frequent_contacts: "잦은 문의",
+  low_relationship_count: "낮은 보유 상품 수",
+  below_expected_activity: "예상 대비 활동 부족",
+  priority_activity_gap: "우선 활동 갭",
+};
+
+function getReasonCodeLabel(code: string): string {
+  return REASON_CODE_LABELS[code] ?? code;
+}
+
+function ClusterProfilePanel({ filters }: { filters: AnalyticsFilters }) {
+  const [items, setItems] = useState<ClusterProfileItem[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+    getClusterProfile(filters)
+      .then((response) => {
+        if (isActive) {
+          setItems(response.items);
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error ? requestError.message : "군집 프로필을 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [filters]);
+
+  return (
+    <article className="mini-panel">
+      <h3 className="mini-panel__title">군집별 프로필</h3>
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : items === null ? (
+        <p className="queue-state">불러오는 중입니다.</p>
+      ) : items.length === 0 ? (
+        <p className="empty-copy">표시할 군집 데이터가 없습니다.</p>
+      ) : (
+        <div className="mini-table">
+          <div className="mini-table__row mini-table__row--header">
+            <span>군집</span>
+            <span>인원</span>
+            <span>평균 이탈확률</span>
+            <span>평균 활동갭</span>
+            <span>평균 거래금액</span>
+          </div>
+          {items.map((item) => (
+            <div className="mini-table__row" key={item.cluster_name}>
+              <span className="mini-table__label" title={item.cluster_name}>{item.cluster_name}</span>
+              <span>{formatNumber(item.count)}</span>
+              <span>{formatPercent(item.avg_churn_probability)}</span>
+              <span>{formatDecimal(item.avg_activity_gap)}</span>
+              <span>{formatWon(item.avg_total_trans_amt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {items !== null && items.length > 1 && (
+        <div className="mini-panel-chart">
+          <div className="mini-panel-chart__header">
+            <p className="mini-panel-chart__title">군집별 평균 이탈확률·활동갭 추이</p>
+            <div className="mini-panel-chart__legend">
+              <span><i style={{ backgroundColor: CHART_BAR_COLOR }} /> 이탈확률</span>
+              <span><i style={{ backgroundColor: "#1a8f6b" }} /> 활동갭</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={140}>
+            <LineChart data={items} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <XAxis
+                dataKey="cluster_name"
+                stroke="#c3c2b7"
+                tick={{ fontSize: 9.5 }}
+                interval={0}
+                tickFormatter={(value: string) => (value.length > 6 ? `${value.slice(0, 6)}…` : value)}
+              />
+              <YAxis
+                yAxisId="left"
+                stroke="#c3c2b7"
+                tick={{ fontSize: 9.5 }}
+                tickFormatter={(value: number) => formatPercent(value)}
+                width={34}
+              />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                stroke="#c3c2b7"
+                tick={{ fontSize: 9.5 }}
+                tickFormatter={(value: number) => formatDecimal(value)}
+                width={34}
+              />
+              <Tooltip
+                formatter={(value: unknown, name: unknown) => {
+                  if (name === "avg_activity_gap") {
+                    return [formatDecimal(toNumber(value)), "평균 활동갭"];
+                  }
+                  return [formatPercent(toNumber(value)), "평균 이탈확률"];
+                }}
+                labelFormatter={(label: unknown) => String(label)}
+              />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="avg_churn_probability"
+                stroke={CHART_BAR_COLOR}
+                strokeWidth={2}
+                dot={{ r: 3, fill: CHART_BAR_COLOR }}
+                activeDot={{ r: 5 }}
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="avg_activity_gap"
+                stroke="#1a8f6b"
+                strokeWidth={2}
+                dot={{ r: 3, fill: "#1a8f6b" }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function RiskClusterHeatmap({ filters }: { filters: AnalyticsFilters }) {
+  const [data, setData] = useState<RiskClusterCrosstabResponse | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+    getRiskClusterCrosstab(filters)
+      .then((response) => {
+        if (isActive) {
+          setData(response);
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error ? requestError.message : "교차표를 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [filters]);
+
+  return (
+    <article className="mini-panel">
+      <h3 className="mini-panel__title">위험도 × 군집 교차표</h3>
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : data === null ? (
+        <p className="queue-state">불러오는 중입니다.</p>
+      ) : data.cells.length === 0 ? (
+        <p className="empty-copy">표시할 데이터가 없습니다.</p>
+      ) : (
+        (() => {
+          const maxCount = Math.max(...data.cells.map((cell) => cell.count), 1);
+          const cellByKey = new Map(
+            data.cells.map((cell) => [`${cell.risk_level}__${cell.cluster_name}`, cell.count]),
+          );
+          return (
+            <div className="heatmap-wrap">
+              <div
+                className="heatmap"
+                style={{ gridTemplateColumns: `auto repeat(${data.clusters.length}, 1fr)` }}
+              >
+                <span className="heatmap__corner" />
+                {data.clusters.map((cluster) => (
+                  <span className="heatmap__col-label" key={cluster} title={cluster}>
+                    {cluster}
+                  </span>
+                ))}
+                {data.risk_levels.map((riskLevel) => (
+                  <Fragment key={riskLevel}>
+                    <span className="heatmap__row-label">
+                      {riskLabels[riskLevel as CustomerInsight["risk_level"]] ?? riskLevel}
+                    </span>
+                    {data.clusters.map((cluster) => {
+                      const count = cellByKey.get(`${riskLevel}__${cluster}`) ?? 0;
+                      const intensity = Math.max(count / maxCount, count > 0 ? 0.08 : 0);
+                      return (
+                        <span
+                          className="heatmap__cell"
+                          key={`${riskLevel}-${cluster}`}
+                          style={{
+                            backgroundColor: `rgba(65, 65, 201, ${intensity})`,
+                            color: intensity > 0.55 ? "#ffffff" : "var(--navy)",
+                          }}
+                        >
+                          {formatNumber(count)}
+                        </span>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+              <div className="heatmap-legend">
+                <span>적음</span>
+                <span className="heatmap-legend__bar" aria-hidden="true" />
+                <span>많음</span>
+              </div>
+            </div>
+          );
+        })()
+      )}
+    </article>
+  );
+}
+
+function ReasonCodeCooccurrencePanel({ filters }: { filters: AnalyticsFilters }) {
+  const [data, setData] = useState<ReasonCodeCooccurrenceResponse | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+    getReasonCodeCooccurrence(filters)
+      .then((response) => {
+        if (isActive) {
+          setData(response);
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error ? requestError.message : "동시발생 분석을 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [filters]);
+
+  return (
+    <article className="mini-panel">
+      <h3 className="mini-panel__title">사유코드 동시발생 Top 10</h3>
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : data === null ? (
+        <p className="queue-state">불러오는 중입니다.</p>
+      ) : data.pairs.length === 0 ? (
+        <p className="empty-copy">표시할 조합이 없습니다.</p>
+      ) : (
+        <div className="cooccurrence-list">
+          {data.pairs.map((pair) => (
+            <div className="cooccurrence-row" key={`${pair.code_a}-${pair.code_b}`}>
+              <span className="cooccurrence-row__pair">
+                {getReasonCodeLabel(pair.code_a)} + {getReasonCodeLabel(pair.code_b)}
+              </span>
+              <strong>{formatNumber(pair.count)}명</strong>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+type MetricHelpItem = {
+  label: string;
+  description: string;
+};
+
+const CAMPAIGN_FEEDBACK_HELP_ITEMS: MetricHelpItem[] = [
+  {
+    label: "접촉률",
+    description: "전체 대상 중 실제로 전화·문자·이메일 등 연락이 완료된 고객의 비율입니다. 100명 중 70명에게 연락했다면 70%입니다.",
+  },
+  {
+    label: "미처리 대상",
+    description: "아직 연락이 완료되지 않은 고객 수입니다. 숫자가 많으면 분석보다 운영팀의 실행이 지연되고 있을 수 있습니다.",
+  },
+  {
+    label: "전환율",
+    description: "캠페인 대상 중 신청·재이용·추가 거래 등 캠페인이 목표로 한 행동을 한 고객의 비율입니다.",
+  },
+  {
+    label: "치료군 전환율",
+    description: "캠페인 메시지·혜택·상담을 실제로 받은 그룹의 전환율입니다. 이 수치만으로는 캠페인 효과를 확정하지 않고 대조군과 비교합니다.",
+  },
+  {
+    label: "대조군 전환율",
+    description: "비슷한 고객 중 일부러 캠페인을 받지 않도록 남겨둔 비교 그룹의 전환율입니다. 캠페인이 없어도 자연스럽게 전환하는 비율을 보여줍니다.",
+  },
+  {
+    label: "증분 전환 효과",
+    description: "치료군 전환율에서 대조군 전환율을 뺀 값입니다. 예를 들어 치료군이 30%, 대조군이 10%이면 캠페인의 추가 효과는 +20%p로 해석합니다.",
+  },
+  {
+    label: "ROI",
+    description: "캠페인에 쓴 비용 대비 추가로 얻은 매출입니다. 0%보다 크면 비용보다 많은 추가 매출을 만들었다는 뜻입니다.",
+  },
+  {
+    label: "유지율",
+    description: "전환 후 설정된 관측 기간(예: 30일)이 지나도 계속 활동하거나 거래한 고객의 비율입니다. 아직 기간이 지나지 않은 고객은 계산에서 제외합니다.",
+  },
+];
+
+const EXPERIMENT_TABLE_HELP_ITEMS: MetricHelpItem[] = [
+  {
+    label: "캠페인",
+    description: "비교 대상 캠페인입니다. 여러 캠페인을 함께 실행 중이면 캠페인별로 행이 나뉘어 표시됩니다.",
+  },
+  {
+    label: "개입군 전환",
+    description: "캠페인 메시지·혜택·상담을 실제로 받은 치료군의 전환율입니다.",
+  },
+  {
+    label: "비개입군 전환",
+    description: "캠페인을 받지 않도록 남겨둔 대조군의 전환율입니다. 캠페인이 없어도 자연스럽게 전환하는 비율을 보여줍니다.",
+  },
+  {
+    label: "증분효과",
+    description: "개입군 전환율에서 비개입군 전환율을 뺀 값으로, 캠페인 자체가 만들어낸 추가 효과입니다.",
+  },
+  {
+    label: "ROI",
+    description: "캠페인에 쓴 비용 대비 증분 매출(추가로 얻은 매출)의 비율입니다.",
+  },
+  {
+    label: "방어매출",
+    description: "증분 전환 효과로 추가 확보한 것으로 추정되는 매출 금액입니다.",
+  },
+];
+
+function MetricHelpButton({
+  dialogId,
+  title,
+  items,
+  note,
+}: {
+  dialogId: string;
+  title: string;
+  items: MetricHelpItem[];
+  note?: string;
+}) {
+  const [showMetricHelp, setShowMetricHelp] = useState(false);
+  const titleId = `${dialogId}-title`;
+
+  useEffect(() => {
+    if (!showMetricHelp) {
+      return;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMetricHelp(false);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [showMetricHelp]);
+
+  return (
+    <>
+      <button
+        className="campaign-feedback-help"
+        type="button"
+        aria-expanded={showMetricHelp}
+        aria-controls={dialogId}
+        onClick={() => setShowMetricHelp((current) => !current)}
+      >
+        <span aria-hidden="true">?</span>
+        지표 설명
+      </button>
+      {showMetricHelp && (
+        <div className="campaign-feedback-help-backdrop">
+          <section
+            className="campaign-feedback-help-dialog"
+            id={dialogId}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+          >
+            <div className="campaign-feedback-help-dialog__header">
+              <div>
+                <h3 id={titleId}>{title}</h3>
+              </div>
+              <button
+                className="campaign-feedback-help-close"
+                type="button"
+                aria-label="지표 설명 닫기"
+                onClick={() => setShowMetricHelp(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="campaign-feedback__help">
+              {items.map((item) => (
+                <div key={item.label}>
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </div>
+              ))}
+            </div>
+            {note !== undefined && (
+              <p className="campaign-feedback__help-note">{note}</p>
+            )}
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function InsightsTab({
+  batch,
+  performance,
+  isLoading,
+  error,
+  filters,
+}: {
+  batch: LatestBatch | null;
+  performance: CampaignPerformance | null;
+  isLoading: boolean;
+  error: string;
+  filters: AnalyticsFilters;
+}) {
+  const summary = performance?.summary ?? null;
+  const byCampaign = performance?.by_campaign ?? [];
+
+  return (
+    <section className="insights-tab" aria-label="분석팀 인사이트">
+      <div className="insights-header">
+        <div className="insights-header__title">
+        </div>
+      </div>
+
+      <div className="insights-section">
+        <h2 className="insights-section__title">모델 3종 참조</h2>
+        <div className="model-ref-grid">
+          <article className="model-ref-card model-ref-card--classification">
+            <span className="model-ref-badge">분류 모델</span>
+            <p className="model-ref-quote">"지금 누가 위험한가"</p>
+            <p className="model-ref-desc">
+              여러 특성을 종합한 판단. "누구부터 상담해야 하는가"의 1차 신호입니다.
+            </p>
+            <div className="model-ref-kpi">
+              <span className="model-ref-kpi__label">대시보드 연결 KPI</span>
+              <div className="model-ref-kpi__pills">
+                <span className="model-ref-pill">위험도별 SLA</span>
+                <span className="model-ref-pill">고위험 커버리지</span>
+              </div>
+            </div>
+          </article>
+
+          <article className="model-ref-card model-ref-card--regression">
+            <span className="model-ref-badge model-ref-badge--regression">회귀 모델</span>
+            <p className="model-ref-quote">"평소와 다르게 행동하는가"</p>
+            <p className="model-ref-desc">
+              실제 거래 활동이 예상치에서 벗어난 정도를 포착해 조기 이상 신호로 씁니다.
+            </p>
+            <div className="model-ref-kpi">
+              <span className="model-ref-kpi__label">대시보드 연결 KPI</span>
+              <div className="model-ref-kpi__pills">
+                <span className="model-ref-pill">조기경보 겹침 고객 (이중신호)</span>
+              </div>
+            </div>
+          </article>
+
+          <article className="model-ref-card model-ref-card--clustering">
+            <span className="model-ref-badge model-ref-badge--clustering">군집 모델</span>
+            <p className="model-ref-quote">"어떤 유형의 고객인가"</p>
+            <p className="model-ref-desc">
+              지금은 표시만 됩니다. 군집별 증분 유지효과 KPI가 처음으로 실제 예산 배분
+              판단에 연결됩니다.
+            </p>
+            <div className="model-ref-kpi">
+              <span className="model-ref-kpi__label">대시보드 연결 KPI</span>
+              <div className="model-ref-kpi__pills">
+                <span className="model-ref-pill">군집별 증분 유지효과</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div className="insights-section">
+        <div className="insights-section__header">
+          <span className="insights-status-badge">이미 완성</span>
+          <h2 className="insights-section__title">캠페인 실험효과성 분석</h2>
+          <span className="insights-file-ref">performance_service.py</span>
+          <MetricHelpButton
+            dialogId="experiment-table-metric-help"
+            title="캠페인 실험효과성 분석 지표 설명"
+            items={EXPERIMENT_TABLE_HELP_ITEMS}
+            note="증분효과가 클수록 캠페인 자체의 효과가 높다고 볼 수 있지만, 충분한 대상 수와 관측 기간이 함께 확보되어야 신뢰할 수 있습니다."
+          />
+        </div>
+        {isLoading ? (
+          <p className="queue-state">캠페인 실험 효과를 집계하는 중입니다.</p>
+        ) : error !== "" ? (
+          <p className="campaign-feedback__error" role="alert">{error}</p>
+        ) : summary === null || summary.target_count === 0 ? (
+          <p className="queue-state">분석할 캠페인 실행 결과가 없습니다.</p>
+        ) : (
+          <>
+            <div className="experiment-table">
+              <div className="experiment-table__header">
+                <span>캠페인</span>
+                <span>개입군 전환</span>
+                <span>비개입군 전환</span>
+                <span>증분효과</span>
+                <span>ROI</span>
+                <span>방어매출</span>
+              </div>
+              {(byCampaign.length > 0 ? byCampaign : [
+                {
+                  key: "all",
+                  label: "전체 캠페인",
+                  treatment_conversion_rate: summary.treatment_conversion_rate,
+                  control_conversion_rate: summary.control_conversion_rate,
+                  incremental_conversion_effect: summary.incremental_conversion_effect,
+                  roi: summary.roi,
+                  incremental_revenue: summary.incremental_revenue,
+                },
+              ]).map((row) => (
+                <div className="experiment-table__row" key={row.key}>
+                  <span className="experiment-table__name">{row.label}</span>
+                  <strong>{formatPercent(row.treatment_conversion_rate ?? 0)}</strong>
+                  <strong>{formatPercent(row.control_conversion_rate ?? 0)}</strong>
+                  <strong className="experiment-table__positive">
+                    {signedPointsFromRatio(row.incremental_conversion_effect)}
+                  </strong>
+                  <strong className="experiment-table__roi">
+                    {row.roi === null ? "-" : `${row.roi.toFixed(1)}×`}
+                  </strong>
+                  <span>{formatNumber(Math.round(row.incremental_revenue ?? 0))}원</span>
+                </div>
+              ))}
+            </div>
+            <p className="experiment-table__note">
+              {formatNumber(summary.target_count)}명 대상 · 접촉률 {formatPercent(summary.contact_rate)}
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="insights-section">
+        <div className="insights-section__header">
+          <span className="insights-status-badge insights-status-badge--new">신규·낮음</span>
+          <h2 className="insights-section__title">세그먼트 심화 분석</h2>
+          <span className="insights-file-ref">customer_insights</span>
+        </div>
+        <div className="mini-panel-grid">
+          <ClusterProfilePanel filters={filters} />
+          <RiskClusterHeatmap filters={filters} />
+          <ReasonCodeCooccurrencePanel filters={filters} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPage({ user, showCampaignFeedback = false }: DashboardPageProps) {
   const [data, setData] = useState<CustomerInsightList | null>(null);
   const [error, setError] = useState("");
@@ -830,7 +1836,7 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   const [campaignName, setCampaignName] = useState("이탈 위험 리텐션");
   const [campaignSubmitting, setCampaignSubmitting] = useState(false);
   const [campaignMessage, setCampaignMessage] = useState("");
-  const [activeTab, setActiveTab] = useState<DashboardTab>("insights");
+  const [activeView, setActiveView] = useState<"dashboard" | "insights">("dashboard");
 
   const canCreateCampaignTargets = user.role === "admin" || user.role === "marketing";
   const canProcessCampaignTargets = user.role === "admin" || user.role === "operations";
@@ -892,7 +1898,7 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
   }, []);
 
   useEffect(() => {
-    if (!shouldShowCampaignFeedback) {
+    if (!shouldShowCampaignFeedback && activeView !== "insights") {
       return;
     }
 
@@ -922,7 +1928,7 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
     return () => {
       isActive = false;
     };
-  }, [shouldShowCampaignFeedback]);
+  }, [activeView, shouldShowCampaignFeedback]);
 
   useEffect(() => {
     let isActive = true;
@@ -1090,32 +2096,46 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
 
   const isInitialLoading = data === null && error === "";
-  const dominantCluster = data === null ? null : getDominantCluster(data.stats.cluster_counts);
   const clusterOptions = data === null ? [] : getClusterOptions(data.stats.cluster_options);
   const highRiskCount = data?.stats.risk_counts.high ?? 0;
+  const analyticsFilters = useMemo<AnalyticsFilters>(() => ({
+    riskLevel: riskFilter,
+    clusterName: clusterFilter.trim() || undefined,
+    customerId: getCustomerIdFilter(customerIdFilter),
+  }), [clusterFilter, customerIdFilter, riskFilter]);
 
   return (
     <>
       <nav className="dashboard-tabs" aria-label="대시보드 탭">
         <button
           type="button"
-          className={`dashboard-tab${activeTab === "insights" ? " dashboard-tab--active" : ""}`}
-          onClick={() => setActiveTab("insights")}
+          className={`dashboard-tab${activeView === "dashboard" ? " dashboard-tab--active" : ""}`}
+          onClick={() => setActiveView("dashboard")}
         >
-          고객 인사이트
+          대시보드
         </button>
         <button
           type="button"
-          className={`dashboard-tab${activeTab === "eda" ? " dashboard-tab--active" : ""}`}
-          onClick={() => setActiveTab("eda")}
+          className={`dashboard-tab${activeView === "insights" ? " dashboard-tab--active" : ""}`}
+          onClick={() => setActiveView("insights")}
         >
-          EDA 차트
+          인사이트
         </button>
       </nav>
 
-      {isInitialLoading && <DashboardSkeleton />}
+      {activeView === "insights" && (
+        <InsightsTab
+          batch={batch}
+          performance={campaignPerformance}
+          isLoading={campaignPerformanceLoading}
+          error={campaignPerformanceError}
+          filters={analyticsFilters}
+        />
+      )}
 
-      {error !== "" && (
+      {activeView === "dashboard" && isInitialLoading && <DashboardSkeleton />}
+
+      {activeView === "dashboard" && error !== "" && (
         <section className="dashboard-error" role="alert">
           <strong>분석 결과를 불러오지 못했습니다.</strong>
           <span>{error}</span>
@@ -1123,67 +2143,88 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
         </section>
       )}
 
-      {data !== null && error === "" && activeTab === "eda" && (
-        <section className="bento-grid" aria-label="EDA 차트">
-          <EdaChartsSection stats={data.stats} />
-        </section>
-      )}
-
-      {data !== null && error === "" && activeTab === "insights" && (
+      {activeView === "dashboard" && data !== null && error === "" && (
         <section className="bento-grid" aria-label="고객 분석 대시보드">
-          <article className="bento-card bento-card--hero">
-            <div className="bento-card__heading">
-              <div>
-                <h2>분석 대상 고객</h2>
+          <div className="kpi-and-risk-row">
+            <div className="kpi-row kpi-row--inline">
+              <div className="kpi-item">
+                <strong>{formatNumber(data.stats.total)}</strong>
+                <span>분석 대상 고객</span>
               </div>
-              <span className="card-icon card-icon--spark" aria-hidden="true">✦</span>
-            </div>
-            <strong className="hero-number">{formatNumber(data.stats.total)}</strong>
-            <p className="hero-caption">현재 필터 조건에 해당하는 최신 분석 스냅샷</p>
-            <div className="hero-meta">
-              <span><i className="status-pulse" /> 데이터 연결됨</span>
-            </div>
-          </article>
-
-          <article className="bento-card bento-card--average">
-            <span className="metric-label">평균 이탈 확률</span>
-            <strong className="metric-number">{formatPercent(data.stats.average_churn_probability)}</strong>
-            <div className="metric-footnote"><span className="metric-trend">●</span> 최신 분석 기준</div>
-          </article>
-
-          <button
-            className="bento-card bento-card--priority"
-            type="button"
-            onClick={focusHighRisk}
-            aria-label="높은 이탈 위험 고객만 보기"
-          >
-            <div className="priority-visual"><span>{formatNumber(highRiskCount)}</span><small>위험</small></div>
-            <div>
-              <h2>우선 관리 고객</h2>
-              <p>높은 이탈 위험으로 분류된 고객입니다. 클릭해서 바로 확인하세요.</p>
-            </div>
-          </button>
-
-          <RiskOverview data={data} />
-
-          <article className="bento-card bento-card--cluster">
-            <div className="bento-card__heading">
-              <div>
-                <h2>주요 고객 군집</h2>
+              <div className="kpi-item">
+                <strong>{formatNumber(data.stats.total - highRiskCount)}</strong>
+                <span>정상 관리 고객</span>
               </div>
-              <span className="card-icon card-icon--cluster" aria-hidden="true">◌</span>
+              <button className="kpi-item kpi-item--danger" type="button" onClick={focusHighRisk}>
+                <strong>{formatNumber(highRiskCount)}</strong>
+                <span>고위험 고객</span>
+              </button>
+              <div className="kpi-item">
+                <strong>{formatPercent(data.stats.average_churn_probability)}</strong>
+                <span>평균 이탈 확률</span>
+              </div>
             </div>
-            {dominantCluster === null ? (
-              <p className="empty-copy">군집 데이터가 없습니다.</p>
-            ) : (
-              <>
-                <strong className="cluster-name">{dominantCluster[0]}</strong>
-                <p className="cluster-count">{formatNumber(dominantCluster[1])}명 · 전체 군집 중 최다</p>
-              </>
-            )}
-          </article>
 
-          <BatchOverview batch={batch} />
+            <RiskOverview data={data} />
+          </div>
+
+          <div className="eda-charts-grid">
+            <BatchOverview batch={batch} wide />
+            <CategoricalChurnRateChart filters={analyticsFilters} />
+            <NumericDistributionChart filters={analyticsFilters} />
+            <FeatureCorrelationChart filters={analyticsFilters} />
+          </div>
+
+          <div className="filter-bar" aria-label="고객 분석 결과 필터">
+            <label className="filter-bar__field filter-bar__field--search">
+              <span>고객 ID</span>
+              <input
+                type="search"
+                inputMode="numeric"
+                value={customerIdFilter}
+                placeholder="전체"
+                onChange={(event) => {
+                  setCustomerIdFilter(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <label className="filter-bar__field">
+              <span>위험도</span>
+              <select
+                value={riskFilter}
+                onChange={(event) => {
+                  setRiskFilter(event.target.value as RiskFilter);
+                  setPage(1);
+                }}
+              >
+                <option value="">전체</option>
+                <option value="high">높음</option>
+                <option value="medium">주의</option>
+                <option value="low">낮음</option>
+              </select>
+            </label>
+            <label className="filter-bar__field filter-bar__field--cluster">
+              <span>군집</span>
+              <select
+                aria-label="군집"
+                value={clusterFilter}
+                onChange={(event) => {
+                  setClusterFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">전체 군집</option>
+                {clusterOptions.map(([cluster, count]) => (
+                  <option key={cluster} value={cluster}>
+                    {cluster} ({formatNumber(count)}명)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="filter-bar__spacer" aria-hidden="true" />
+            <button className="filter-bar__reset" type="button" onClick={resetFilters}>초기화</button>
+          </div>
 
           <article className="bento-card bento-card--table">
             <div className="table-card__header">
@@ -1196,56 +2237,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
                 </button>
                 <span className="table-count">총 {formatNumber(data.total)}명</span>
               </div>
-            </div>
-
-            <div className="insight-filters" aria-label="고객 분석 결과 필터">
-              <label className="filter-field filter-field--search">
-                <span>고객 ID</span>
-                <input
-                  type="search"
-                  inputMode="numeric"
-                  value={customerIdFilter}
-                  placeholder="ID 검색"
-                  onChange={(event) => {
-                    setCustomerIdFilter(event.target.value);
-                    setPage(1);
-                  }}
-                />
-              </label>
-              <label className="filter-field">
-                <span>위험도</span>
-                <select
-                  value={riskFilter}
-                  onChange={(event) => {
-                    setRiskFilter(event.target.value as RiskFilter);
-                    setPage(1);
-                  }}
-                >
-                  <option value="">전체</option>
-                  <option value="high">높음</option>
-                  <option value="medium">주의</option>
-                  <option value="low">낮음</option>
-                </select>
-              </label>
-              <label className="filter-field filter-field--cluster">
-                <span>군집</span>
-                <select
-                  aria-label="군집"
-                  value={clusterFilter}
-                  onChange={(event) => {
-                    setClusterFilter(event.target.value);
-                    setPage(1);
-                  }}
-                >
-                  <option value="">전체 군집</option>
-                  {clusterOptions.map(([cluster, count]) => (
-                    <option key={cluster} value={cluster}>
-                      {cluster} ({formatNumber(count)}명)
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className="reset-filter-button" type="button" onClick={resetFilters}>초기화</button>
             </div>
 
             {data.items.length === 0 ? (

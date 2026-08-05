@@ -291,24 +291,24 @@ function CampaignActionDialog({
 function CampaignStats({ campaign }: { campaign: Campaign }) {
   const stats = campaign.stats;
   return (
-    <section className="campaign-management-stats" aria-label="캠페인 통계">
-      <article className="campaign-stat campaign-stat--purple">
-        <span>전체 대상 고객</span>
+    <div className="kpi-row" aria-label="캠페인 통계">
+      <div className="kpi-item kpi-item--purple">
         <strong>{formatNumber(stats.total_targets)}</strong>
-      </article>
-      <article className="campaign-stat campaign-stat--orange">
-        <span>미처리 고객</span>
+        <span>전체 대상 고객</span>
+      </div>
+      <div className="kpi-item kpi-item--orange">
         <strong>{formatNumber(stats.unprocessed_targets)}</strong>
-      </article>
-      <article className="campaign-stat campaign-stat--blue">
-        <span>접촉 시작 고객</span>
+        <span>미처리 고객</span>
+      </div>
+      <div className="kpi-item">
         <strong>{formatNumber(stats.contacted_targets)}</strong>
-      </article>
-      <article className="campaign-stat campaign-stat--green">
-        <span>전환 완료 고객</span>
+        <span>접촉 시작 고객</span>
+      </div>
+      <div className="kpi-item kpi-item--green">
         <strong>{formatNumber(stats.converted_targets)}</strong>
-      </article>
-    </section>
+        <span>전환 완료 고객</span>
+      </div>
+    </div>
   );
 }
 
