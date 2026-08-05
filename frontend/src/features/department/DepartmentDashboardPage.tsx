@@ -22,28 +22,6 @@ import {
 } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 
-const taskLabels: Record<string, string> = {
-  classification: "분류모델",
-  clustering: "군집모델",
-  regression: "회귀모델",
-};
-
-function getTaskLabel(task: string): string {
-  return taskLabels[task] ?? task;
-}
-
-function isHashLike(value: string): boolean {
-  return /^[a-f0-9]{32,}$/i.test(value);
-}
-
-function isTimestampLike(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
-}
-
-function isRawVersionValue(value: string): boolean {
-  return isHashLike(value) || isTimestampLike(value);
-}
-
 const roleLabels: Record<AuthUser["role"], string> = {
   admin: "관리자",
   analyst: "분석 담당자",
@@ -150,6 +128,28 @@ function formatDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+const taskLabels: Record<string, string> = {
+  classification: "분류모델",
+  clustering: "군집모델",
+  regression: "회귀모델",
+};
+
+function getTaskLabel(task: string): string {
+  return taskLabels[task] ?? task;
+}
+
+function isHashLike(value: string): boolean {
+  return /^[a-f0-9]{32,}$/i.test(value);
+}
+
+function isTimestampLike(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function isRawVersionValue(value: string): boolean {
+  return isHashLike(value) || isTimestampLike(value);
+}
+
 function campaignQueueErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   const translations: Record<string, string> = {
@@ -174,31 +174,37 @@ function DepartmentRiskBadge({ risk }: { risk: CustomerInsight["risk_level"] }) 
 
 function BatchCard({ batch }: { batch: LatestBatch | null }) {
   return (
-    <article className="department-panel department-panel--batch">
-      <div className="department-panel__heading">
+    <article className="eda-chart-card eda-chart-card--wide batch-overview--wide">
+      <div className="table-card__header eda-chart-card__header">
         <div>
-          <h2 style={{marginTop:0}}>최근 분석 배치</h2>
+          <h3>최근 배치</h3>
         </div>
-        <span className="batch-status">{batch === null ? "확인 중" : "SYNCED"}</span>
+        <span className="batch-status">{batch === null ? "확인 중" : "동기화 완료"}</span>
       </div>
-      <strong className="department-batch-time">
-        {formatDate(batch?.completed_at ?? batch?.started_at ?? null)}
-      </strong>
-      <p className="department-panel__caption">
-        {batch?.processed_rows === null || batch === null
-          ? "배치 실행 정보를 불러오는 중입니다."
-          : `${formatNumber(batch.processed_rows)}명 분석 완료`}
-      </p>
-      <div className="department-batch-models">
-        {batch?.runs.map((run) => (
-          <span key={run.id}>
-            {getTaskLabel(run.task)}
-            {run.model_version !== null && run.model_version !== "" && !isRawVersionValue(run.model_version)
-              ? ` · ${run.model_version}`
-              : null}
-          </span>
-        ))}
-      </div>
+      {batch === null ? (
+        <p className="empty-copy">배치 실행 정보를 불러오는 중입니다.</p>
+      ) : (
+        <div className="batch-overview__body">
+          <strong className="batch-time">
+            {formatDate(batch.completed_at ?? batch.started_at)}
+          </strong>
+          <p className="batch-caption">
+            {batch.processed_rows === null
+              ? "처리 행 수 미상"
+              : `${formatNumber(batch.processed_rows)}명 분석 완료`}
+          </p>
+          <div className="batch-models">
+            {batch.runs.map((run) => (
+              <span key={run.id}>
+                {getTaskLabel(run.task)}
+                {run.model_version !== null && run.model_version !== "" && !isRawVersionValue(run.model_version)
+                  ? ` · ${run.model_version}`
+                  : null}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -1220,7 +1226,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
       </div>
       <BatchCard batch={batch} />
       <InsightPriorityTable
-        kicker="PRIORITY INSIGHTS"
+        kicker="PRIORITY INSIGHTS"  
         heading="우선 관리 고객"
         insights={insights?.items ?? []}
         targets={targets}

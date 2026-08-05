@@ -1919,7 +1919,7 @@ button {
   letter-spacing: -0.06em;
 }
 
-.drawer-risk-summary span {
+.drawer-risk-summary span:not(.risk-badge) {
   color: var(--muted);
   font-size: 10px;
 }
@@ -4436,6 +4436,20 @@ button {
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 12px;
+}
+
+.filter-bar--embedded {
+  grid-column: auto;
+  margin: 0 0 20px;
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.filter-bar--embedded .filter-bar__field--cluster {
+  flex: 0 1 240px;
 }
 
 .filter-bar__field {

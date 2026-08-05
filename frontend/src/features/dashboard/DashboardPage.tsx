@@ -1190,7 +1190,7 @@ function CustomerDetailPanel({
             <div className="reason-list">
               {detail.reason_codes !== null && typeof detail.reason_codes === "object"
                 ? Object.entries(detail.reason_codes).map(([key, value]) => (
-                    <span key={key}>{key}: {String(value)}</span>
+                    <span key={key}>{getReasonCodeLabel(String(value))}</span>
                   ))
                 : <span>분석 근거가 등록되지 않았습니다.</span>}
             </div>
@@ -1661,11 +1661,13 @@ function MetricHelpButton({
 }
 
 function InsightsTab({
+  batch,
   performance,
   isLoading,
   error,
   filters,
 }: {
+  batch: LatestBatch | null;
   performance: CampaignPerformance | null;
   isLoading: boolean;
   error: string;
@@ -2123,6 +2125,7 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
       {activeView === "insights" && (
         <InsightsTab
+          batch={batch}
           performance={campaignPerformance}
           isLoading={campaignPerformanceLoading}
           error={campaignPerformanceError}
@@ -2172,58 +2175,58 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
             <FeatureCorrelationChart filters={analyticsFilters} />
           </div>
 
-          <div className="filter-bar" aria-label="고객 분석 결과 필터">
-            <label className="filter-bar__field filter-bar__field--search">
-              <span>고객 ID</span>
-              <input
-                type="search"
-                inputMode="numeric"
-                value={customerIdFilter}
-                placeholder="전체"
-                onChange={(event) => {
-                  setCustomerIdFilter(event.target.value);
-                  setPage(1);
-                }}
-              />
-            </label>
-            <label className="filter-bar__field">
-              <span>위험도</span>
-              <select
-                value={riskFilter}
-                onChange={(event) => {
-                  setRiskFilter(event.target.value as RiskFilter);
-                  setPage(1);
-                }}
-              >
-                <option value="">전체</option>
-                <option value="high">높음</option>
-                <option value="medium">주의</option>
-                <option value="low">낮음</option>
-              </select>
-            </label>
-            <label className="filter-bar__field filter-bar__field--cluster">
-              <span>군집</span>
-              <select
-                aria-label="군집"
-                value={clusterFilter}
-                onChange={(event) => {
-                  setClusterFilter(event.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">전체 군집</option>
-                {clusterOptions.map(([cluster, count]) => (
-                  <option key={cluster} value={cluster}>
-                    {cluster} ({formatNumber(count)}명)
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="filter-bar__spacer" aria-hidden="true" />
-            <button className="filter-bar__reset" type="button" onClick={resetFilters}>초기화</button>
-          </div>
-
           <article className="bento-card bento-card--table">
+            <div className="filter-bar filter-bar--embedded" aria-label="고객 분석 결과 필터">
+              <label className="filter-bar__field filter-bar__field--search">
+                <span>고객 ID</span>
+                <input
+                  type="search"
+                  inputMode="numeric"
+                  value={customerIdFilter}
+                  placeholder="전체"
+                  onChange={(event) => {
+                    setCustomerIdFilter(event.target.value);
+                    setPage(1);
+                  }}
+                />
+              </label>
+              <label className="filter-bar__field">
+                <span>위험도</span>
+                <select
+                  value={riskFilter}
+                  onChange={(event) => {
+                    setRiskFilter(event.target.value as RiskFilter);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">전체</option>
+                  <option value="high">높음</option>
+                  <option value="medium">주의</option>
+                  <option value="low">낮음</option>
+                </select>
+              </label>
+              <label className="filter-bar__field filter-bar__field--cluster">
+                <span>군집</span>
+                <select
+                  aria-label="군집"
+                  value={clusterFilter}
+                  onChange={(event) => {
+                    setClusterFilter(event.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">전체 군집</option>
+                  {clusterOptions.map(([cluster, count]) => (
+                    <option key={cluster} value={cluster}>
+                      {cluster} ({formatNumber(count)}명)
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="filter-bar__spacer" aria-hidden="true" />
+              <button className="filter-bar__reset" type="button" onClick={resetFilters}>초기화</button>
+            </div>
+
             <div className="table-card__header">
               <div>
                 <h2>고객별 분석 결과</h2>

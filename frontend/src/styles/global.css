@@ -1904,7 +1904,7 @@ button {
   letter-spacing: -0.06em;
 }
 
-.drawer-risk-summary span {
+.drawer-risk-summary span:not(.risk-badge) {
   color: var(--muted);
   font-size: 10px;
 }
