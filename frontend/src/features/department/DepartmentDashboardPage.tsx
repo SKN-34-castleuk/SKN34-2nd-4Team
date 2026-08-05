@@ -22,6 +22,28 @@ import {
 } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 
+const taskLabels: Record<string, string> = {
+  classification: "분류모델",
+  clustering: "군집모델",
+  regression: "회귀모델",
+};
+
+function getTaskLabel(task: string): string {
+  return taskLabels[task] ?? task;
+}
+
+function isHashLike(value: string): boolean {
+  return /^[a-f0-9]{32,}$/i.test(value);
+}
+
+function isTimestampLike(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function isRawVersionValue(value: string): boolean {
+  return isHashLike(value) || isTimestampLike(value);
+}
+
 const roleLabels: Record<AuthUser["role"], string> = {
   admin: "관리자",
   analyst: "분석 담당자",
@@ -158,9 +180,8 @@ function StatCard({ label, value, caption, tone = "purple" }: {
 }) {
   return (
     <article className={`department-stat department-stat--${tone}`}>
-      <span>{label}</span>
+      <h3 style={{marginTop:0}}>{caption}</h3>
       <strong>{value}</strong>
-      <small>{caption}</small>
     </article>
   );
 }
@@ -170,8 +191,7 @@ function BatchCard({ batch }: { batch: LatestBatch | null }) {
     <article className="department-panel department-panel--batch">
       <div className="department-panel__heading">
         <div>
-          <p className="card-kicker">DATA FRESHNESS</p>
-          <h2>최근 분석 배치</h2>
+          <h2 style={{marginTop:0}}>최근 분석 배치</h2>
         </div>
         <span className="batch-status">{batch === null ? "확인 중" : "SYNCED"}</span>
       </div>
@@ -185,7 +205,12 @@ function BatchCard({ batch }: { batch: LatestBatch | null }) {
       </p>
       <div className="department-batch-models">
         {batch?.runs.map((run) => (
-          <span key={run.id}>{run.task} · {run.model_version}</span>
+          <span key={run.id}>
+            {getTaskLabel(run.task)}
+            {run.model_version !== null && run.model_version !== "" && !isRawVersionValue(run.model_version)
+              ? ` · ${run.model_version}`
+              : null}
+          </span>
         ))}
       </div>
     </article>
