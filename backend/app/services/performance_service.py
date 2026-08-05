@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..enums import CampaignStatus, ExperimentGroup
-from ..models import Campaign, CampaignTarget, User
+from ..models import Campaign, CampaignTarget, CustomerInsight, User
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,8 @@ class PerformanceRow:
     campaign: Campaign
     assignee_label: str | None
     fixed_cost_share: float = 0.0
+    cluster_name: str | None = None
+    risk_level: str | None = None
 
 
 def _rate(numerator: int, denominator: int) -> float:
@@ -300,9 +302,13 @@ def fetch_performance_rows(
 ) -> list[PerformanceRow]:
     """취소 대상을 제외한 성과 원천 데이터를 조회합니다."""
     query = (
-        select(CampaignTarget, Campaign, User)
+        select(CampaignTarget, Campaign, User, CustomerInsight)
         .join(Campaign, Campaign.id == CampaignTarget.campaign_id)
         .outerjoin(User, User.id == CampaignTarget.assigned_to_user_id)
+        .join(
+            CustomerInsight,
+            CustomerInsight.id == CampaignTarget.customer_insight_id,
+        )
         .where(CampaignTarget.status != CampaignStatus.CANCELLED.value)
     )
     if campaign_id is not None:
@@ -314,7 +320,7 @@ def fetch_performance_rows(
             CampaignTarget.assigned_to_user_id == assigned_to_user_id
         )
     raw_rows = db.execute(query).all()
-    campaign_ids = {campaign.id for _target, campaign, _assignee in raw_rows}
+    campaign_ids = {campaign.id for _target, campaign, _assignee, _insight in raw_rows}
     campaign_target_counts: dict[int, int] = {}
     if campaign_ids:
         count_rows = db.execute(
@@ -330,7 +336,7 @@ def fetch_performance_rows(
             for row_campaign_id, count in count_rows
         }
     rows: list[PerformanceRow] = []
-    for target, campaign, assignee in raw_rows:
+    for target, campaign, assignee, insight in raw_rows:
         campaign_target_count = campaign_target_counts.get(campaign.id, 0)
         rows.append(
             PerformanceRow(
@@ -342,6 +348,8 @@ def fetch_performance_rows(
                     if campaign_target_count
                     else 0.0
                 ),
+                cluster_name=insight.cluster_name,
+                risk_level=insight.risk_level,
             )
         )
     return rows
@@ -366,6 +374,29 @@ def build_performance_breakdowns(
         )
         labels = {
             key: ("미분류" if key == "unsegmented" else key)
+            for key in grouped
+        }
+    elif dimension == "cluster":
+        grouped = _group_rows(
+            rows,
+            lambda row: row.cluster_name or "unclustered",
+        )
+        labels = {
+            key: ("미분류" if key == "unclustered" else key)
+            for key in grouped
+        }
+    elif dimension == "risk_level":
+        grouped = _group_rows(
+            rows,
+            lambda row: row.risk_level or "unclassified",
+        )
+        risk_level_labels = {
+            "high": "높음 (고위험)",
+            "medium": "주의 (중위험)",
+            "low": "낮음 (저위험)",
+        }
+        labels = {
+            key: risk_level_labels.get(key, "미분류")
             for key in grouped
         }
     else:
@@ -439,6 +470,16 @@ def get_campaign_performance(
         "by_assignee": build_performance_breakdowns(
             rows,
             dimension="assignee",
+            benchmark_rows=benchmark_rows,
+        ),
+        "by_cluster": build_performance_breakdowns(
+            rows,
+            dimension="cluster",
+            benchmark_rows=benchmark_rows,
+        ),
+        "by_risk_level": build_performance_breakdowns(
+            rows,
+            dimension="risk_level",
             benchmark_rows=benchmark_rows,
         ),
         "generated_at": datetime.now(timezone.utc),

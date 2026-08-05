@@ -141,7 +141,7 @@ def _enforce_login_rate_limit(
     request: Request,
 ) -> None:
     """최근 실패를 사용자·IP 조합과 IP 전체 기준으로 제한합니다."""
-    max_attempts, ip_max_attempts, window_seconds = get_login_rate_limit()
+    max_attempts, _ip_max_attempts, window_seconds = get_login_rate_limit()
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
     ip_address = _client_ip(request)
     pair_conditions = [
@@ -171,18 +171,19 @@ def _enforce_login_rate_limit(
         db.scalar(select(func.count(AuthEvent.id)).where(*pair_conditions)) or 0
     )
     ip_failures = 0
-    if ip_address is not None:
-        ip_failures = int(
-            db.scalar(
-                select(func.count(AuthEvent.id)).where(
-                    AuthEvent.event_type == "login_failed",
-                    AuthEvent.created_at >= cutoff,
-                    AuthEvent.ip_address == ip_address,
-                )
-            )
-            or 0
-        )
-    if pair_failures < max_attempts and ip_failures < ip_max_attempts:
+    # IP 전체 기준 제한은 비활성화합니다.
+    # if ip_address is not None:
+    #     ip_failures = int(
+    #         db.scalar(
+    #             select(func.count(AuthEvent.id)).where(
+    #                 AuthEvent.event_type == "login_failed",
+    #                 AuthEvent.created_at >= cutoff,
+    #                 AuthEvent.ip_address == ip_address,
+    #             )
+    #         )
+    #         or 0
+    #     )
+    if pair_failures < max_attempts:
         return
     _add_auth_event(
         db,

@@ -993,6 +993,10 @@ export interface components {
             by_segment: components["schemas"]["CampaignPerformanceBreakdown"][];
             /** By Assignee */
             by_assignee: components["schemas"]["CampaignPerformanceBreakdown"][];
+            /** By Cluster */
+            by_cluster: components["schemas"]["CampaignPerformanceBreakdown"][];
+            /** By Risk Level */
+            by_risk_level: components["schemas"]["CampaignPerformanceBreakdown"][];
             /**
              * Generated At
              * Format: date-time
@@ -1461,6 +1465,40 @@ export interface components {
             };
         };
         /**
+         * HighRiskCoverageResponse
+         * @description 고위험 고객의 캠페인 등록 커버리지 요약입니다.
+         */
+        HighRiskCoverageResponse: {
+            /** Total High Risk */
+            total_high_risk: number;
+            /** Enrolled High Risk */
+            enrolled_high_risk: number;
+            /** Coverage Rate */
+            coverage_rate: number | null;
+        };
+        /**
+         * ReasonCodeDistributionResponse
+         * @description 위험 사유 코드별 등장 빈도 분포입니다.
+         */
+        ReasonCodeDistributionResponse: {
+            /** Total Customers */
+            total_customers: number;
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * DualSignalSummaryResponse
+         * @description 분류·회귀 모델이 동시에 위험 신호를 보내는 고객 수입니다.
+         */
+        DualSignalSummaryResponse: {
+            /** Count */
+            count: number;
+            /** Activity Gap Threshold */
+            activity_gap_threshold: number | null;
+        };
+        /**
          * CustomerProfileResponse
          * @description 분석 상세 화면에 제공할 고객 원본 특성입니다.
          */
@@ -1662,6 +1700,41 @@ export interface components {
          */
         ModelRunStatus: "running" | "succeeded" | "failed";
         /**
+         * ScoringBatchHistoryItem
+         * @description 개별 scoring batch 실행 이력 한 건입니다.
+         */
+        ScoringBatchHistoryItem: {
+            /** Id */
+            id: number;
+            /** Attempt Number */
+            attempt_number: number;
+            /**
+             * As Of Date
+             * Format: date
+             */
+            as_of_date: string;
+            status: components["schemas"]["ModelRunStatus"];
+            /** Processed Rows */
+            processed_rows: number | null;
+            /** Error Message */
+            error_message: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at: string | null;
+        };
+        /**
+         * ScoringBatchHistoryResponse
+         * @description 최근 scoring batch 실행 이력 목록입니다.
+         */
+        ScoringBatchHistoryResponse: {
+            /** Items */
+            items: components["schemas"]["ScoringBatchHistoryItem"][];
+        };
+        /**
          * PredictionRequest
          * @description 학습된 분류 파이프라인이 요구하는 고객 특성 입력값입니다.
          */
@@ -1744,6 +1817,29 @@ export interface components {
          * @enum {string}
          */
         RiskLevel: "low" | "medium" | "high";
+        /**
+         * SlaTierSummaryResponse
+         * @description 위험 등급 하나의 응대시간 SLA 준수 현황입니다.
+         */
+        SlaTierSummaryResponse: {
+            risk_level: components["schemas"]["RiskLevel"];
+            /** Target Hours */
+            target_hours: number;
+            /** Contacted Count */
+            contacted_count: number;
+            /** Met Count */
+            met_count: number;
+            /** Met Rate */
+            met_rate: number | null;
+        };
+        /**
+         * SlaSummaryResponse
+         * @description 위험 등급별 응대시간 SLA 준수 현황 목록입니다.
+         */
+        SlaSummaryResponse: {
+            /** Tiers */
+            tiers: components["schemas"]["SlaTierSummaryResponse"][];
+        };
         /**
          * SignupRequest
          * @description 팀 계정 회원가입 요청입니다.

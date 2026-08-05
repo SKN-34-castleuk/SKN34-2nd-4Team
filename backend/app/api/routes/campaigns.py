@@ -23,6 +23,8 @@ from ...schemas import (
     CampaignTargetResponse,
     CampaignTargetUpdateRequest,
     CampaignUpdateRequest,
+    SlaSummaryResponse,
+    SlaTierSummaryResponse,
 )
 from ...services.campaign_service import (
     CampaignAssigneeError,
@@ -36,6 +38,7 @@ from ...services.campaign_service import (
     fetch_campaign_events,
     fetch_campaign_targets,
     fetch_campaigns,
+    fetch_sla_summary,
     get_or_create_legacy_campaign,
     update_campaign,
     update_campaign_target,
@@ -483,6 +486,22 @@ def list_campaign_targets(
         total=result.total,
         total_pages=(result.total + page_size - 1) // page_size if result.total else 0,
         stats=_to_stats_response(result.stats),
+    )
+
+
+@campaigns_router.get(
+    "/campaign-targets/sla-summary",
+    response_model=SlaSummaryResponse,
+    summary="위험 등급별 응대시간 SLA 준수 현황 조회",
+)
+def get_sla_summary(
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SlaSummaryResponse:
+    """접촉 완료된 대상의 응대시간을 위험 등급별 SLA 목표와 비교합니다."""
+    tiers = fetch_sla_summary(db)
+    return SlaSummaryResponse(
+        tiers=[SlaTierSummaryResponse(**tier.__dict__) for tier in tiers]
     )
 
 

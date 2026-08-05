@@ -129,6 +129,13 @@ def test_campaign_performance_calculates_ab_retention_incrementality_and_roi(
             assert summary.roi == -1.0
             assert len(result["by_segment"]) == 1
             assert result["by_segment"][0]["key"] == "high_risk_retention"
+            assert len(result["by_cluster"]) == 1
+            assert result["by_cluster"][0]["key"] == "우선케어(거래 감소)"
+            assert result["by_cluster"][0]["target_count"] == 2
+            assert len(result["by_risk_level"]) == 1
+            assert result["by_risk_level"][0]["key"] == "high"
+            assert result["by_risk_level"][0]["label"] == "높음 (고위험)"
+            assert result["by_risk_level"][0]["target_count"] == 2
             assignee_metrics = next(
                 item
                 for item in result["by_assignee"]

@@ -205,8 +205,7 @@ docker compose exec backend python -m backend.scripts.import_customers
 
 ```bash
 docker compose exec backend python -m backend.scripts.generate_synthetic_customers
-docker compose exec backend python -m backend.scripts.import_customers \
-  --data-path //app/data/synthetic/synthetic_customers.csv --replace
+docker compose exec backend python -m backend.scripts.import_customers --data-path //app/data/synthetic/synthetic_customers.csv --replace
 ```
 
 `import_customers`는 `CLIENTNUM` 기준 upsert 방식이므로 다시 실행해도 고객이
@@ -244,8 +243,7 @@ docker compose up -d --force-recreate backend
    연결됩니다. 두 스크립트 모두 자기가 만든 캠페인을 지우고 새로 만듭니다.
 
 ```bash
-docker compose exec backend python -m backend.scripts.seed_demo_campaign \
-  --limit-per-campaign 60
+docker compose exec backend python -m backend.scripts.seed_demo_campaign --limit-per-campaign 60
 docker compose exec backend python -m backend.scripts.seed_segment_scenarios
 ```
 

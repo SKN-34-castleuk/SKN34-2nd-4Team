@@ -17,6 +17,7 @@ from ..enums import (
     CampaignResultCode,
     CampaignStatus,
     ExperimentGroup,
+    RiskLevel,
     UserRole,
 )
 from ..models import Campaign, CampaignEvent, CampaignTarget, Customer, CustomerInsight, User
@@ -126,6 +127,68 @@ class CampaignStats:
     contacted_targets: int
     converted_targets: int
     status_counts: dict[str, int]
+
+
+# 위험 등급별 목표 응대시간(시간 단위) — 고위험일수록 더 빠른 응대를 요구합니다.
+SLA_TARGET_HOURS: dict[str, float] = {
+    RiskLevel.LOW.value: 6.0,
+    RiskLevel.MEDIUM.value: 12.0,
+    RiskLevel.HIGH.value: 4.0,
+}
+
+
+@dataclass(frozen=True)
+class SlaTierSummary:
+    """위험 등급별 응대시간 SLA 준수 현황입니다."""
+
+    risk_level: str
+    target_hours: float
+    contacted_count: int
+    met_count: int
+    met_rate: float | None
+
+
+def fetch_sla_summary(db: Session) -> list[SlaTierSummary]:
+    """접촉을 마친 대상의 응대시간을 위험 등급별 SLA 목표와 비교합니다.
+
+    비개입군(control)은 의도적으로 접촉하지 않는 비교군이라 SLA 대상에서 제외합니다.
+    """
+    rows = db.execute(
+        select(
+            CustomerInsight.risk_level,
+            CampaignTarget.created_at,
+            CampaignTarget.contacted_at,
+        )
+        .join(
+            CustomerInsight,
+            CustomerInsight.id == CampaignTarget.customer_insight_id,
+        )
+        .where(
+            CampaignTarget.contacted_at.is_not(None),
+            CampaignTarget.experiment_group != ExperimentGroup.CONTROL.value,
+            CampaignTarget.status != CampaignStatus.CANCELLED.value,
+        )
+    ).all()
+    buckets: dict[str, list[float]] = {level: [] for level in SLA_TARGET_HOURS}
+    for risk_level, created_at, contacted_at in rows:
+        if risk_level not in buckets:
+            continue
+        hours = (contacted_at - created_at).total_seconds() / 3600
+        buckets[risk_level].append(hours)
+    summaries: list[SlaTierSummary] = []
+    for risk_level, target_hours in SLA_TARGET_HOURS.items():
+        durations = buckets[risk_level]
+        met_count = sum(1 for hours in durations if hours <= target_hours)
+        summaries.append(
+            SlaTierSummary(
+                risk_level=risk_level,
+                target_hours=target_hours,
+                contacted_count=len(durations),
+                met_count=met_count,
+                met_rate=(met_count / len(durations)) if durations else None,
+            )
+        )
+    return summaries
 
 
 @dataclass(frozen=True)

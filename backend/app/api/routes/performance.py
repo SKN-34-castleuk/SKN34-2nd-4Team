@@ -44,6 +44,14 @@ def _to_response(
             CampaignPerformanceBreakdown(**item)
             for item in result["by_assignee"]
         ],
+        by_cluster=[
+            CampaignPerformanceBreakdown(**item)
+            for item in result["by_cluster"]
+        ],
+        by_risk_level=[
+            CampaignPerformanceBreakdown(**item)
+            for item in result["by_risk_level"]
+        ],
         generated_at=result["generated_at"],
     )
 

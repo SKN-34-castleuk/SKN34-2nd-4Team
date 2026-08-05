@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from ...database import get_db
 from ...enums import ModelRunStatus
 from ...models import ModelRun, User
-from ...schemas import LatestBatchResponse, ModelRunResponse
+from ...schemas import (
+    LatestBatchResponse,
+    ModelRunResponse,
+    ScoringBatchHistoryItem,
+    ScoringBatchHistoryResponse,
+)
 from ...services.model_run_service import (
     fetch_latest_scoring_batch,
     fetch_latest_successful_batch,
+    fetch_scoring_batch_history,
 )
 
 
@@ -95,4 +101,21 @@ def get_latest_batch(
         processed_rows=processed_rows,
         dataset_sha256=dataset_sha256,
         runs=[_to_model_run_response(run) for run in runs],
+    )
+
+
+@model_runs_router.get(
+    "/history",
+    response_model=ScoringBatchHistoryResponse,
+    summary="모델 배치 실행 이력 조회",
+)
+def get_scoring_batch_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ScoringBatchHistoryResponse:
+    """상태(running/succeeded/failed)와 무관하게 최근 배치 이력을 반환합니다."""
+    batches = fetch_scoring_batch_history(db, limit=limit)
+    return ScoringBatchHistoryResponse(
+        items=[ScoringBatchHistoryItem.model_validate(batch) for batch in batches]
     )

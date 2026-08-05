@@ -248,6 +248,44 @@ class CustomerInsightStats(BaseModel):
     cluster_options: dict[str, int]
 
 
+class HighRiskCoverageResponse(BaseModel):
+    """고위험 고객의 캠페인 등록 커버리지 요약입니다."""
+
+    total_high_risk: int
+    enrolled_high_risk: int
+    coverage_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class ReasonCodeDistributionResponse(BaseModel):
+    """위험 사유 코드별 등장 빈도 분포입니다."""
+
+    total_customers: int
+    counts: dict[str, int]
+
+
+class DualSignalSummaryResponse(BaseModel):
+    """분류·회귀 모델이 동시에 위험 신호를 보내는 고객 수입니다."""
+
+    count: int
+    activity_gap_threshold: float | None = None
+
+
+class SlaTierSummaryResponse(BaseModel):
+    """위험 등급 하나의 응대시간 SLA 준수 현황입니다."""
+
+    risk_level: RiskLevel
+    target_hours: float
+    contacted_count: int
+    met_count: int
+    met_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class SlaSummaryResponse(BaseModel):
+    """위험 등급별 응대시간 SLA 준수 현황 목록입니다."""
+
+    tiers: list[SlaTierSummaryResponse]
+
+
 class CategoricalChurnRateItem(BaseModel):
     """범주형 변수 한 그룹의 이탈률 요약입니다."""
 
@@ -337,6 +375,27 @@ class LatestBatchResponse(BaseModel):
     processed_rows: int | None
     dataset_sha256: str | None
     runs: list[ModelRunResponse]
+
+
+class ScoringBatchHistoryItem(BaseModel):
+    """개별 scoring batch 실행 이력 한 건입니다."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    attempt_number: int
+    as_of_date: date
+    status: ModelRunStatus
+    processed_rows: int | None
+    error_message: str | None
+    started_at: UtcDatetime
+    completed_at: UtcDatetime | None
+
+
+class ScoringBatchHistoryResponse(BaseModel):
+    """최근 scoring batch 실행 이력 목록입니다."""
+
+    items: list[ScoringBatchHistoryItem]
 
 
 class CampaignStatsResponse(BaseModel):
@@ -593,7 +652,9 @@ class CampaignPerformanceResponse(BaseModel):
     summary: CampaignPerformanceMetrics
     by_campaign: list[CampaignPerformanceBreakdown]
     by_segment: list[CampaignPerformanceBreakdown]
+    by_risk_level: list[CampaignPerformanceBreakdown]
     by_assignee: list[CampaignPerformanceBreakdown]
+    by_cluster: list[CampaignPerformanceBreakdown]
     generated_at: UtcDatetime
 
 

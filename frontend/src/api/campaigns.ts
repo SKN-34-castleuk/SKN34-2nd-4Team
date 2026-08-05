@@ -17,6 +17,7 @@ export type CampaignResultCode =
   components["schemas"]["CampaignResultCode"];
 export type CampaignPerformance =
   components["schemas"]["CampaignPerformanceResponse"];
+export type SlaSummary = components["schemas"]["SlaSummaryResponse"];
 export type BulkTargetingSegment =
   components["schemas"]["BulkTargetingSegment"];
 export type BulkTargetingRun =
@@ -100,6 +101,10 @@ export function getCampaignPerformance(query: {
   return request<CampaignPerformance>(
     `/api/v1/campaign-performance${toQueryString(query)}`,
   );
+}
+
+export function getSlaSummary(): Promise<SlaSummary> {
+  return request<SlaSummary>("/api/v1/campaign-targets/sla-summary");
 }
 
 export function listCampaignTargets(query: {

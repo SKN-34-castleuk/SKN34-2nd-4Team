@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -29,6 +30,31 @@ class InsightFilters:
     customer_id: int | None = None
     campaign_candidates_only: bool = False
     campaign_id: int | None = None
+
+
+@dataclass(frozen=True)
+class HighRiskCoverage:
+    """고위험 고객의 캠페인 등록 현황입니다."""
+
+    total_high_risk: int
+    enrolled_high_risk: int
+    coverage_rate: float | None
+
+
+@dataclass(frozen=True)
+class ReasonCodeDistribution:
+    """위험 사유 코드별 등장 빈도 집계입니다."""
+
+    total_customers: int
+    counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class DualSignalSummary:
+    """분류모델 고위험 + 회귀모델 활동성 갭 하위 20%에 동시 해당하는 고객 수입니다."""
+
+    count: int
+    activity_gap_threshold: float | None
 
 
 @dataclass(frozen=True)
@@ -281,6 +307,92 @@ def fetch_insight_page(
         cluster_counts={str(row[0]): int(row[1]) for row in cluster_rows},
         cluster_options={str(row[0]): int(row[1]) for row in cluster_option_rows},
     )
+
+
+def fetch_high_risk_coverage(db: Session) -> HighRiskCoverage:
+    """고위험 고객 중 캠페인 대상으로 이미 등록된 비율을 계산합니다.
+
+    등록 여부는 상태와 무관하게 CampaignTarget 존재 여부로 판단합니다 —
+    한 번이라도 캠페인 대상으로 잡힌 고객은 "조치 시작됨"으로 간주합니다.
+    """
+    high_risk_subquery = (
+        _latest_query()
+        .where(CustomerInsight.risk_level == RiskLevel.HIGH.value)
+        .order_by(None)
+        .subquery()
+    )
+    total_high_risk = int(
+        db.scalar(select(func.count()).select_from(high_risk_subquery)) or 0
+    )
+    has_campaign_target = exists(
+        select(CampaignTarget.id).where(
+            CampaignTarget.customer_id == high_risk_subquery.c.customer_id,
+        )
+    )
+    enrolled_high_risk = int(
+        db.scalar(
+            select(func.count())
+            .select_from(high_risk_subquery)
+            .where(has_campaign_target)
+        )
+        or 0
+    )
+    coverage_rate = (
+        enrolled_high_risk / total_high_risk if total_high_risk > 0 else None
+    )
+    return HighRiskCoverage(
+        total_high_risk=total_high_risk,
+        enrolled_high_risk=enrolled_high_risk,
+        coverage_rate=coverage_rate,
+    )
+
+
+def fetch_reason_code_distribution(
+    db: Session,
+    *,
+    risk_level: RiskLevel | None = None,
+) -> ReasonCodeDistribution:
+    """고객 최신 분석 결과의 위험 사유 코드 분포를 집계합니다.
+
+    reason_codes는 JSON 배열 컬럼이라 DB 종류에 상관없이 안전하게 집계하려면
+    SQL GROUP BY 대신 파이썬에서 Counter로 집계해야 합니다.
+    """
+    query = _latest_query()
+    if risk_level is not None:
+        query = query.where(CustomerInsight.risk_level == risk_level.value)
+    subquery = query.order_by(None).subquery()
+    rows = db.execute(select(subquery.c.reason_codes)).all()
+    counter: Counter[str] = Counter()
+    for (reason_codes,) in rows:
+        if isinstance(reason_codes, list):
+            counter.update(str(code) for code in reason_codes)
+        elif isinstance(reason_codes, dict):
+            counter.update(str(code) for code in reason_codes.keys())
+    return ReasonCodeDistribution(
+        total_customers=len(rows),
+        counts=dict(counter),
+    )
+
+
+def fetch_dual_signal_count(db: Session) -> DualSignalSummary:
+    """분류모델과 회귀모델이 동시에 위험 신호를 보내는 고객 수를 계산합니다.
+
+    "활동성 갭 하위 20%"는 전체 고객 최신 스냅샷 기준 20번째 백분위수를
+    파이썬에서 계산합니다(최근접 순위 방식) — DB 종류에 상관없이 동작합니다.
+    """
+    insights = db.scalars(_latest_query()).all()
+    gaps = sorted(insight.activity_gap for insight in insights)
+    if not gaps:
+        return DualSignalSummary(count=0, activity_gap_threshold=None)
+    rank = max(1, (len(gaps) * 20 + 99) // 100)
+    threshold = gaps[rank - 1]
+    count = sum(
+        1
+        for insight in insights
+        if insight.risk_level == RiskLevel.HIGH.value
+        and insight.activity_gap <= threshold
+    )
+    return DualSignalSummary(count=count, activity_gap_threshold=threshold)
 
 
 def fetch_latest_customer_insight(
