@@ -223,7 +223,9 @@ function GuideDialog({ guideKey, onClose }: { guideKey: string | null; onClose: 
 
 const MARKETING_INSIGHT_PAGE_SIZE = 8;
 const OPERATIONS_INSIGHT_PAGE_SIZE = 8;
-const DUAL_SIGNAL_FETCH_SIZE = 200;
+// 서버가 허용하는 page_size 최대값(100)에 맞춰 이중신호 후보를 2페이지(최대 200명)로 나눠 조회합니다.
+const DUAL_SIGNAL_PAGE_SIZE = 100;
+const DUAL_SIGNAL_FETCH_PAGES = 2;
 const CAMPAIGN_QUEUE_PAGE_SIZE = 8;
 // 캠페인 필터 선택지 상한입니다. 서버가 허용하는 page_size 최대값이기도 합니다.
 const CAMPAIGN_FILTER_PAGE_SIZE = 100;
@@ -340,8 +342,6 @@ const OPERATIONS_TOC = [
   { id: "operations-verdict", label: "핵심 결론" },
   { id: "operations-priority", label: "우선 관리 고객" },
   { id: "operations-queue", label: "캠페인 처리 현황" },
-  { id: "operations-evidence", label: "근거" },
-  { id: "operations-detail", label: "상세 지표" },
 ];
 
 function OperationsTopNav() {
@@ -1730,9 +1730,6 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [activeCampaignCount, setActiveCampaignCount] = useState<number | null>(null);
   const [adminDetailOpen, setAdminDetailOpen] = useState(false);
   const [activeGuideKey, setActiveGuideKey] = useState<string | null>(null);
-  const [operationsDetail, setOperationsDetail] = useState<
-    "이탈 사유코드 분포" | "접촉률 / 전환율" | "담당자별 처리 현황" | "미처리 대기열" | null
-  >(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -1758,7 +1755,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
           sort_by: "activity_gap" as const,
           sort_order: "asc" as const,
           page: 1,
-          page_size: DUAL_SIGNAL_FETCH_SIZE,
+          page_size: DUAL_SIGNAL_PAGE_SIZE,
         };
       }
       return {
@@ -1790,12 +1787,20 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
 
   useEffect(() => {
     let isActive = true;
+    const fetchDualSignalExtraPages = dualSignalFilterActive && user.role === "operations";
     const load = async () => {
     const [
-      insightResult, campaignResult, performanceResult, coverageResult,
+      insightResult, insightExtraPagesResult, campaignResult, performanceResult, coverageResult,
       dualSignalResult, activeCampaignResult, reasonCodeResult,
     ] = await Promise.allSettled([
         listCustomerInsights(insightQuery),
+        fetchDualSignalExtraPages
+          ? Promise.all(
+              Array.from({ length: DUAL_SIGNAL_FETCH_PAGES - 1 }, (_, i) =>
+                listCustomerInsights({ ...insightQuery, page: i + 2 }),
+              ),
+            )
+          : Promise.resolve([]),
         listCampaignTargets({
     page: campaignQueuePage,
     page_size: CAMPAIGN_QUEUE_PAGE_SIZE,
@@ -1812,7 +1817,12 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         return;
       }
       if (insightResult.status === "fulfilled") {
-        setInsights(insightResult.value);
+        const extraItems = insightExtraPagesResult.status === "fulfilled"
+          ? insightExtraPagesResult.value.flatMap((page) => page.items)
+          : [];
+        setInsights(extraItems.length === 0
+          ? insightResult.value
+          : { ...insightResult.value, items: [...insightResult.value.items, ...extraItems] });
       } else {
         setError(insightResult.reason instanceof Error ? insightResult.reason.message : "분석 결과를 불러오지 못했습니다.");
       }
@@ -1999,65 +2009,74 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const roleContent = user.role === "operations" ? (
     <>
       <OperationsTopNav />
-      <div id="operations-verdict">
-        <OperationsVerdictHero dualSignal={dualSignal} pendingCount={pendingCount} />
-      </div>
-      <section className="department-stats">
-        <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 상담 대상" tone="pink" />
-        <StatCard label="처리대기" value={formatNumber(pendingCount)} caption="대기중인 캠페인 대상" tone="orange" />
-        <StatCard label="완료" value={formatNumber(completedCount)} caption="처리 완료된 캠페인 대상" tone="green" />
-      </section>
-      <div id="operations-priority">
-        <InsightPriorityTable
-          kicker="PRIORITY INSIGHTS"
-          heading="우선 관리 고객"
-          toolbar={dualSignalFilterActive ? (
-            <div className="department-filter-chip is-active">
-              조기경보 겹침 고객만 보는 중
-              <button type="button" onClick={() => setDualSignalFilterActive(false)}>✕ 해제</button>
-            </div>
-          ) : undefined}
-          insights={priorityInsights}
-          targets={targets}
-          campaignName="리텐션 등록"
-          onCreate={canCreateCampaignTargets ? (item, name) => void createCampaign(item, name) : undefined}
-          allowCustomName
-          compact
-          isCreating={isCreating}
-          total={priorityTotal}
-          page={dualSignalFilterActive ? 1 : operationsInsightPage}
-          pageSize={dualSignalFilterActive ? DUAL_SIGNAL_FETCH_SIZE : OPERATIONS_INSIGHT_PAGE_SIZE}
-          totalPages={priorityTotalPages}
-          onPageChange={dualSignalFilterActive ? undefined : setOperationsInsightPage}
-        />
-      </div>
-      <div id="operations-queue">
-        <CampaignQueue
-          targets={targets}
-          total={campaignTargetTotal}
-          page={campaignQueuePage}
-          pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
-          totalPages={campaignQueueTotalPages}
-          onPageChange={setCampaignQueuePage}
-          canManage={canProcessTargets}
-          assignees={members.filter((member) => member.role === "operations" && member.is_active)}
-          user={user}
-          onUpdated={handleCampaignQueueUpdated}
-          campaignFilter={campaignQueueFilter}
-          campaignOptions={campaignQueueOptions}
-          onCampaignFilterChange={updateCampaignQueueFilter}
-          useDrawerEditing
-        />
-      </div>
-      <div id="operations-evidence">
-        <SectionHeader>근거 — 위 결론이 나온 이유</SectionHeader>
-        <div className="department-hero-grid">
-          <section className="department-panel">
+      <div className="department-ops-layout">
+        <div className="department-ops-main">
+          <div id="operations-verdict">
+            <OperationsVerdictHero dualSignal={dualSignal} pendingCount={pendingCount} />
+          </div>
+          <section className="department-stats">
+            <StatCard label="HIGH RISK" value={formatNumber(highRiskCount)} caption="우선 상담 대상" tone="pink" />
+            <StatCard label="처리대기" value={formatNumber(pendingCount)} caption="대기중인 캠페인 대상" tone="orange" />
+            <StatCard label="완료" value={formatNumber(completedCount)} caption="처리 완료된 캠페인 대상" tone="green" />
+          </section>
+          <DualSignalHero
+            dualSignal={dualSignal}
+            active={dualSignalFilterActive}
+            onClick={() => {
+              setDualSignalFilterActive((current) => !current);
+              document.getElementById("operations-priority")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+          <div id="operations-priority">
+            <InsightPriorityTable
+              kicker="PRIORITY INSIGHTS"
+              heading="우선 관리 고객"
+              toolbar={dualSignalFilterActive ? (
+                <div className="department-filter-chip is-active">
+                  조기경보 겹침 고객만 보는 중
+                  <button type="button" onClick={() => setDualSignalFilterActive(false)}>✕ 해제</button>
+                </div>
+              ) : undefined}
+              insights={priorityInsights}
+              targets={targets}
+              campaignName="리텐션 등록"
+              onCreate={canCreateCampaignTargets ? (item, name) => void createCampaign(item, name) : undefined}
+              allowCustomName
+              compact
+              isCreating={isCreating}
+              total={priorityTotal}
+              page={dualSignalFilterActive ? 1 : operationsInsightPage}
+              pageSize={dualSignalFilterActive ? DUAL_SIGNAL_PAGE_SIZE * DUAL_SIGNAL_FETCH_PAGES : OPERATIONS_INSIGHT_PAGE_SIZE}
+              totalPages={priorityTotalPages}
+              onPageChange={dualSignalFilterActive ? undefined : setOperationsInsightPage}
+            />
+          </div>
+          <div id="operations-queue">
+            <CampaignQueue
+              targets={targets}
+              total={campaignTargetTotal}
+              page={campaignQueuePage}
+              pageSize={CAMPAIGN_QUEUE_PAGE_SIZE}
+              totalPages={campaignQueueTotalPages}
+              onPageChange={setCampaignQueuePage}
+              canManage={canProcessTargets}
+              assignees={members.filter((member) => member.role === "operations" && member.is_active)}
+              user={user}
+              onUpdated={handleCampaignQueueUpdated}
+              campaignFilter={campaignQueueFilter}
+              campaignOptions={campaignQueueOptions}
+              onCampaignFilterChange={updateCampaignQueueFilter}
+              useDrawerEditing
+            />
+          </div>
+        </div>
+        <aside className="department-ops-sidebar">
+          <section className="department-panel department-panel--sidebar">
             <div className="department-panel__heading-with-guide">
-              <p className="card-kicker">접촉률 / 전환율 / 완료율</p>
+              <p className="card-kicker">근거 — 접촉률 / 전환율 / 완료율</p>
               <InfoBtn guideKey="접촉률 / 전환율" />
             </div>
-            <div className="department-accordion-metrics">
+            <div className="department-sidebar-metrics">
               <div>
                 <p>접촉률 (개입군)</p>
                 <strong>{operationsContactRate === null ? "—" : formatPercent(operationsContactRate)}</strong>
@@ -2073,41 +2092,20 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
             </div>
             <p className="department-panel__caption">† 전환율·완료율은 담당자가 화면에서 직접 입력한 값입니다.</p>
           </section>
-          <DualSignalHero
-            dualSignal={dualSignal}
-            active={dualSignalFilterActive}
-            onClick={() => {
-              setDualSignalFilterActive((current) => !current);
-              document.getElementById("operations-priority")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          />
-        </div>
-      </div>
-      <div id="operations-detail">
-        <SectionHeader>상세 — 지표</SectionHeader>
-        <section className="department-panel department-panel--wide">
-          <div className="department-accordion">
-            <DetailAccordionRow
-              title="이탈 사유코드 분포 (고위험 기준)"
-              source="customer_insights.reason_codes"
-              isOpen={operationsDetail === "이탈 사유코드 분포"}
-              onToggle={() => setOperationsDetail((current) => (current === "이탈 사유코드 분포" ? null : "이탈 사유코드 분포"))}
-            >
-              <div className="department-accordion-row__panel-inner">
-                <ReasonCodePanel data={reasonCodes} />
-              </div>
-            </DetailAccordionRow>
-            <DetailAccordionRow
-              title="담당자별 처리 현황"
-              source="by_assignee breakdown"
-              guideKey="담당자별 처리 현황"
-              isOpen={operationsDetail === "담당자별 처리 현황"}
-              onToggle={() => setOperationsDetail((current) => (current === "담당자별 처리 현황" ? null : "담당자별 처리 현황"))}
-            >
-              {performance === null || performance.by_assignee.length === 0 ? (
-                <p className="department-empty">담당자별 데이터가 없습니다.</p>
-              ) : (
-                <table className="campaign-performance-table">
+          <section className="department-panel department-panel--sidebar">
+            <p className="card-kicker">이탈 사유코드 분포 (고위험 기준)</p>
+            <ReasonCodePanel data={reasonCodes} />
+          </section>
+          <section className="department-panel department-panel--sidebar">
+            <div className="department-panel__heading-with-guide">
+              <p className="card-kicker">담당자별 처리 현황</p>
+              <InfoBtn guideKey="담당자별 처리 현황" />
+            </div>
+            {performance === null || performance.by_assignee.length === 0 ? (
+              <p className="department-empty">담당자별 데이터가 없습니다.</p>
+            ) : (
+              <div className="campaign-performance-table-wrap">
+                <table className="campaign-performance-table campaign-performance-table--sidebar">
                   <thead>
                     <tr>
                       <th scope="col">담당자</th>
@@ -2127,36 +2125,34 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
                     ))}
                   </tbody>
                 </table>
-              )}
-            </DetailAccordionRow>
-            <DetailAccordionRow
-              title="미처리 대기열"
-              source="CampaignStats.unprocessed_targets"
-              guideKey="미처리 대기열"
-              isOpen={operationsDetail === "미처리 대기열"}
-              onToggle={() => setOperationsDetail((current) => (current === "미처리 대기열" ? null : "미처리 대기열"))}
-            >
-              <div className="department-accordion-metrics">
-                <div>
-                  <p>전체 백로그</p>
-                  <strong>{formatNumber(pendingCount)}건</strong>
-                </div>
-                <div>
-                  <p>대기</p>
-                  <strong>{formatNumber(campaignStatusCounts.pending)}건</strong>
-                </div>
-                <div>
-                  <p>담당 배정</p>
-                  <strong>{formatNumber(campaignStatusCounts.assigned)}건</strong>
-                </div>
-                <div>
-                  <p>처리 완료</p>
-                  <strong>{formatNumber(campaignStatusCounts.completed)}건</strong>
-                </div>
               </div>
-            </DetailAccordionRow>
-          </div>
-        </section>
+            )}
+          </section>
+          <section className="department-panel department-panel--sidebar">
+            <div className="department-panel__heading-with-guide">
+              <p className="card-kicker">미처리 대기열</p>
+              <InfoBtn guideKey="미처리 대기열" />
+            </div>
+            <div className="department-sidebar-metrics">
+              <div>
+                <p>전체 백로그</p>
+                <strong>{formatNumber(pendingCount)}건</strong>
+              </div>
+              <div>
+                <p>대기</p>
+                <strong>{formatNumber(campaignStatusCounts.pending)}건</strong>
+              </div>
+              <div>
+                <p>담당 배정</p>
+                <strong>{formatNumber(campaignStatusCounts.assigned)}건</strong>
+              </div>
+              <div>
+                <p>처리 완료</p>
+                <strong>{formatNumber(campaignStatusCounts.completed)}건</strong>
+              </div>
+            </div>
+          </section>
+        </aside>
       </div>
     </>
   ) : user.role === "marketing" ? (
