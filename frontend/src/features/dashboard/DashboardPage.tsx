@@ -1661,13 +1661,11 @@ function MetricHelpButton({
 }
 
 function InsightsTab({
-  batch,
   performance,
   isLoading,
   error,
   filters,
 }: {
-  batch: LatestBatch | null;
   performance: CampaignPerformance | null;
   isLoading: boolean;
   error: string;
@@ -2125,7 +2123,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
       {activeView === "insights" && (
         <InsightsTab
-          batch={batch}
           performance={campaignPerformance}
           isLoading={campaignPerformanceLoading}
           error={campaignPerformanceError}

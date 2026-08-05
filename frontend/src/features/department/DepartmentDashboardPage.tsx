@@ -1194,6 +1194,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
       </div>
       <BatchCard batch={batch} />
       <InsightPriorityTable
+        kicker="PRIORITY INSIGHTS"
         heading="우선 관리 고객"
         insights={insights?.items ?? []}
         targets={targets}
@@ -1267,6 +1268,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         </div>
       </section>
       <InsightPriorityTable
+        kicker="CAMPAIGN CANDIDATES"
         heading="캠페인 후보 고객"
         toolbar={(
           <MarketingCandidateFilters
