@@ -13,6 +13,10 @@ lightgbm>=4.7,<5
 optuna>=4,<5
 joblib==1.5.3
 
+# 얼굴 인증 추론 스택 — SCRFD 검출 + ArcFace 임베딩(ONNX CPU).
+onnxruntime>=1.20,<2
+opencv-python-headless>=4.10,<5
+
 # MySQL persistence and authentication groundwork.
 SQLAlchemy>=2,<3
 PyMySQL>=1.1,<2
