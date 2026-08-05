@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import {
   getCampaignPerformance,
+  SEGMENT_LABELS,
+  type BulkTargetingSegment,
   type CampaignPerformance,
 } from "../../api/campaigns";
 
@@ -191,7 +193,12 @@ export function CampaignPerformancePanel({ campaignId, refreshKey }: CampaignPer
         </div>
         <BreakdownTable
           title={COMPARISON_TABS.find((tab) => tab.key === activeComparisonTab)?.label ?? ""}
-          items={globalPerformance[activeComparisonTab]}
+          items={activeComparisonTab === "by_segment"
+            ? globalPerformance.by_segment.map((item) => ({
+                ...item,
+                label: SEGMENT_LABELS[item.label as BulkTargetingSegment] ?? item.label,
+              }))
+            : globalPerformance[activeComparisonTab]}
         />
       </div>
     </section>

@@ -84,7 +84,7 @@ function shellContentForTab(user: AuthUser, tab: TabKey): { eyebrow: string; tit
       return {
         eyebrow: "CARDOPS CONSOLE / CAMPAIGNS",
         title: "마케팅 캠페인 센터",
-        subtitle: "후보 고객 선정부터 캠페인 생성·타기팅·성과 확인까지 한 곳에서 관리합니다.",
+        subtitle: "후보 고객 선정부터 캠페인 생성·타겟팅·성과 확인까지 한 곳에서 관리합니다.",
       };
     }
     return {
