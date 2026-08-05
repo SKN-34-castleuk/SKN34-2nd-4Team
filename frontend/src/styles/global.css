@@ -2088,12 +2088,12 @@ button {
 
 .campaign-management-header,
 .campaign-management-grid {
-  width: min(1440px, 100%);
+  width: min(1280px, 100%);
   margin: 0 auto;
 }
 
 .bulk-targeting-panel {
-  width: min(1440px, 100%);
+  width: min(1280px, 100%);
   margin: 24px auto 0;
   padding: 24px;
   border: 1px solid rgba(228, 231, 241, 0.92);
@@ -2347,7 +2347,7 @@ button {
 
 .campaign-management-error,
 .campaign-management-message {
-  width: min(1440px, 100%);
+  width: min(1280px, 100%);
   margin: 16px auto 0;
   padding: 11px 14px;
   border-radius: 10px;
@@ -2853,8 +2853,7 @@ button {
 }
 
 .campaign-performance-card span,
-.campaign-performance-card small,
-.campaign-performance-substats {
+.campaign-performance-card small {
   color: var(--muted);
   font-size: 9px;
 }
@@ -2870,10 +2869,13 @@ button {
   flex-wrap: wrap;
   gap: 8px 18px;
   margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .campaign-performance-substats strong {
   color: var(--navy);
+  font-size: 12px;
 }
 
 .campaign-performance-comparisons {
