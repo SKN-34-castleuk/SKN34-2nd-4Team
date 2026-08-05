@@ -25,12 +25,14 @@ import {
 import {
   getCustomerInsight,
   getCustomerInsightHistory,
+  getReasonCodeDistribution,
   listCustomerInsights,
   type CustomerInsight,
   type CustomerInsightDetail,
   type CustomerInsightHistory,
   type CustomerInsightList,
   type InsightQuery,
+  type ReasonCodeDistribution,
 } from "../../api/insights";
 import { getLatestBatch, type LatestBatch } from "../../api/modelRuns";
 import {
@@ -1247,6 +1249,9 @@ const REASON_CODE_LABELS: Record<string, string> = {
   low_relationship_count: "낮은 보유 상품 수",
   below_expected_activity: "예상 대비 활동 부족",
   priority_activity_gap: "우선 활동 갭",
+  dormant_low_utilization: "낮은 카드 이용률(동면 추정)",
+  zero_revolving_balance: "리볼빙 잔액 없음",
+  stable_activity: "안정적 활동(특이사항 없음)",
 };
 
 function getReasonCodeLabel(code: string): string {
@@ -1514,6 +1519,67 @@ function ReasonCodeCooccurrencePanel({ filters }: { filters: AnalyticsFilters })
   );
 }
 
+function ReasonCodeDistributionPanel({ filters }: { filters: AnalyticsFilters }) {
+  const [data, setData] = useState<ReasonCodeDistribution | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+    getReasonCodeDistribution(filters.riskLevel ? { risk_level: filters.riskLevel } : {})
+      .then((response) => {
+        if (isActive) {
+          setData(response);
+          setError("");
+        }
+      })
+      .catch((requestError) => {
+        if (isActive) {
+          setError(
+            requestError instanceof Error ? requestError.message : "사유코드 분포를 불러오지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [filters]);
+
+  return (
+    <article className="mini-panel">
+      <h3 className="mini-panel__title">이탈 사유코드 분포</h3>
+      {error !== "" ? (
+        <p className="empty-copy">{error}</p>
+      ) : data === null ? (
+        <p className="queue-state">불러오는 중입니다.</p>
+      ) : Object.keys(data.counts).length === 0 ? (
+        <p className="empty-copy">표시할 사유코드가 없습니다.</p>
+      ) : (
+        <>
+          <div className="reason-code-bars">
+            {Object.entries(data.counts)
+              .sort(([, countA], [, countB]) => countB - countA)
+              .map(([code, count]) => {
+                const maxCount = Math.max(...Object.values(data.counts), 1);
+                return (
+                  <div className="reason-code-bars__row" key={code}>
+                    <div className="reason-code-bars__head">
+                      <span>{getReasonCodeLabel(code)}</span>
+                      <strong>{formatNumber(count)}명 · {formatPercent(count / data.total_customers)}</strong>
+                    </div>
+                    <div className="reason-code-bars__track">
+                      <span style={{ width: `${(count / maxCount) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          <p className="mini-panel__caption">전체 {formatNumber(data.total_customers)}명 기준 · 한 고객이 여러 사유코드에 동시에 해당할 수 있습니다.</p>
+        </>
+      )}
+    </article>
+  );
+}
+
 type MetricHelpItem = {
   label: string;
   description: string;
@@ -1731,6 +1797,15 @@ function InsightsTab({
       </div>
 
       <div className="insights-section">
+        <h2 className="insights-section__title">통계 분석</h2>
+        <div className="eda-charts-grid">
+          <CategoricalChurnRateChart filters={filters} />
+          <NumericDistributionChart filters={filters} />
+          <FeatureCorrelationChart filters={filters} />
+        </div>
+      </div>
+
+      <div className="insights-section">
         <div className="insights-section__header">
           <span className="insights-status-badge">이미 완성</span>
           <h2 className="insights-section__title">캠페인 실험효과성 분석</h2>
@@ -1800,6 +1875,7 @@ function InsightsTab({
         <div className="mini-panel-grid">
           <ClusterProfilePanel filters={filters} />
           <RiskClusterHeatmap filters={filters} />
+          <ReasonCodeDistributionPanel filters={filters} />
           <ReasonCodeCooccurrencePanel filters={filters} />
         </div>
       </div>
@@ -2167,9 +2243,6 @@ export function DashboardPage({ user, showCampaignFeedback = false }: DashboardP
 
           <div className="eda-charts-grid">
             <BatchOverview batch={batch} wide />
-            <CategoricalChurnRateChart filters={analyticsFilters} />
-            <NumericDistributionChart filters={analyticsFilters} />
-            <FeatureCorrelationChart filters={analyticsFilters} />
           </div>
 
           <article className="bento-card bento-card--table">
