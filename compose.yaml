@@ -32,6 +32,8 @@ services:
       - sh
       - -c
       - |
+        python -m backend.scripts.download_face_models
+
         if [ "$${FORCE_MODEL_REBUILD}" = "true" ] || \
            [ ! -f /app/outputs/models/classification_manifest.json ] || \
            ! grep -q '"artifact": "classification_lightgbm_final.joblib"' /app/outputs/models/classification_manifest.json || \
