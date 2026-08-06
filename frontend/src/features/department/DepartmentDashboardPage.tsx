@@ -263,12 +263,14 @@ function formatDecimal(value: number): string {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(value);
 }
 
+const USD_TO_KRW_RATE = 1400;
+
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
     currency: "KRW",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(value * USD_TO_KRW_RATE);
 }
 
 function formatSignedPercent(value: number | null): string {
@@ -733,7 +735,7 @@ function CoverageGauge({ rate, valueColor }: { rate: number | null; valueColor?:
 const RISK_LEVEL_ORDER = ["high", "medium", "low"] as const;
 
 function formatCompactCurrency(value: number): string {
-  return `₩${(value / 1_000_000).toFixed(2)}M`;
+  return `₩${((value * USD_TO_KRW_RATE) / 1_000_000).toFixed(2)}M`;
 }
 
 function RiskLevelBarChart({ items }: { items: CampaignPerformance["by_risk_level"] }) {
@@ -1978,6 +1980,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const [coverage, setCoverage] = useState<HighRiskCoverage | null>(null);
   const [dualSignal, setDualSignal] = useState<DualSignalSummary | null>(null);
   const [dualSignalFilterActive, setDualSignalFilterActive] = useState(false);
+  const [dualSignalPage, setDualSignalPage] = useState(1);
   const [reasonCodes, setReasonCodes] = useState<ReasonCodeDistribution | null>(null);
   const [highRiskTotal, setHighRiskTotal] = useState<number | null>(null);
   const [activeCampaignCount, setActiveCampaignCount] = useState<number | null>(null);
@@ -2247,9 +2250,14 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
   const dualSignalInsights = dualSignal === null || dualSignal.activity_gap_threshold === null
     ? []
     : (insights?.items ?? []).filter((item) => item.activity_gap <= dualSignal.activity_gap_threshold!);
-  const priorityInsights = dualSignalFilterActive ? dualSignalInsights : insights?.items ?? [];
+  const dualSignalTotalPages = Math.max(1, Math.ceil(dualSignalInsights.length / OPERATIONS_INSIGHT_PAGE_SIZE));
+  const pagedDualSignalInsights = dualSignalInsights.slice(
+    (dualSignalPage - 1) * OPERATIONS_INSIGHT_PAGE_SIZE,
+    dualSignalPage * OPERATIONS_INSIGHT_PAGE_SIZE,
+  );
+  const priorityInsights = dualSignalFilterActive ? pagedDualSignalInsights : insights?.items ?? [];
   const priorityTotal = dualSignalFilterActive ? dualSignal?.count ?? 0 : insights?.total ?? 0;
-  const priorityTotalPages = dualSignalFilterActive ? 1 : insights?.total_pages ?? 0;
+  const priorityTotalPages = dualSignalFilterActive ? dualSignalTotalPages : insights?.total_pages ?? 0;
   const campaignStatusCounts = useMemo(() => Object.fromEntries(
     Object.keys(campaignStatusLabels).map((status) => [
       status,
@@ -2289,6 +2297,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
         active={dualSignalFilterActive}
         onClick={() => {
           setDualSignalFilterActive((current) => !current);
+          setDualSignalPage(1);
           document.getElementById("operations-priority")?.scrollIntoView({ behavior: "smooth" });
         }}
       />
@@ -2299,7 +2308,7 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
           toolbar={dualSignalFilterActive ? (
             <div className="department-filter-chip is-active">
               이중 신호 고위험 고객만 보는 중
-              <button type="button" onClick={() => setDualSignalFilterActive(false)}>✕ 해제</button>
+              <button type="button" onClick={() => { setDualSignalFilterActive(false); setDualSignalPage(1); }}>✕ 해제</button>
             </div>
           ) : (
             <div className="department-risk-tabs">
@@ -2326,15 +2335,20 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
           compact
           isCreating={isCreating}
           total={priorityTotal}
-          page={dualSignalFilterActive ? 1 : operationsInsightPage}
-          pageSize={dualSignalFilterActive ? DUAL_SIGNAL_PAGE_SIZE * DUAL_SIGNAL_FETCH_PAGES : OPERATIONS_INSIGHT_PAGE_SIZE}
+          page={dualSignalFilterActive ? dualSignalPage : operationsInsightPage}
+          pageSize={OPERATIONS_INSIGHT_PAGE_SIZE}
           totalPages={priorityTotalPages}
-          onPageChange={dualSignalFilterActive ? undefined : setOperationsInsightPage}
-          onSelectInsight={(insight) => setSelectedInsightId(insight.id)}
+          onPageChange={dualSignalFilterActive ? setDualSignalPage : setOperationsInsightPage}
+          onSelectInsight={(insight) => {
+            setSelectedInsightId(insight.id);
+            document.getElementById("operations-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
           selectedInsightId={selectedInsightId ?? priorityInsights[0]?.id ?? null}
         />
       </div>
-      <OperationsInsightDetail insight={selectedInsight} />
+      <div id="operations-detail">
+        <OperationsInsightDetail insight={selectedInsight} />
+      </div>
       <div id="operations-queue">
         <CampaignQueue
           targets={targets}
@@ -2490,10 +2504,15 @@ export function DepartmentDashboardPage({ user }: DepartmentDashboardPageProps) 
             pageSize={MARKETING_INSIGHT_PAGE_SIZE}
             totalPages={insights?.total_pages ?? 0}
             onPageChange={setInsightPage}
-            onSelectInsight={(insight) => setSelectedInsightId(insight.id)}
+            onSelectInsight={(insight) => {
+              setSelectedInsightId(insight.id);
+              document.getElementById("marketing-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
             selectedInsightId={selectedInsightId ?? insights?.items[0]?.id ?? null}
           />
-          <OperationsInsightDetail insight={selectedMarketingInsight} />
+          <div id="marketing-detail">
+            <OperationsInsightDetail insight={selectedMarketingInsight} />
+          </div>
           <div id="operations-queue">
           <CampaignQueue
             targets={targets}

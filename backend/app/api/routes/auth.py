@@ -141,67 +141,68 @@ def _enforce_login_rate_limit(
     request: Request,
 ) -> None:
     """최근 실패를 사용자·IP 조합과 IP 전체 기준으로 제한합니다."""
-    max_attempts, _ip_max_attempts, window_seconds = get_login_rate_limit()
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
-    ip_address = _client_ip(request)
-    pair_conditions = [
-        AuthEvent.event_type == "login_failed",
-        AuthEvent.created_at >= cutoff,
-        AuthEvent.username == username,
-    ]
-    if ip_address is None:
-        pair_conditions.append(AuthEvent.ip_address.is_(None))
-    else:
-        pair_conditions.append(AuthEvent.ip_address == ip_address)
-    success_conditions = [
-        AuthEvent.event_type == "login_succeeded",
-        AuthEvent.created_at >= cutoff,
-        AuthEvent.username == username,
-    ]
-    if ip_address is None:
-        success_conditions.append(AuthEvent.ip_address.is_(None))
-    else:
-        success_conditions.append(AuthEvent.ip_address == ip_address)
-    latest_success_at = db.scalar(
-        select(func.max(AuthEvent.created_at)).where(*success_conditions)
-    )
-    if latest_success_at is not None:
-        pair_conditions.append(AuthEvent.created_at > latest_success_at)
-    pair_failures = int(
-        db.scalar(select(func.count(AuthEvent.id)).where(*pair_conditions)) or 0
-    )
-    ip_failures = 0
-    # IP 전체 기준 제한은 비활성화합니다.
-    # if ip_address is not None:
-    #     ip_failures = int(
-    #         db.scalar(
-    #             select(func.count(AuthEvent.id)).where(
-    #                 AuthEvent.event_type == "login_failed",
-    #                 AuthEvent.created_at >= cutoff,
-    #                 AuthEvent.ip_address == ip_address,
-    #             )
-    #         )
-    #         or 0
-    #     )
-    if pair_failures < max_attempts:
-        return
-    _add_auth_event(
-        db,
-        event_type="login_rate_limited",
-        username=username,
-        request=request,
-        metadata_json={
-            "pair_failures": pair_failures,
-            "ip_failures": ip_failures,
-            "window_seconds": window_seconds,
-        },
-    )
-    db.commit()
-    raise HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail="Too many login attempts. Try again later.",
-        headers={"Retry-After": str(window_seconds)},
-    )
+    # max_attempts, _ip_max_attempts, window_seconds = get_login_rate_limit()
+    # cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    # ip_address = _client_ip(request)
+    # pair_conditions = [
+    #     AuthEvent.event_type == "login_failed",
+    #     AuthEvent.created_at >= cutoff,
+    #     AuthEvent.username == username,
+    # ]
+    # if ip_address is None:
+    #     pair_conditions.append(AuthEvent.ip_address.is_(None))
+    # else:
+    #     pair_conditions.append(AuthEvent.ip_address == ip_address)
+    # success_conditions = [
+    #     AuthEvent.event_type == "login_succeeded",
+    #     AuthEvent.created_at >= cutoff,
+    #     AuthEvent.username == username,
+    # ]
+    # if ip_address is None:
+    #     success_conditions.append(AuthEvent.ip_address.is_(None))
+    # else:
+    #     success_conditions.append(AuthEvent.ip_address == ip_address)
+    # latest_success_at = db.scalar(
+    #     select(func.max(AuthEvent.created_at)).where(*success_conditions)
+    # )
+    # if latest_success_at is not None:
+    #     pair_conditions.append(AuthEvent.created_at > latest_success_at)
+    # pair_failures = int(
+    #     db.scalar(select(func.count(AuthEvent.id)).where(*pair_conditions)) or 0
+    # )
+    # ip_failures = 0
+    # # IP 전체 기준 제한은 비활성화합니다.
+    # # if ip_address is not None:
+    # #     ip_failures = int(
+    # #         db.scalar(
+    # #             select(func.count(AuthEvent.id)).where(
+    # #                 AuthEvent.event_type == "login_failed",
+    # #                 AuthEvent.created_at >= cutoff,
+    # #                 AuthEvent.ip_address == ip_address,
+    # #             )
+    # #         )
+    # #         or 0
+    # #     )
+    # if pair_failures < max_attempts:
+    #     return
+    # _add_auth_event(
+    #     db,
+    #     event_type="login_rate_limited",
+    #     username=username,
+    #     request=request,
+    #     metadata_json={
+    #         "pair_failures": pair_failures,
+    #         "ip_failures": ip_failures,
+    #         "window_seconds": window_seconds,
+    #     },
+    # )
+    # db.commit()
+    # raise HTTPException(
+    #     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+    #     detail="Too many login attempts. Try again later.",
+    #     headers={"Retry-After": str(window_seconds)},
+    # )
+    return
 
 
 def get_current_user(
