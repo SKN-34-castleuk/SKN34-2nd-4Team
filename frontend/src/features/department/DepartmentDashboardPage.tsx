@@ -270,7 +270,12 @@ function formatCurrency(value: number): string {
     style: "currency",
     currency: "KRW",
     maximumFractionDigits: 0,
-  }).format(value * USD_TO_KRW_RATE);
+  }).format(value);
+}
+
+// Total_Trans_Amt는 원본 Kaggle 데이터셋 기준 달러(USD) 값이라 원화 환산이 필요합니다.
+function formatUsdAsKrw(value: number): string {
+  return formatCurrency(value * USD_TO_KRW_RATE);
 }
 
 function formatSignedPercent(value: number | null): string {
@@ -998,7 +1003,7 @@ function OperationsInsightDetail({ insight }: { insight: CustomerInsight | null 
           </div>
           <div>
             <p>총 거래액</p>
-            <strong>{formatCurrency(insight.total_trans_amt)}</strong>
+            <strong>{formatUsdAsKrw(insight.total_trans_amt)}</strong>
           </div>
         </div>
       </div>

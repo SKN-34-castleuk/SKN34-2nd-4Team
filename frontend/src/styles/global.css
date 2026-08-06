@@ -1948,12 +1948,12 @@ button {
 
 .customer-facts dd {
   margin: 5px 0 0;
-  overflow: hidden;
   color: var(--navy);
   font-size: 12px;
   font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .drawer-reasons {
@@ -3706,12 +3706,24 @@ button {
 }
 
 .department-layout--admin .department-verdict__label {
-  color: #64748b;
+  color: #2563eb;
 }
 
 .department-layout--admin .department-verdict__severity {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.department-layout--admin .department-verdict--warn .department-verdict__severity {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #b45309;
+}
+
+.department-layout--admin .department-verdict--good .department-verdict__severity {
   background: #eff6ff;
-  border-color: #2563eb;
+  border-color: #93c5fd;
   color: #2563eb;
 }
 
