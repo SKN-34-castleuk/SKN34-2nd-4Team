@@ -1154,7 +1154,7 @@ function CustomerDetailPanel({
           <dl className="customer-facts">
             <div><dt>고객 연령</dt><dd>{detail.customer.customer_age}세</dd></div>
             <div><dt>카드 등급</dt><dd>{detail.customer.card_category}</dd></div>
-            <div><dt>소득 구간</dt><dd>{detail.customer.income_category}</dd></div>
+            <div><dt>소득 구간</dt><dd>{getCategoricalGroupLabel("Income_Category", detail.customer.income_category)}</dd></div>
             <div><dt>최근 거래 건수</dt><dd>{formatNumber(detail.customer.total_trans_ct)}건</dd></div>
             <div><dt>거래 금액</dt><dd>{formatWon(detail.customer.total_trans_amt)}</dd></div>
             <div><dt>비활성 개월</dt><dd>{detail.customer.months_inactive_12_mon}개월</dd></div>
