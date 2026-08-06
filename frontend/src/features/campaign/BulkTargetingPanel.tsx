@@ -5,20 +5,11 @@ import {
   executeBulkTargeting,
   previewBulkTargeting,
   rerunBulkTargeting,
+  SEGMENT_LABELS as segmentLabels,
   type BulkTargetingRun,
   type BulkTargetingSegment,
 } from "../../api/campaigns";
 import type { TeamMember } from "../../api/team";
-
-const segmentLabels: Record<BulkTargetingSegment, string> = {
-  small_balance_decline: "소액 잔액·거래 급감 (긴급)",
-  dormant_full_payer: "완납형 저활동 (이탈 임박)",
-  high_risk_retention: "고위험 고객 리텐션",
-  medium_reactivation: "중위험·활동성 하락 재활성화",
-  active_full_payer: "완납형 우량 (거래 활성화)",
-  low_risk_upsell: "저위험·우량군 업셀링",
-  stable_prime: "안정 우량 (업셀링)",
-};
 
 // 담당자가 근거 없이 캠페인을 집행하지 않도록, 선정 조건과 원본 데이터에서
 // 검증된 실제 이탈률을 함께 보여줍니다(백엔드 기본 설명과 같은 내용).
@@ -99,7 +90,7 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
       const response = await previewBulkTargeting({
         segment,
         campaign_name: campaignName.trim() || null,
-        description: `${segmentLabels[segment]} 세그먼트 자동 타기팅`,
+        description: `${segmentLabels[segment]} 세그먼트 자동 타겟팅`,
         channel: channel.trim() || null,
         assigned_to_user_id: assignedToUserId === "" ? null : Number(assignedToUserId),
         recent_contact_days: recentContactDays,
@@ -117,7 +108,7 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
       setRun(response);
       setMessage("미리보기를 생성했습니다. 대상과 제외 집계를 확인한 뒤 실행하세요.");
     } catch (requestError: unknown) {
-      setError(errorMessage(requestError, "일괄 타기팅 미리보기에 실패했습니다."));
+      setError(errorMessage(requestError, "일괄 타겟팅 미리보기에 실패했습니다."));
     } finally {
       setIsSubmitting(false);
     }
@@ -136,7 +127,7 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
       setMessage(`${formatNumber(response.created_count)}명을 draft 캠페인 대상으로 등록했습니다.`);
       onExecuted();
     } catch (requestError: unknown) {
-      setError(errorMessage(requestError, "일괄 타기팅 실행에 실패했습니다."));
+      setError(errorMessage(requestError, "일괄 타겟팅 실행에 실패했습니다."));
     } finally {
       setIsSubmitting(false);
     }
@@ -155,11 +146,11 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
       setMessage(
         response.cancelled_target_count > 0
           ? `${formatNumber(response.cancelled_target_count)}명의 미처리 대상을 취소했습니다.`
-          : "일괄 타기팅 미리보기를 취소했습니다.",
+          : "일괄 타겟팅 미리보기를 취소했습니다.",
       );
       onExecuted();
     } catch (requestError: unknown) {
-      setError(errorMessage(requestError, "일괄 타기팅 취소에 실패했습니다."));
+      setError(errorMessage(requestError, "일괄 타겟팅 취소에 실패했습니다."));
     } finally {
       setIsSubmitting(false);
     }
@@ -180,25 +171,25 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
       setRun(response);
       setMessage("취소된 정책으로 새 미리보기를 생성했습니다.");
     } catch (requestError: unknown) {
-      setError(errorMessage(requestError, "일괄 타기팅 재실행에 실패했습니다."));
+      setError(errorMessage(requestError, "일괄 타겟팅 재실행에 실패했습니다."));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <section className="bulk-targeting-panel" aria-label="세그먼트 일괄 타기팅">
+    <section className="bulk-targeting-panel" aria-label="세그먼트 일괄 타겟팅">
       <div className="campaign-panel-heading">
         <div>
           <p className="card-kicker">SEGMENT TARGETING</p>
-          <h2>세그먼트 일괄 타기팅</h2>
+          <h2>세그먼트 일괄 타겟팅</h2>
         </div>
         <span className="bulk-targeting-badge">ADMIN · MARKETING</span>
       </div>
       <div className="bulk-targeting-layout">
         <div className="bulk-targeting-form">
           <label>
-            <span>타기팅 세그먼트</span>
+            <span>타겟팅 세그먼트</span>
             <select
               value={segment}
               onChange={(event) => handleSegmentChange(event.target.value as BulkTargetingSegment)}
@@ -277,7 +268,7 @@ export function BulkTargetingPanel({ assignees, onExecuted }: BulkTargetingPanel
             )}
             {run !== null && run.status !== "cancelled" && (
               <button className="campaign-link-button" type="button" disabled={isSubmitting} onClick={() => void handleCancel()}>
-                일괄 타기팅 취소
+                일괄 타겟팅 취소
               </button>
             )}
             {run?.status === "cancelled" && (
