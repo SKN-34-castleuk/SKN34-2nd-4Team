@@ -193,9 +193,12 @@ CardOps/
 - [분류 수행결과 PPT 자료](./docs/ppt/분류.pptx)
 - [회귀·군집 수행결과 PPT 자료](<./docs/ppt/회귀, 군집.pptx>)
 - [비즈니스 로직 발표 PPT 자료](<./docs/ppt/비즈니스 로직.pptx>)
+- [시스템 아키텍처 발표 PPT 자료](<./docs/ppt/시스템 아키텍처.pptx>)
+
 - [분류 수행결과 PDF 자료](./docs/pdf/분류.pdf)
 - [회귀·군집 수행결과 PDF 자료](<./docs/pdf/회귀, 군집 발표.pdf>)
 - [비즈니스 로직 발표 PDF 자료](<./docs/pdf/비즈니스 로직.pdf>)
+- [시스템 아키텍처 발표 PDF 자료](<./docs/pdf/시스템 아키텍처.pdf>)
 
 <br />
 
