@@ -81,6 +81,29 @@ CardOps는 신용카드 고객 데이터를 바탕으로 고객의 이탈 가능
 7. React, FastAPI, TiDB Cloud를 연동해 고객 분석 결과를 조회하고 활용할 수 있는 서비스를 구현합니다.
 8. GitHub와 Render를 이용해 프론트엔드와 백엔드를 배포하고, Docker Compose로 재현 가능한 로컬 개발 환경을 구성합니다.
 
+## 📌 데이터 소개
+
+### 1) 데이터 출처
+
+- 파일: `data/raw/BankChurners.csv`
+- 출처: [Kaggle Credit Card Customers Dataset](https://www.kaggle.com/datasets/sakshigoyal7/credit-card-customers)
+- 크기: 10,127명 × 23개 컬럼
+- 중복 행: 0개
+- 결측값: 0개
+
+### 2) 전처리 데이터
+
+전처리 결과는 `data/processed/bankchurners_clean.csv`로 저장합니다.
+
+- `CLIENTNUM`: 단순 고객 식별자이므로 제거
+- Naive Bayes 결과 컬럼 2개: 기존 모델의 결과값이므로 제거
+- `Attrition_Flag`: 고객 이탈 여부를 숫자형 `Target`으로 변환
+  - `Existing Customer` → `0`
+  - `Attrited Customer` → `1`
+- `Unknown` 범주: 별도 결측값으로 처리하지 않고 하나의 범주로 유지
+
+전처리 데이터는 10,127행 × 20개 컬럼이며, `Target`을 제외한 19개 고객 특성을 모델 입력값으로 사용합니다.
+
 <br />
 
 # 3. 기술 스택
